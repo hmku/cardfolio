@@ -15,6 +15,13 @@
       "when": 1785707254316,
       "tag": "0001_bouncy_cargill",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1785709104933,
+      "tag": "0002_chief_shinobi_shaw",
+      "breakpoints": true
     }
   ]
 }

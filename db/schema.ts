@@ -37,6 +37,7 @@ export const accounts = sqliteTable(
   (table) => [
     index("idx_accounts_owner_status").on(table.owner, table.status),
     index("idx_accounts_card_type_status").on(table.cardTypeId, table.status),
+    uniqueIndex("idx_accounts_source_row").on(table.sourceRow),
   ],
 );
 

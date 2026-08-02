@@ -15,6 +15,8 @@ test("Cardfolio replaces every temporary starter marker", async () => {
   assert.match(component, /5\/24 status/);
   assert.match(component, /Annual fee watchlist/);
   assert.match(component, /Usage by card/);
+  assert.match(component, /Card types/);
+  assert.match(component, /Annual fee/);
   assert.doesNotMatch(page, /SkeletonPreview|codex-preview/);
   assert.doesNotMatch(packageJson, /react-loading-skeleton/);
 });

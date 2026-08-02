@@ -57,8 +57,8 @@ type AppData = {
   source: { spreadsheetId: string; migratedAt: string };
 };
 
-type View = "overview" | "cards" | "credits";
-type Modal = "account" | "cardType" | null;
+type View = "overview" | "cards" | "types" | "credits";
+type Modal = "account" | "cardType" | "editCardType" | null;
 
 const money = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
 const shortDate = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric" });
@@ -104,7 +104,9 @@ export function TrackerApp() {
   const [owner, setOwner] = useState("Harrison");
   const [status, setStatus] = useState("all");
   const [search, setSearch] = useState("");
+  const [typeSearch, setTypeSearch] = useState("");
   const [modal, setModal] = useState<Modal>(null);
+  const [selectedCardType, setSelectedCardType] = useState<CardType | null>(null);
   const [saving, setSaving] = useState(false);
   const [expandedBenefit, setExpandedBenefit] = useState<number | null>(null);
   const [visibleCards, setVisibleCards] = useState(20);
@@ -125,7 +127,7 @@ export function TrackerApp() {
     return owner === "All" ? data.accounts : data.accounts.filter((account) => account.owner === owner);
   }, [data, owner]);
   const approvedAccounts = ownerAccounts.filter((account) => Boolean(account.approvedOn));
-  const activeAccounts = ownerAccounts.filter((account) => account.status === "active");
+  const activeAccounts = ownerAccounts.filter((account) => Boolean(account.approvedOn) && !account.closedOn);
   const personalWindow = approvedAccounts.filter((account) => {
     if (account.kind !== "personal" || account.openedHow?.trim().toLowerCase() === "downgraded" || !account.approvedOn) return false;
     return new Date(account.approvedOn).getTime() >= Date.now() - 730 * 86_400_000;
@@ -187,6 +189,20 @@ export function TrackerApp() {
     if (saved) setModal(null);
   }
 
+  async function submitCardTypeEdit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!selectedCardType) return;
+    const saved = await post({
+      action: "updateCardType",
+      cardTypeId: selectedCardType.id,
+      ...Object.fromEntries(new FormData(event.currentTarget)),
+    });
+    if (saved) {
+      setModal(null);
+      setSelectedCardType(null);
+    }
+  }
+
   async function closeAccount(account: Account) {
     const today = new Date().toISOString().slice(0, 10);
     await post({ action: "closeAccount", accountId: account.id, closedOn: today, closedHow: "closed in Cardfolio" });
@@ -196,6 +212,12 @@ export function TrackerApp() {
     const matchesStatus = status === "all" || account.status === status;
     const haystack = `${account.cardName} ${account.issuer} ${account.offer || ""}`.toLowerCase();
     return matchesStatus && haystack.includes(search.toLowerCase());
+  });
+  const filteredCardTypes = (data?.cardTypes ?? []).filter((card) => {
+    const benefits = (data?.benefits ?? []).filter((benefit) => benefit.cardTypeId === card.id);
+    return `${card.name} ${card.issuer} ${benefits.map((benefit) => benefit.name).join(" ")}`
+      .toLowerCase()
+      .includes(typeSearch.toLowerCase());
   });
 
   if (!data && !error) {
@@ -221,6 +243,7 @@ export function TrackerApp() {
         <nav aria-label="Main navigation">
           <button className={view === "overview" ? "active" : ""} onClick={() => setView("overview")}><span>⌂</span>Overview</button>
           <button className={view === "cards" ? "active" : ""} onClick={() => setView("cards")}><span>▣</span>Cards</button>
+          <button className={view === "types" ? "active" : ""} onClick={() => setView("types")}><span>◇</span>Card types</button>
           <button className={view === "credits" ? "active" : ""} onClick={() => setView("credits")}><span>✓</span>Credits</button>
         </nav>
         <div className="sidebar-bottom">
@@ -296,6 +319,45 @@ export function TrackerApp() {
           </section>
         )}
 
+        {view === "types" && (
+          <section className="page">
+            <div className="section-heading">
+              <div><p className="eyebrow">Reusable definitions</p><h1>Card types</h1><p>Annual fees and benefits that apply to every instance of a card.</p></div>
+              <button className="primary-button" onClick={() => setModal("cardType")}>＋ New card type</button>
+            </div>
+            <div className="type-metrics">
+              <article><span>Card types</span><strong>{data.cardTypes.length}</strong></article>
+              <article><span>Defined benefits</span><strong>{data.benefits.length}</strong></article>
+              <article><span>Issuers</span><strong>{new Set(data.cardTypes.map((card) => card.issuer)).size}</strong></article>
+              <article><span>Average annual fee</span><strong>{money.format(data.cardTypes.reduce((sum, card) => sum + Number(card.annualFee), 0) / Math.max(data.cardTypes.length, 1))}</strong></article>
+            </div>
+            <div className="types-toolbar">
+              <div className="search-field"><span>⌕</span><input value={typeSearch} onChange={(event) => setTypeSearch(event.target.value)} placeholder="Search names, issuers, or benefits" /></div>
+              <span>{filteredCardTypes.length} definitions</span>
+            </div>
+            <div className="card-type-grid">
+              {filteredCardTypes.map((card) => {
+                const cardBenefits = data.benefits.filter((benefit) => benefit.cardTypeId === card.id);
+                const openCount = data.accounts.filter((account) => account.cardTypeId === card.id && account.approvedOn && !account.closedOn).length;
+                return (
+                  <article className="card-type-card" key={card.id}>
+                    <div className="type-card-header">
+                      <span className={`type-card-art ${card.issuer.replace(/\s/g, "").toLowerCase()}`}><b>{initials(card.name)}</b><small>{initials(card.issuer)}</small></span>
+                      <span className="type-title"><small>{card.issuer}</small><strong>{card.name}</strong><em>{card.kind}</em></span>
+                      <button onClick={() => { setSelectedCardType(card); setModal("editCardType"); }}>Edit</button>
+                    </div>
+                    <div className="type-facts"><span><small>Annual fee</small><strong>{money.format(card.annualFee)}</strong></span><span><small>Open now</small><strong>{openCount}</strong></span><span><small>All accounts</small><strong>{card.accountCount}</strong></span></div>
+                    <div className="type-benefits">
+                      <div><strong>Benefits</strong><span>{cardBenefits.length}</span></div>
+                      {cardBenefits.length ? cardBenefits.map((benefit) => <div className="type-benefit-row" key={benefit.id}><span><strong>{benefit.name}</strong><small>{benefit.frequency}</small></span><b>{money.format(benefit.amount)}</b></div>) : <p>No benefits defined yet.</p>}
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          </section>
+        )}
+
         {view === "credits" && (
           <section className="page">
             <div className="section-heading"><div><p className="eyebrow">Recurring benefits</p><h1>Credits</h1><p>Mark usage against the exact card that received each benefit.</p></div><div className="credit-total"><span>Available value</span><strong>{money.format(benefitSummaries.reduce((sum, item) => sum + item.benefit.amount * item.total, 0))}</strong><small>across current periods</small></div></div>
@@ -313,8 +375,20 @@ export function TrackerApp() {
         )}
       </main>
 
-      {modal && <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setModal(null); }}><section className="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title"><button className="modal-close" onClick={() => setModal(null)} aria-label="Close">×</button>{modal === "account" ? <><p className="eyebrow">Portfolio entry</p><h2 id="modal-title">Add a card</h2><p>Record a new application or an approved card.</p><form onSubmit={submitAccount}><label><span>Card type</span><select name="cardTypeId" required defaultValue=""><option value="" disabled>Select a card</option>{data.cardTypes.map((card) => <option key={card.id} value={card.id}>{card.name} · {card.issuer}</option>)}</select></label><div className="form-grid"><label><span>Owner</span><select name="owner" defaultValue={owner === "All" ? "Harrison" : owner}>{owners.map((name) => <option key={name}>{name}</option>)}</select></label><label><span>Opened via</span><select name="openedHow" defaultValue="applied"><option>applied</option><option>referred</option><option>nll</option><option>downgraded</option><option>upgraded</option></select></label><label><span>Applied</span><input type="date" name="appliedOn" defaultValue={new Date().toISOString().slice(0, 10)} /></label><label><span>Approved</span><input type="date" name="approvedOn" /></label></div><label><span>Signup offer</span><input name="offer" placeholder="e.g. 100k / $5k / 3mo" /></label><label className="check-label"><input type="checkbox" name="bonusReceived" /><span>Signup bonus received</span></label><div className="form-actions"><button type="button" className="secondary-button" onClick={() => setModal(null)}>Cancel</button><button className="primary-button" disabled={saving}>{saving ? "Saving…" : "Add card"}</button></div></form></> : <><p className="eyebrow">Reusable definition</p><h2 id="modal-title">New card type</h2><p>Define the card once, then attach future applications and benefits to it.</p><form onSubmit={submitCardType}><label><span>Card name</span><input name="name" required placeholder="e.g. Sapphire Preferred" /></label><div className="form-grid"><label><span>Issuer</span><input name="issuer" required placeholder="e.g. Chase" /></label><label><span>Card kind</span><select name="kind" defaultValue="personal"><option value="personal">Personal</option><option value="business">Business</option><option value="other">Other</option></select></label><label><span>Annual fee</span><input name="annualFee" type="number" min="0" defaultValue="0" /></label><label><span>Benefit frequency</span><select name="benefitFrequency" defaultValue="calendar year"><option>calendar year</option><option>anniversary</option><option>biannual</option><option>quarter</option><option>monthly</option></select></label></div><div className="form-grid"><label><span>First benefit (optional)</span><input name="benefitName" placeholder="e.g. Hotel credit" /></label><label><span>Benefit amount</span><input name="benefitAmount" type="number" min="0" defaultValue="0" /></label></div><div className="form-actions"><button type="button" className="secondary-button" onClick={() => setModal(null)}>Cancel</button><button className="primary-button" disabled={saving}>{saving ? "Saving…" : "Create card type"}</button></div></form></>}</section></div>}
+      {modal && (
+        <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setModal(null); }}>
+          <section className="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+            <button className="modal-close" onClick={() => setModal(null)} aria-label="Close">×</button>
+            {modal === "account" ? (
+              <><p className="eyebrow">Portfolio entry</p><h2 id="modal-title">Add a card</h2><p>Record a new application or an approved card.</p><form onSubmit={submitAccount}><label><span>Card type</span><select name="cardTypeId" required defaultValue=""><option value="" disabled>Select a card</option>{data.cardTypes.map((card) => <option key={card.id} value={card.id}>{card.name} · {card.issuer}</option>)}</select></label><div className="form-grid"><label><span>Owner</span><select name="owner" defaultValue={owner === "All" ? "Harrison" : owner}>{owners.map((name) => <option key={name}>{name}</option>)}</select></label><label><span>Opened via</span><select name="openedHow" defaultValue="applied"><option>applied</option><option>referred</option><option>nll</option><option>downgraded</option><option>upgraded</option></select></label><label><span>Applied</span><input type="date" name="appliedOn" defaultValue={new Date().toISOString().slice(0, 10)} /></label><label><span>Approved</span><input type="date" name="approvedOn" /></label></div><label><span>Signup offer</span><input name="offer" placeholder="e.g. 100k / $5k / 3mo" /></label><label className="check-label"><input type="checkbox" name="bonusReceived" /><span>Signup bonus received</span></label><div className="form-actions"><button type="button" className="secondary-button" onClick={() => setModal(null)}>Cancel</button><button className="primary-button" disabled={saving}>{saving ? "Saving…" : "Add card"}</button></div></form></>
+            ) : modal === "cardType" ? (
+              <><p className="eyebrow">Reusable definition</p><h2 id="modal-title">New card type</h2><p>Define the card once, then attach future applications and benefits to it.</p><form onSubmit={submitCardType}><label><span>Card name</span><input name="name" required placeholder="e.g. Sapphire Preferred" /></label><div className="form-grid"><label><span>Issuer</span><input name="issuer" required placeholder="e.g. Chase" /></label><label><span>Card kind</span><select name="kind" defaultValue="personal"><option value="personal">Personal</option><option value="business">Business</option><option value="other">Other</option></select></label><label><span>Annual fee</span><input name="annualFee" type="number" min="0" defaultValue="0" /></label><label><span>Benefit frequency</span><select name="benefitFrequency" defaultValue="calendar year"><option>calendar year</option><option>anniversary</option><option>biannual</option><option>quarter</option><option>monthly</option></select></label></div><div className="form-grid"><label><span>First benefit (optional)</span><input name="benefitName" placeholder="e.g. Hotel credit" /></label><label><span>Benefit amount</span><input name="benefitAmount" type="number" min="0" defaultValue="0" /></label></div><div className="form-actions"><button type="button" className="secondary-button" onClick={() => setModal(null)}>Cancel</button><button className="primary-button" disabled={saving}>{saving ? "Saving…" : "Create card type"}</button></div></form></>
+            ) : selectedCardType ? (
+              <><p className="eyebrow">Card metadata</p><h2 id="modal-title">Edit {selectedCardType.name}</h2><p>Update the definition or add another recurring benefit.</p><form onSubmit={submitCardTypeEdit}><label><span>Card name</span><input name="name" required defaultValue={selectedCardType.name} /></label><div className="form-grid"><label><span>Issuer</span><input name="issuer" required defaultValue={selectedCardType.issuer} /></label><label><span>Card kind</span><select name="kind" defaultValue={selectedCardType.kind}><option value="personal">Personal</option><option value="business">Business</option><option value="other">Other</option></select></label><label><span>Annual fee</span><input name="annualFee" type="number" min="0" defaultValue={selectedCardType.annualFee} /></label><label><span>New benefit frequency</span><select name="benefitFrequency" defaultValue="calendar year"><option>calendar year</option><option>anniversary</option><option>biannual</option><option>quarter</option><option>monthly</option></select></label></div><div className="form-grid"><label><span>Add benefit (optional)</span><input name="benefitName" placeholder="e.g. Hotel credit" /></label><label><span>Benefit amount</span><input name="benefitAmount" type="number" min="0" defaultValue="0" /></label></div><div className="form-actions"><button type="button" className="secondary-button" onClick={() => setModal(null)}>Cancel</button><button className="primary-button" disabled={saving}>{saving ? "Saving…" : "Save definition"}</button></div></form></>
+            ) : null}
+          </section>
+        </div>
+      )}
     </div>
   );
 }
-

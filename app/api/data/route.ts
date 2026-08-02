@@ -38,6 +38,16 @@ export async function POST(request: Request) {
           "INSERT INTO benefits (card_type_id, name, amount, frequency) VALUES (?, ?, ?, ?)",
         ).bind(cardTypeId, String(body.benefitName), Number(body.benefitAmount || 0), String(body.benefitFrequency || "calendar year")).run();
       }
+    } else if (action === "updateCardType") {
+      const cardTypeId = Number(body.cardTypeId);
+      await db.prepare(
+        "UPDATE card_types SET name = ?, issuer = ?, kind = ?, annual_fee = ? WHERE id = ?",
+      ).bind(String(body.name), String(body.issuer || "Other"), String(body.kind || "personal"), Number(body.annualFee || 0), cardTypeId).run();
+      if (body.benefitName) {
+        await db.prepare(
+          "INSERT INTO benefits (card_type_id, name, amount, frequency) VALUES (?, ?, ?, ?)",
+        ).bind(cardTypeId, String(body.benefitName), Number(body.benefitAmount || 0), String(body.benefitFrequency || "calendar year")).run();
+      }
     } else if (action === "closeAccount") {
       await db.prepare(
         "UPDATE accounts SET status = 'closed', closed_on = ?, closed_how = ? WHERE id = ?",
@@ -62,4 +72,3 @@ export async function POST(request: Request) {
     return Response.json({ error: error instanceof Error ? error.message : "Unable to save changes" }, { status: 500 });
   }
 }
-

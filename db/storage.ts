@@ -1,7 +1,7 @@
 import seedData from "@/data/seed-data.json";
 import { getRawDb } from "./index";
 
-const SEED_VERSION = "2026-08-02-v1";
+const SEED_VERSION = "2026-08-02-v2";
 
 const schemaStatements = [
   `CREATE TABLE IF NOT EXISTS app_meta (
@@ -56,6 +56,7 @@ const schemaStatements = [
   )`,
   `CREATE INDEX IF NOT EXISTS idx_accounts_owner_status ON accounts(owner, status)`,
   `CREATE INDEX IF NOT EXISTS idx_accounts_card_type_status ON accounts(card_type_id, status)`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_accounts_source_row ON accounts(source_row) WHERE source_row IS NOT NULL`,
   `CREATE INDEX IF NOT EXISTS idx_usage_period ON benefit_usage(period_key, used)`,
 ];
 
@@ -106,9 +107,19 @@ export function currentPeriodKey(frequency: string, date = new Date()) {
   return String(year);
 }
 
-async function runBatches(db: D1Database, statements: D1PreparedStatement[], size = 50) {
-  for (let index = 0; index < statements.length; index += size) {
-    await db.batch(statements.slice(index, index + size));
+async function bulkInsert(
+  db: D1Database,
+  prefix: string,
+  rows: unknown[][],
+  columnsPerRow: number,
+  chunkSize: number,
+) {
+  for (let index = 0; index < rows.length; index += chunkSize) {
+    const chunk = rows.slice(index, index + chunkSize);
+    const placeholders = chunk
+      .map(() => `(${Array(columnsPerRow).fill("?").join(", ")})`)
+      .join(", ");
+    await db.prepare(`${prefix} ${placeholders}`).bind(...chunk.flat()).run();
   }
 }
 
@@ -123,49 +134,77 @@ export async function ensureDatabase() {
   const creditCards = seedData.creditDefinitions.map((credit) => normalizedName(credit.card));
   const allCardKeys = new Set([...latestByCard.keys(), ...creditCards]);
 
-  await runBatches(db, [...allCardKeys].map((key) => {
+  const cardTypeValues = [...allCardKeys].map((key) => {
     const latest = latestByCard.get(key);
     const kind = latest?.kind === "other" ? "personal" : (latest?.kind || "personal");
-    return db.prepare(
-      "INSERT OR IGNORE INTO card_types (name, issuer, kind, annual_fee) VALUES (?, ?, ?, ?)",
-    ).bind(displayName(key), issuerFor(key), kind, latest?.annualFee ?? 0);
-  }));
+    return [displayName(key), issuerFor(key), kind, latest?.annualFee ?? 0];
+  });
+  await bulkInsert(
+    db,
+    "INSERT OR IGNORE INTO card_types (name, issuer, kind, annual_fee) VALUES",
+    cardTypeValues,
+    4,
+    25,
+  );
 
   const cardRows = await db.prepare("SELECT id, name FROM card_types").all<{ id: number; name: string }>();
   const cardIds = new Map(cardRows.results.map((row) => [normalizedName(row.name), row.id]));
 
-  const existingAccounts = await db.prepare("SELECT COUNT(*) AS count FROM accounts").first<{ count: number }>();
-  if (!existingAccounts?.count) {
-    await runBatches(db, seedData.accounts.map((account) => db.prepare(
-      `INSERT INTO accounts (
-        owner, card_type_id, kind, card_index, applied_on, approved_on, opened_how,
-        offer, annual_fee, bonus_received, status, closed_on, closed_how, source_row
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    ).bind(
+  const existingSourceRows = await db.prepare(
+    "SELECT source_row AS sourceRow FROM accounts WHERE source_row IS NOT NULL",
+  ).all<{ sourceRow: number }>();
+  const importedSourceRows = new Set(existingSourceRows.results.map((row) => row.sourceRow));
+  const missingAccountValues = seedData.accounts
+    .filter((account) => !importedSourceRows.has(account.sourceRow))
+    .map((account) => [
       displayName(account.owner), cardIds.get(normalizedName(account.card)), account.kind,
       account.cardIndex || null, account.appliedOn || null, account.approvedOn || null,
       account.openedHow || null, account.offer || null, account.annualFee,
       account.bonusReceived ? 1 : 0, accountStatus(account), account.closedOn || null,
       account.closedHow || null, account.sourceRow,
-    )));
-  }
+    ]);
+  await bulkInsert(
+    db,
+    `INSERT OR IGNORE INTO accounts (
+      owner, card_type_id, kind, card_index, applied_on, approved_on, opened_how,
+      offer, annual_fee, bonus_received, status, closed_on, closed_how, source_row
+    ) VALUES`,
+    missingAccountValues,
+    14,
+    6,
+  );
 
-  const existingBenefits = await db.prepare("SELECT COUNT(*) AS count FROM benefits").first<{ count: number }>();
-  if (!existingBenefits?.count) {
-    await runBatches(db, seedData.creditDefinitions.map((credit) => db.prepare(
-      "INSERT INTO benefits (card_type_id, name, amount, frequency) VALUES (?, ?, ?, ?)",
-    ).bind(cardIds.get(normalizedName(credit.card)), displayName(credit.credit), credit.amount, credit.frequency)));
+  const existingBenefitRows = await db.prepare(
+    "SELECT card_type_id AS cardTypeId, name FROM benefits",
+  ).all<{ cardTypeId: number; name: string }>();
+  const existingBenefitKeys = new Set(existingBenefitRows.results.map((row) => `${row.cardTypeId}|${normalizedName(row.name)}`));
+  const missingBenefitValues = seedData.creditDefinitions
+    .map((credit) => ({ credit, cardTypeId: cardIds.get(normalizedName(credit.card)) }))
+    .filter(({ credit, cardTypeId }) => !existingBenefitKeys.has(`${cardTypeId}|${normalizedName(credit.credit)}`))
+    .map(({ credit, cardTypeId }) => [cardTypeId, displayName(credit.credit), credit.amount, credit.frequency]);
+  await bulkInsert(
+    db,
+    "INSERT INTO benefits (card_type_id, name, amount, frequency) VALUES",
+    missingBenefitValues,
+    4,
+    25,
+  );
 
-    const benefitRows = await db.prepare(
-      `SELECT b.id, b.card_type_id AS cardTypeId, b.frequency, b.name
-       FROM benefits b ORDER BY b.id`,
-    ).all<{ id: number; cardTypeId: number; frequency: string; name: string }>();
-    const activeRows = await db.prepare(
-      "SELECT id, card_type_id AS cardTypeId FROM accounts WHERE status = 'active' ORDER BY approved_on, id",
-    ).all<{ id: number; cardTypeId: number }>();
-    const usageStatements: D1PreparedStatement[] = [];
-    for (const [index, benefit] of benefitRows.results.entries()) {
-      const source = seedData.creditDefinitions[index];
+  const benefitRows = await db.prepare(
+    `SELECT b.id, b.card_type_id AS cardTypeId, b.frequency, b.name, ct.name AS cardName
+     FROM benefits b JOIN card_types ct ON ct.id = b.card_type_id ORDER BY b.id`,
+  ).all<{ id: number; cardTypeId: number; frequency: string; name: string; cardName: string }>();
+  const activeRows = await db.prepare(
+    "SELECT id, card_type_id AS cardTypeId FROM accounts WHERE approved_on IS NOT NULL AND closed_on IS NULL ORDER BY approved_on, id",
+  ).all<{ id: number; cardTypeId: number }>();
+  const sourceCredits = new Map(seedData.creditDefinitions.map((credit) => [
+    `${normalizedName(credit.card)}|${normalizedName(credit.credit)}`,
+    credit,
+  ]));
+  const usageValues: unknown[][] = [];
+  for (const benefit of benefitRows.results) {
+      const source = sourceCredits.get(`${normalizedName(benefit.cardName)}|${normalizedName(benefit.name)}`);
+      if (!source) continue;
       const match = source.currentYear.match(/(\d+)\s*\/\s*(\d+)/);
       const usedCount = match ? Number(match[1]) : 0;
       const sourcePrefix = source.currentYear.toLowerCase();
@@ -179,15 +218,24 @@ export async function ensureDatabase() {
       const eligible = activeRows.results.filter((account) => account.cardTypeId === benefit.cardTypeId);
       eligible.forEach((account, accountIndex) => {
         const used = accountIndex < usedCount;
-        usageStatements.push(db.prepare(
-          "INSERT OR IGNORE INTO benefit_usage (account_id, benefit_id, period_key, used, used_on) VALUES (?, ?, ?, ?, ?)",
-        ).bind(account.id, benefit.id, period, used ? 1 : 0, used ? "2026-08-02" : null));
+        usageValues.push([account.id, benefit.id, period, used ? 1 : 0, used ? "2026-08-02" : null]);
       });
-    }
-    await runBatches(db, usageStatements);
   }
+  await bulkInsert(
+    db,
+    "INSERT OR IGNORE INTO benefit_usage (account_id, benefit_id, period_key, used, used_on) VALUES",
+    usageValues,
+    5,
+    20,
+  );
 
-  await db.prepare("INSERT OR REPLACE INTO app_meta (key, value) VALUES (?, ?)").bind("seed_version", SEED_VERSION).run();
+  const importedAccountCount = await db.prepare(
+    "SELECT COUNT(*) AS count FROM accounts WHERE source_row IS NOT NULL",
+  ).first<{ count: number }>();
+  const importedBenefitCount = await db.prepare("SELECT COUNT(*) AS count FROM benefits").first<{ count: number }>();
+  if ((importedAccountCount?.count ?? 0) >= seedData.accounts.length && (importedBenefitCount?.count ?? 0) >= seedData.creditDefinitions.length) {
+    await db.prepare("INSERT OR REPLACE INTO app_meta (key, value) VALUES (?, ?)").bind("seed_version", SEED_VERSION).run();
+  }
   await db.prepare("PRAGMA optimize").run();
   return db;
 }
@@ -232,4 +280,3 @@ export async function readAppData() {
     source: { spreadsheetId: seedData.sourceSpreadsheetId, migratedAt: seedData.migratedAt },
   };
 }
-

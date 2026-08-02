@@ -101,7 +101,7 @@ export function TrackerApp() {
   const [data, setData] = useState<AppData | null>(null);
   const [error, setError] = useState("");
   const [view, setView] = useState<View>("overview");
-  const [owner, setOwner] = useState("Harrison");
+  const [owner, setOwner] = useState("All");
   const [status, setStatus] = useState("all");
   const [search, setSearch] = useState("");
   const [typeSearch, setTypeSearch] = useState("");

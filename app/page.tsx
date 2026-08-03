@@ -1,6 +1,5 @@
-import { TrackerApp } from "./components/TrackerApp";
+import { AuthGate } from "./components/AuthGate";
 
 export default function Home() {
-  return <TrackerApp />;
+  return <AuthGate />;
 }
-

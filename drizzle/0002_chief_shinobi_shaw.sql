@@ -1,1 +1,0 @@
-CREATE UNIQUE INDEX `idx_accounts_source_row` ON `accounts` (`source_row`);

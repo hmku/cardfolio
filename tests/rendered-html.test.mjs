@@ -3,14 +3,16 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 test("Cardfolio replaces every temporary starter marker", async () => {
-  const [page, layout, component, packageJson] = await Promise.all([
+  const [page, layout, authGate, component, packageJson] = await Promise.all([
     readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/layout.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/components/AuthGate.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/components/TrackerApp.tsx", import.meta.url), "utf8"),
     readFile(new URL("../package.json", import.meta.url), "utf8"),
   ]);
 
-  assert.match(page, /TrackerApp/);
+  assert.match(page, /AuthGate/);
+  assert.match(authGate, /signInWithOtp/);
   assert.match(layout, /Cardfolio/);
   assert.match(component, /5\/24 status/);
   assert.match(component, /Annual fee watchlist/);

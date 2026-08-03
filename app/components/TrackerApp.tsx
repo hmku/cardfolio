@@ -54,11 +54,14 @@ type AppData = {
   cardTypes: CardType[];
   benefits: Benefit[];
   usages: Usage[];
+  members: { user_id: string; email: string; role: "owner" | "member"; created_at: string }[];
+  invitations: { id: string; email: string; role: "owner" | "member"; accepted_at: string | null; created_at: string }[];
+  currentUser: { email: string; role: "owner" | "member" };
   source: { spreadsheetId: string; migratedAt: string };
 };
 
 type View = "overview" | "cards" | "types" | "credits";
-type Modal = "account" | "cardType" | "editCardType" | null;
+type Modal = "account" | "cardType" | "editCardType" | "access" | null;
 
 const money = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
 const shortDate = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric" });
@@ -97,7 +100,8 @@ function daysUntil(date: Date) {
   return Math.ceil((date.getTime() - Date.now()) / 86_400_000);
 }
 
-export function TrackerApp() {
+export function TrackerApp({ accessToken, userEmail, onSignOut }: { accessToken: string; userEmail: string; onSignOut: () => Promise<void> }) {
+  const [referenceTime] = useState(() => Date.now());
   const [data, setData] = useState<AppData | null>(null);
   const [error, setError] = useState("");
   const [view, setView] = useState<View>("overview");
@@ -112,14 +116,14 @@ export function TrackerApp() {
   const [visibleCards, setVisibleCards] = useState(20);
 
   useEffect(() => {
-    fetch("/api/data")
+    fetch("/api/data", { headers: { authorization: `Bearer ${accessToken}` } })
       .then(async (response) => {
         const payload = await response.json();
         if (!response.ok) throw new Error(payload.error || "Unable to load your tracker");
         setData(payload);
       })
       .catch((reason) => setError(reason instanceof Error ? reason.message : "Unable to load your tracker"));
-  }, []);
+  }, [accessToken]);
 
   const owners = useMemo(() => data ? [...new Set(data.accounts.map((account) => account.owner))] : [], [data]);
   const ownerAccounts = useMemo(() => {
@@ -130,21 +134,19 @@ export function TrackerApp() {
   const activeAccounts = ownerAccounts.filter((account) => Boolean(account.approvedOn) && !account.closedOn);
   const personalWindow = approvedAccounts.filter((account) => {
     if (account.kind !== "personal" || account.openedHow?.trim().toLowerCase() === "downgraded" || !account.approvedOn) return false;
-    return new Date(account.approvedOn).getTime() >= Date.now() - 730 * 86_400_000;
+    return new Date(account.approvedOn).getTime() >= referenceTime - 730 * 86_400_000;
   });
   const nextDrop = [...personalWindow]
     .sort((a, b) => String(a.approvedOn).localeCompare(String(b.approvedOn)))[0];
   const annualFees = activeAccounts.reduce((total, account) => total + Number(account.annualFee), 0);
 
-  const reviewQueue = useMemo(() => activeAccounts
+  const reviewQueue = activeAccounts
     .filter((account) => account.annualFee > 0)
     .map((account) => ({ account, review: nextReview(account) }))
     .filter((item): item is { account: Account; review: Date } => Boolean(item.review))
-    .sort((a, b) => a.review.getTime() - b.review.getTime()), [activeAccounts]);
+    .sort((a, b) => a.review.getTime() - b.review.getTime());
 
-  const benefitSummaries = useMemo(() => {
-    if (!data) return [];
-    return data.benefits.map((benefit) => {
+  const benefitSummaries = data ? data.benefits.map((benefit) => {
       const eligible = activeAccounts.filter((account) => account.cardTypeId === benefit.cardTypeId);
       const periodKey = currentPeriod(benefit.frequency);
       const accountRows = eligible.map((account) => {
@@ -152,8 +154,7 @@ export function TrackerApp() {
         return { account, used: Boolean(usage?.used), usage };
       });
       return { benefit, periodKey, accounts: accountRows, used: accountRows.filter((row) => row.used).length, total: accountRows.length };
-    }).filter((summary) => summary.total > 0);
-  }, [data, activeAccounts]);
+    }).filter((summary) => summary.total > 0) : [];
 
   const creditsUsed = benefitSummaries.reduce((total, summary) => total + summary.used, 0);
   const creditsTotal = benefitSummaries.reduce((total, summary) => total + summary.total, 0);
@@ -162,7 +163,7 @@ export function TrackerApp() {
     setSaving(true);
     setError("");
     try {
-      const response = await fetch("/api/data", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload) });
+      const response = await fetch("/api/data", { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${accessToken}` }, body: JSON.stringify(payload) });
       const next = await response.json();
       if (!response.ok) throw new Error(next.error || "Unable to save changes");
       setData(next);
@@ -201,6 +202,13 @@ export function TrackerApp() {
       setModal(null);
       setSelectedCardType(null);
     }
+  }
+
+  async function submitInvitation(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const values = Object.fromEntries(new FormData(event.currentTarget));
+    const saved = await post({ action: "inviteMember", ...values });
+    if (saved) event.currentTarget.reset();
   }
 
   async function closeAccount(account: Account) {
@@ -247,8 +255,9 @@ export function TrackerApp() {
           <button className={view === "credits" ? "active" : ""} onClick={() => setView("credits")}><span>✓</span>Credits</button>
         </nav>
         <div className="sidebar-bottom">
-          <div className="sync-note"><span className="sync-dot" /> Migrated Aug 2, 2026</div>
-          <div className="profile-chip"><span className="avatar">HK</span><span><strong>Harrison Ku</strong><small>Portfolio owner</small></span></div>
+          <div className="sync-note"><span className="sync-dot" /> Secure cloud sync</div>
+          <button className="profile-chip" onClick={() => setModal("access")} title="Manage household access"><span className="avatar">{initials(userEmail)}</span><span><strong>{userEmail}</strong><small>{data.currentUser.role === "owner" ? "Portfolio owner" : "Household member"}</small></span></button>
+          <button className="signout-button" onClick={() => void onSignOut()}>Sign out</button>
         </div>
       </aside>
 
@@ -383,6 +392,8 @@ export function TrackerApp() {
               <><p className="eyebrow">Portfolio entry</p><h2 id="modal-title">Add a card</h2><p>Record a new application or an approved card.</p><form onSubmit={submitAccount}><label><span>Card type</span><select name="cardTypeId" required defaultValue=""><option value="" disabled>Select a card</option>{data.cardTypes.map((card) => <option key={card.id} value={card.id}>{card.name} · {card.issuer}</option>)}</select></label><div className="form-grid"><label><span>Owner</span><select name="owner" defaultValue={owner === "All" ? "Harrison" : owner}>{owners.map((name) => <option key={name}>{name}</option>)}</select></label><label><span>Opened via</span><select name="openedHow" defaultValue="applied"><option>applied</option><option>referred</option><option>nll</option><option>downgraded</option><option>upgraded</option></select></label><label><span>Applied</span><input type="date" name="appliedOn" defaultValue={new Date().toISOString().slice(0, 10)} /></label><label><span>Approved</span><input type="date" name="approvedOn" /></label></div><label><span>Signup offer</span><input name="offer" placeholder="e.g. 100k / $5k / 3mo" /></label><label className="check-label"><input type="checkbox" name="bonusReceived" /><span>Signup bonus received</span></label><div className="form-actions"><button type="button" className="secondary-button" onClick={() => setModal(null)}>Cancel</button><button className="primary-button" disabled={saving}>{saving ? "Saving…" : "Add card"}</button></div></form></>
             ) : modal === "cardType" ? (
               <><p className="eyebrow">Reusable definition</p><h2 id="modal-title">New card type</h2><p>Define the card once, then attach future applications and benefits to it.</p><form onSubmit={submitCardType}><label><span>Card name</span><input name="name" required placeholder="e.g. Sapphire Preferred" /></label><div className="form-grid"><label><span>Issuer</span><input name="issuer" required placeholder="e.g. Chase" /></label><label><span>Card kind</span><select name="kind" defaultValue="personal"><option value="personal">Personal</option><option value="business">Business</option><option value="other">Other</option></select></label><label><span>Annual fee</span><input name="annualFee" type="number" min="0" defaultValue="0" /></label><label><span>Benefit frequency</span><select name="benefitFrequency" defaultValue="calendar year"><option>calendar year</option><option>anniversary</option><option>biannual</option><option>quarter</option><option>monthly</option></select></label></div><div className="form-grid"><label><span>First benefit (optional)</span><input name="benefitName" placeholder="e.g. Hotel credit" /></label><label><span>Benefit amount</span><input name="benefitAmount" type="number" min="0" defaultValue="0" /></label></div><div className="form-actions"><button type="button" className="secondary-button" onClick={() => setModal(null)}>Cancel</button><button className="primary-button" disabled={saving}>{saving ? "Saving…" : "Create card type"}</button></div></form></>
+            ) : modal === "access" ? (
+              <><p className="eyebrow">Household security</p><h2 id="modal-title">Manage access</h2><p>Cardfolio is shared only with the email addresses listed here.</p><div className="member-list">{data.members.map((member) => <div key={member.user_id}><span className="avatar">{initials(member.email)}</span><span><strong>{member.email}</strong><small>{member.role}</small></span><em>Active</em></div>)}{data.invitations.map((invitation) => <div key={invitation.id}><span className="avatar pending">＋</span><span><strong>{invitation.email}</strong><small>{invitation.role}</small></span><em>Invited</em></div>)}</div>{data.currentUser.role === "owner" ? <form onSubmit={submitInvitation}><label><span>Authorize another email</span><input name="email" type="email" required placeholder="sophia@example.com" /></label><p className="form-help">They won’t receive an email yet. When they request a Cardfolio sign-in link with this address, access will activate automatically.</p><div className="form-actions"><button type="button" className="secondary-button" onClick={() => setModal(null)}>Done</button><button className="primary-button" disabled={saving}>{saving ? "Saving…" : "Authorize email"}</button></div></form> : <div className="form-actions"><button className="primary-button" onClick={() => setModal(null)}>Done</button></div>}</>
             ) : selectedCardType ? (
               <><p className="eyebrow">Card metadata</p><h2 id="modal-title">Edit {selectedCardType.name}</h2><p>Update the definition or add another recurring benefit.</p><form onSubmit={submitCardTypeEdit}><label><span>Card name</span><input name="name" required defaultValue={selectedCardType.name} /></label><div className="form-grid"><label><span>Issuer</span><input name="issuer" required defaultValue={selectedCardType.issuer} /></label><label><span>Card kind</span><select name="kind" defaultValue={selectedCardType.kind}><option value="personal">Personal</option><option value="business">Business</option><option value="other">Other</option></select></label><label><span>Annual fee</span><input name="annualFee" type="number" min="0" defaultValue={selectedCardType.annualFee} /></label><label><span>New benefit frequency</span><select name="benefitFrequency" defaultValue="calendar year"><option>calendar year</option><option>anniversary</option><option>biannual</option><option>quarter</option><option>monthly</option></select></label></div><div className="form-grid"><label><span>Add benefit (optional)</span><input name="benefitName" placeholder="e.g. Hotel credit" /></label><label><span>Benefit amount</span><input name="benefitAmount" type="number" min="0" defaultValue="0" /></label></div><div className="form-actions"><button type="button" className="secondary-button" onClick={() => setModal(null)}>Cancel</button><button className="primary-button" disabled={saving}>{saving ? "Saving…" : "Save definition"}</button></div></form></>
             ) : null}

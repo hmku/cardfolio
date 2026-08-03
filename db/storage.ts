@@ -1,282 +1,301 @@
-import seedData from "@/data/seed-data.json";
-import { getRawDb } from "./index";
+import type { SupabaseClient, User } from "@supabase/supabase-js";
+import { createClient } from "@supabase/supabase-js";
 
-const SEED_VERSION = "2026-08-02-v2";
+type MembershipRole = "owner" | "member";
 
-const schemaStatements = [
-  `CREATE TABLE IF NOT EXISTS app_meta (
-    key TEXT PRIMARY KEY,
-    value TEXT NOT NULL
-  )`,
-  `CREATE TABLE IF NOT EXISTS card_types (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL UNIQUE,
-    issuer TEXT NOT NULL DEFAULT 'Other',
-    kind TEXT NOT NULL DEFAULT 'personal',
-    annual_fee INTEGER NOT NULL DEFAULT 0,
-    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-  )`,
-  `CREATE TABLE IF NOT EXISTS accounts (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    owner TEXT NOT NULL,
-    card_type_id INTEGER NOT NULL,
-    kind TEXT NOT NULL,
-    card_index TEXT,
-    applied_on TEXT,
-    approved_on TEXT,
-    opened_how TEXT,
-    offer TEXT,
-    annual_fee INTEGER NOT NULL DEFAULT 0,
-    bonus_received INTEGER NOT NULL DEFAULT 0,
-    status TEXT NOT NULL DEFAULT 'pending',
-    closed_on TEXT,
-    closed_how TEXT,
-    source_row INTEGER,
-    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (card_type_id) REFERENCES card_types(id)
-  )`,
-  `CREATE TABLE IF NOT EXISTS benefits (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    card_type_id INTEGER NOT NULL,
-    name TEXT NOT NULL,
-    amount INTEGER NOT NULL DEFAULT 0,
-    frequency TEXT NOT NULL DEFAULT 'calendar year',
-    FOREIGN KEY (card_type_id) REFERENCES card_types(id)
-  )`,
-  `CREATE TABLE IF NOT EXISTS benefit_usage (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    account_id INTEGER NOT NULL,
-    benefit_id INTEGER NOT NULL,
-    period_key TEXT NOT NULL,
-    used INTEGER NOT NULL DEFAULT 0,
-    used_on TEXT,
-    FOREIGN KEY (account_id) REFERENCES accounts(id),
-    FOREIGN KEY (benefit_id) REFERENCES benefits(id),
-    UNIQUE(account_id, benefit_id, period_key)
-  )`,
-  `CREATE INDEX IF NOT EXISTS idx_accounts_owner_status ON accounts(owner, status)`,
-  `CREATE INDEX IF NOT EXISTS idx_accounts_card_type_status ON accounts(card_type_id, status)`,
-  `CREATE UNIQUE INDEX IF NOT EXISTS idx_accounts_source_row ON accounts(source_row) WHERE source_row IS NOT NULL`,
-  `CREATE INDEX IF NOT EXISTS idx_usage_period ON benefit_usage(period_key, used)`,
-];
+export type HouseholdContext = {
+  db: SupabaseClient;
+  householdId: string;
+  role: MembershipRole;
+  user: User;
+};
 
-type SeedAccount = (typeof seedData.accounts)[number];
-
-function normalizedName(name: string) {
-  const cleaned = name.trim().toLowerCase().replace(/\s+/g, " ");
-  if (cleaned === "vx") return "venture x";
-  if (cleaned === "strata premier") return "citi premier";
-  return cleaned;
+function requiredEnv(name: string) {
+  const value = process.env[name];
+  if (!value) throw new Error(`Missing required environment variable ${name}.`);
+  return value;
 }
 
-function displayName(name: string) {
-  return normalizedName(name)
-    .split(" ")
-    .map((word) => word === "aa" || word === "ibp" || word === "cic" || word === "ciu" || word === "csr" || word === "csp" || word === "cfu" || word === "cff" || word === "bbp" ? word.toUpperCase() : word.charAt(0).toUpperCase() + word.slice(1))
-    .join(" ");
-}
-
-function issuerFor(name: string) {
-  const key = normalizedName(name);
-  if (/^(biz plat|biz gold|biz green|bbp|delta|hh |amex)/.test(key)) return "American Express";
-  if (/^(cic|ciu|csr|csp|cfu|cff|united)/.test(key)) return "Chase";
-  if (/^(citi|aa mileup)/.test(key)) return "Citi";
-  if (/^(aa biz|aa aviator|jetblue|wyndham)/.test(key)) return "Barclays";
-  if (/^(venture)/.test(key)) return "Capital One";
-  if (/^(al biz|ha biz)/.test(key)) return "Bank of America";
-  if (/^(ibp)/.test(key)) return "Chase";
-  if (/^(redcard)/.test(key)) return "Target";
-  return "Other";
-}
-
-function accountStatus(account: SeedAccount) {
-  if (account.approvedOn) return account.closedOn ? "closed" : "active";
-  const note = account.closedHow.toLowerCase();
-  if (!account.closedOn || note.includes("pending") || note.includes("review")) return "pending";
-  return "declined";
-}
-
-export function currentPeriodKey(frequency: string, date = new Date()) {
-  const year = date.getUTCFullYear();
-  const month = date.getUTCMonth() + 1;
-  const normalized = frequency.toLowerCase();
-  if (normalized.includes("month")) return `${year}-${String(month).padStart(2, "0")}`;
-  if (normalized.includes("quarter")) return `${year}-Q${Math.ceil(month / 3)}`;
-  if (normalized.includes("biannual")) return `${year}-H${month <= 6 ? 1 : 2}`;
-  if (normalized.includes("anniversary")) return `${year}-anniversary`;
-  return String(year);
-}
-
-async function bulkInsert(
-  db: D1Database,
-  prefix: string,
-  rows: unknown[][],
-  columnsPerRow: number,
-  chunkSize: number,
-) {
-  for (let index = 0; index < rows.length; index += chunkSize) {
-    const chunk = rows.slice(index, index + chunkSize);
-    const placeholders = chunk
-      .map(() => `(${Array(columnsPerRow).fill("?").join(", ")})`)
-      .join(", ");
-    await db.prepare(`${prefix} ${placeholders}`).bind(...chunk.flat()).run();
-  }
-}
-
-export async function ensureDatabase() {
-  const db = getRawDb();
-  await db.batch(schemaStatements.map((statement) => db.prepare(statement)));
-  const seeded = await db.prepare("SELECT value FROM app_meta WHERE key = ?").bind("seed_version").first<{ value: string }>();
-  if (seeded?.value === SEED_VERSION) return db;
-
-  const latestByCard = new Map<string, SeedAccount>();
-  for (const account of seedData.accounts) latestByCard.set(normalizedName(account.card), account);
-  const creditCards = seedData.creditDefinitions.map((credit) => normalizedName(credit.card));
-  const allCardKeys = new Set([...latestByCard.keys(), ...creditCards]);
-
-  const cardTypeValues = [...allCardKeys].map((key) => {
-    const latest = latestByCard.get(key);
-    const kind = latest?.kind === "other" ? "personal" : (latest?.kind || "personal");
-    return [displayName(key), issuerFor(key), kind, latest?.annualFee ?? 0];
-  });
-  await bulkInsert(
-    db,
-    "INSERT OR IGNORE INTO card_types (name, issuer, kind, annual_fee) VALUES",
-    cardTypeValues,
-    4,
-    25,
-  );
-
-  const cardRows = await db.prepare("SELECT id, name FROM card_types").all<{ id: number; name: string }>();
-  const cardIds = new Map(cardRows.results.map((row) => [normalizedName(row.name), row.id]));
-
-  const existingSourceRows = await db.prepare(
-    "SELECT source_row AS sourceRow FROM accounts WHERE source_row IS NOT NULL",
-  ).all<{ sourceRow: number }>();
-  const importedSourceRows = new Set(existingSourceRows.results.map((row) => row.sourceRow));
-  const missingAccountValues = seedData.accounts
-    .filter((account) => !importedSourceRows.has(account.sourceRow))
-    .map((account) => [
-      displayName(account.owner), cardIds.get(normalizedName(account.card)), account.kind,
-      account.cardIndex || null, account.appliedOn || null, account.approvedOn || null,
-      account.openedHow || null, account.offer || null, account.annualFee,
-      account.bonusReceived ? 1 : 0, accountStatus(account), account.closedOn || null,
-      account.closedHow || null, account.sourceRow,
-    ]);
-  await bulkInsert(
-    db,
-    `INSERT OR IGNORE INTO accounts (
-      owner, card_type_id, kind, card_index, applied_on, approved_on, opened_how,
-      offer, annual_fee, bonus_received, status, closed_on, closed_how, source_row
-    ) VALUES`,
-    missingAccountValues,
-    14,
-    6,
-  );
-
-  const existingBenefitRows = await db.prepare(
-    "SELECT card_type_id AS cardTypeId, name FROM benefits",
-  ).all<{ cardTypeId: number; name: string }>();
-  const existingBenefitKeys = new Set(existingBenefitRows.results.map((row) => `${row.cardTypeId}|${normalizedName(row.name)}`));
-  const missingBenefitValues = seedData.creditDefinitions
-    .map((credit) => ({ credit, cardTypeId: cardIds.get(normalizedName(credit.card)) }))
-    .filter(({ credit, cardTypeId }) => !existingBenefitKeys.has(`${cardTypeId}|${normalizedName(credit.credit)}`))
-    .map(({ credit, cardTypeId }) => [cardTypeId, displayName(credit.credit), credit.amount, credit.frequency]);
-  await bulkInsert(
-    db,
-    "INSERT INTO benefits (card_type_id, name, amount, frequency) VALUES",
-    missingBenefitValues,
-    4,
-    25,
-  );
-
-  const benefitRows = await db.prepare(
-    `SELECT b.id, b.card_type_id AS cardTypeId, b.frequency, b.name, ct.name AS cardName
-     FROM benefits b JOIN card_types ct ON ct.id = b.card_type_id ORDER BY b.id`,
-  ).all<{ id: number; cardTypeId: number; frequency: string; name: string; cardName: string }>();
-  const activeRows = await db.prepare(
-    "SELECT id, card_type_id AS cardTypeId FROM accounts WHERE approved_on IS NOT NULL AND closed_on IS NULL ORDER BY approved_on, id",
-  ).all<{ id: number; cardTypeId: number }>();
-  const sourceCredits = new Map(seedData.creditDefinitions.map((credit) => [
-    `${normalizedName(credit.card)}|${normalizedName(credit.credit)}`,
-    credit,
-  ]));
-  const usageValues: unknown[][] = [];
-  for (const benefit of benefitRows.results) {
-      const source = sourceCredits.get(`${normalizedName(benefit.cardName)}|${normalizedName(benefit.name)}`);
-      if (!source) continue;
-      const match = source.currentYear.match(/(\d+)\s*\/\s*(\d+)/);
-      const usedCount = match ? Number(match[1]) : 0;
-      const sourcePrefix = source.currentYear.toLowerCase();
-      let period = currentPeriodKey(benefit.frequency);
-      if (sourcePrefix.startsWith("h1")) period = "2026-H1";
-      if (sourcePrefix.startsWith("h2")) period = "2026-H2";
-      if (sourcePrefix.startsWith("q1")) period = "2026-Q1";
-      if (sourcePrefix.startsWith("q2")) period = "2026-Q2";
-      if (sourcePrefix.startsWith("q3")) period = "2026-Q3";
-      if (sourcePrefix.startsWith("q4")) period = "2026-Q4";
-      const eligible = activeRows.results.filter((account) => account.cardTypeId === benefit.cardTypeId);
-      eligible.forEach((account, accountIndex) => {
-        const used = accountIndex < usedCount;
-        usageValues.push([account.id, benefit.id, period, used ? 1 : 0, used ? "2026-08-02" : null]);
-      });
-  }
-  await bulkInsert(
-    db,
-    "INSERT OR IGNORE INTO benefit_usage (account_id, benefit_id, period_key, used, used_on) VALUES",
-    usageValues,
-    5,
-    20,
-  );
-
-  const importedAccountCount = await db.prepare(
-    "SELECT COUNT(*) AS count FROM accounts WHERE source_row IS NOT NULL",
-  ).first<{ count: number }>();
-  const importedBenefitCount = await db.prepare("SELECT COUNT(*) AS count FROM benefits").first<{ count: number }>();
-  if ((importedAccountCount?.count ?? 0) >= seedData.accounts.length && (importedBenefitCount?.count ?? 0) >= seedData.creditDefinitions.length) {
-    await db.prepare("INSERT OR REPLACE INTO app_meta (key, value) VALUES (?, ?)").bind("seed_version", SEED_VERSION).run();
-  }
-  await db.prepare("PRAGMA optimize").run();
-  return db;
-}
-
-export async function readAppData() {
-  const db = await ensureDatabase();
-  const [accounts, cardTypes, benefits, usages] = await Promise.all([
-    db.prepare(
-      `SELECT a.id, a.owner, a.card_type_id AS cardTypeId, ct.name AS cardName,
-       ct.issuer, a.kind, a.card_index AS cardIndex, a.applied_on AS appliedOn,
-       a.approved_on AS approvedOn, a.opened_how AS openedHow, a.offer,
-       a.annual_fee AS annualFee, a.bonus_received AS bonusReceived,
-       a.status, a.closed_on AS closedOn, a.closed_how AS closedHow
-       FROM accounts a JOIN card_types ct ON ct.id = a.card_type_id
-       ORDER BY COALESCE(a.approved_on, a.applied_on) DESC, a.id DESC`,
-    ).all(),
-    db.prepare(
-      `SELECT ct.id, ct.name, ct.issuer, ct.kind, ct.annual_fee AS annualFee,
-       COUNT(DISTINCT a.id) AS accountCount, COUNT(DISTINCT b.id) AS benefitCount
-       FROM card_types ct
-       LEFT JOIN accounts a ON a.card_type_id = ct.id
-       LEFT JOIN benefits b ON b.card_type_id = ct.id
-       GROUP BY ct.id ORDER BY ct.name`,
-    ).all(),
-    db.prepare(
-      `SELECT b.id, b.card_type_id AS cardTypeId, ct.name AS cardName,
-       b.name, b.amount, b.frequency
-       FROM benefits b JOIN card_types ct ON ct.id = b.card_type_id
-       ORDER BY ct.name, b.name`,
-    ).all(),
-    db.prepare(
-      `SELECT u.id, u.account_id AS accountId, u.benefit_id AS benefitId,
-       u.period_key AS periodKey, u.used, u.used_on AS usedOn
-       FROM benefit_usage u`,
-    ).all(),
-  ]);
+export function publicAuthConfig() {
   return {
-    accounts: accounts.results,
-    cardTypes: cardTypes.results,
-    benefits: benefits.results,
-    usages: usages.results,
-    source: { spreadsheetId: seedData.sourceSpreadsheetId, migratedAt: seedData.migratedAt },
+    url: requiredEnv("NEXT_PUBLIC_SUPABASE_URL"),
+    anonKey: requiredEnv("NEXT_PUBLIC_SUPABASE_ANON_KEY"),
   };
+}
+
+function adminClient() {
+  return createClient(
+    requiredEnv("NEXT_PUBLIC_SUPABASE_URL"),
+    requiredEnv("SUPABASE_SERVICE_ROLE_KEY"),
+    { auth: { autoRefreshToken: false, persistSession: false } },
+  );
+}
+
+function bearerToken(request: Request) {
+  const authorization = request.headers.get("authorization") || "";
+  return authorization.startsWith("Bearer ") ? authorization.slice(7).trim() : "";
+}
+
+function normalizeEmail(value: string | null | undefined) {
+  return String(value || "").trim().toLowerCase();
+}
+
+export async function requireHousehold(request: Request): Promise<HouseholdContext> {
+  const token = bearerToken(request);
+  if (!token) throw new Response("Authentication required", { status: 401 });
+
+  const { url, anonKey } = publicAuthConfig();
+  const auth = createClient(url, anonKey, {
+    auth: { autoRefreshToken: false, persistSession: false },
+    global: { headers: { Authorization: `Bearer ${token}` } },
+  });
+  const { data: authData, error: authError } = await auth.auth.getUser(token);
+  if (authError || !authData.user) throw new Response("Your session has expired", { status: 401 });
+
+  const user = authData.user;
+  const email = normalizeEmail(user.email);
+  const db = adminClient();
+  const membershipResult = await db
+    .from("household_members")
+    .select("household_id, role")
+    .eq("user_id", user.id)
+    .maybeSingle();
+  let membership = membershipResult.data;
+  const membershipError = membershipResult.error;
+  if (membershipError) throw membershipError;
+
+  if (!membership) {
+    const ownerEmail = normalizeEmail(process.env.CARDFOLIO_OWNER_EMAIL);
+    const { data: household, error: householdError } = await db
+      .from("households")
+      .select("id")
+      .eq("slug", "primary")
+      .single();
+    if (householdError) throw householdError;
+
+    let role: MembershipRole | null = null;
+    let invitationId: string | null = null;
+    if (ownerEmail && email === ownerEmail) {
+      role = "owner";
+    } else if (email) {
+      const { data: invitation, error: invitationError } = await db
+        .from("household_invitations")
+        .select("id, role")
+        .eq("household_id", household.id)
+        .eq("email", email)
+        .is("accepted_at", null)
+        .maybeSingle();
+      if (invitationError) throw invitationError;
+      if (invitation) {
+        role = invitation.role as MembershipRole;
+        invitationId = invitation.id;
+      }
+    }
+
+    if (!role) throw new Response("This email has not been invited to Cardfolio", { status: 403 });
+    const { error: insertError } = await db.from("household_members").insert({
+      household_id: household.id,
+      user_id: user.id,
+      email,
+      role,
+    });
+    if (insertError) throw insertError;
+    if (invitationId) {
+      await db.from("household_invitations").update({ accepted_at: new Date().toISOString() }).eq("id", invitationId);
+    }
+    membership = { household_id: household.id, role };
+  }
+
+  return {
+    db,
+    householdId: membership.household_id,
+    role: membership.role as MembershipRole,
+    user,
+  };
+}
+
+export async function readAppData(context: HouseholdContext) {
+  const { db, householdId } = context;
+  const [accountResult, cardTypeResult, benefitResult, usageResult, memberResult, invitationResult, metaResult] = await Promise.all([
+    db.from("accounts").select("*, card_types!accounts_card_type_id_fkey(name, issuer)").eq("household_id", householdId).order("approved_on", { ascending: false, nullsFirst: false }).order("id", { ascending: false }),
+    db.from("card_types").select("*").eq("household_id", householdId).order("name"),
+    db.from("benefits").select("*, card_types!benefits_card_type_id_fkey(name)").eq("household_id", householdId).order("card_type_id").order("name"),
+    db.from("benefit_usage").select("*").eq("household_id", householdId),
+    db.from("household_members").select("user_id, email, role, created_at").eq("household_id", householdId).order("created_at"),
+    db.from("household_invitations").select("id, email, role, accepted_at, created_at").eq("household_id", householdId).is("accepted_at", null).order("created_at"),
+    db.from("app_meta").select("key, value").eq("household_id", householdId),
+  ]);
+
+  for (const result of [accountResult, cardTypeResult, benefitResult, usageResult, memberResult, invitationResult, metaResult]) {
+    if (result.error) throw result.error;
+  }
+
+  const rawAccounts = accountResult.data || [];
+  const rawBenefits = benefitResult.data || [];
+  const accounts = rawAccounts.map((row) => ({
+    id: Number(row.id),
+    owner: row.owner,
+    cardTypeId: Number(row.card_type_id),
+    cardName: row.card_types?.name || "Unknown card",
+    issuer: row.card_types?.issuer || "Other",
+    kind: row.kind,
+    cardIndex: row.card_index,
+    appliedOn: row.applied_on,
+    approvedOn: row.approved_on,
+    openedHow: row.opened_how,
+    offer: row.offer,
+    annualFee: Number(row.annual_fee || 0),
+    bonusReceived: row.bonus_received ? 1 : 0,
+    status: row.status,
+    closedOn: row.closed_on,
+    closedHow: row.closed_how,
+  }));
+  const benefits = rawBenefits.map((row) => ({
+    id: Number(row.id),
+    cardTypeId: Number(row.card_type_id),
+    cardName: row.card_types?.name || "Unknown card",
+    name: row.name,
+    amount: Number(row.amount || 0),
+    frequency: row.frequency,
+  }));
+  const cardTypes = (cardTypeResult.data || []).map((row) => ({
+    id: Number(row.id),
+    name: row.name,
+    issuer: row.issuer,
+    kind: row.kind,
+    annualFee: Number(row.annual_fee || 0),
+    accountCount: accounts.filter((account) => account.cardTypeId === Number(row.id)).length,
+    benefitCount: benefits.filter((benefit) => benefit.cardTypeId === Number(row.id)).length,
+  }));
+  const usages = (usageResult.data || []).map((row) => ({
+    id: Number(row.id),
+    accountId: Number(row.account_id),
+    benefitId: Number(row.benefit_id),
+    periodKey: row.period_key,
+    used: row.used ? 1 : 0,
+    usedOn: row.used_on,
+  }));
+  const source = Object.fromEntries((metaResult.data || []).map((row) => [row.key, row.value]));
+
+  return {
+    accounts,
+    cardTypes,
+    benefits,
+    usages,
+    members: memberResult.data || [],
+    invitations: invitationResult.data || [],
+    currentUser: { email: context.user.email || "", role: context.role },
+    source: {
+      spreadsheetId: source.source_spreadsheet_id || "",
+      migratedAt: source.migrated_at || "",
+    },
+  };
+}
+
+async function assertCardType(context: HouseholdContext, cardTypeId: number) {
+  const { data, error } = await context.db.from("card_types").select("id").eq("household_id", context.householdId).eq("id", cardTypeId).maybeSingle();
+  if (error) throw error;
+  if (!data) throw new Response("Card type not found", { status: 404 });
+}
+
+export async function applyAction(context: HouseholdContext, body: Record<string, unknown>) {
+  const { db, householdId } = context;
+  const action = String(body.action || "");
+
+  if (action === "createAccount") {
+    const cardTypeId = Number(body.cardTypeId);
+    await assertCardType(context, cardTypeId);
+    const { error } = await db.from("accounts").insert({
+      household_id: householdId,
+      owner: String(body.owner || "Harrison"),
+      card_type_id: cardTypeId,
+      kind: String(body.kind || "personal"),
+      applied_on: body.appliedOn || null,
+      approved_on: body.approvedOn || null,
+      opened_how: body.openedHow || "applied",
+      offer: body.offer || null,
+      annual_fee: Number(body.annualFee || 0),
+      bonus_received: Boolean(body.bonusReceived),
+      status: body.approvedOn ? "active" : "pending",
+    });
+    if (error) throw error;
+  } else if (action === "createCardType") {
+    const { data, error } = await db.from("card_types").insert({
+      household_id: householdId,
+      name: String(body.name),
+      issuer: String(body.issuer || "Other"),
+      kind: String(body.kind || "personal"),
+      annual_fee: Number(body.annualFee || 0),
+    }).select("id").single();
+    if (error) throw error;
+    if (body.benefitName) {
+      const { error: benefitError } = await db.from("benefits").insert({
+        household_id: householdId,
+        card_type_id: data.id,
+        name: String(body.benefitName),
+        amount: Number(body.benefitAmount || 0),
+        frequency: String(body.benefitFrequency || "calendar year"),
+      });
+      if (benefitError) throw benefitError;
+    }
+  } else if (action === "updateCardType") {
+    const cardTypeId = Number(body.cardTypeId);
+    await assertCardType(context, cardTypeId);
+    const { error } = await db.from("card_types").update({
+      name: String(body.name),
+      issuer: String(body.issuer || "Other"),
+      kind: String(body.kind || "personal"),
+      annual_fee: Number(body.annualFee || 0),
+    }).eq("household_id", householdId).eq("id", cardTypeId);
+    if (error) throw error;
+    if (body.benefitName) {
+      const { error: benefitError } = await db.from("benefits").insert({
+        household_id: householdId,
+        card_type_id: cardTypeId,
+        name: String(body.benefitName),
+        amount: Number(body.benefitAmount || 0),
+        frequency: String(body.benefitFrequency || "calendar year"),
+      });
+      if (benefitError) throw benefitError;
+    }
+  } else if (action === "closeAccount") {
+    const { error } = await db.from("accounts").update({
+      status: "closed",
+      closed_on: String(body.closedOn),
+      closed_how: String(body.closedHow || "closed in Cardfolio"),
+    }).eq("household_id", householdId).eq("id", Number(body.accountId));
+    if (error) throw error;
+  } else if (action === "toggleUsage") {
+    const accountId = Number(body.accountId);
+    const benefitId = Number(body.benefitId);
+    const [{ data: account }, { data: benefit }] = await Promise.all([
+      db.from("accounts").select("id").eq("household_id", householdId).eq("id", accountId).maybeSingle(),
+      db.from("benefits").select("id").eq("household_id", householdId).eq("id", benefitId).maybeSingle(),
+    ]);
+    if (!account || !benefit) throw new Response("Credit or account not found", { status: 404 });
+    const used = Boolean(body.used);
+    const { error } = await db.from("benefit_usage").upsert({
+      household_id: householdId,
+      account_id: accountId,
+      benefit_id: benefitId,
+      period_key: String(body.periodKey),
+      used,
+      used_on: used ? new Date().toISOString().slice(0, 10) : null,
+    }, { onConflict: "account_id,benefit_id,period_key" });
+    if (error) throw error;
+  } else if (action === "inviteMember") {
+    if (context.role !== "owner") throw new Response("Only an owner can add people", { status: 403 });
+    const email = normalizeEmail(String(body.email || ""));
+    if (!email || !email.includes("@")) throw new Response("Enter a valid email address", { status: 400 });
+    const { error } = await db.from("household_invitations").upsert({
+      household_id: householdId,
+      email,
+      role: "member",
+      invited_by: context.user.id,
+      accepted_at: null,
+    }, { onConflict: "household_id,email" });
+    if (error) throw error;
+  } else {
+    throw new Response("Unknown action", { status: 400 });
+  }
 }

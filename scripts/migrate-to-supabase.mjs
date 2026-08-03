@@ -25,6 +25,21 @@ async function loadSource() {
   return response.json();
 }
 
+function parseOffer(offer) {
+  const parts = String(offer || "").split("/").map((part) => part.trim());
+  const bonusAmount = parts[0] && !["-", "nll"].includes(parts[0].toLowerCase()) ? parts[0] : null;
+  const spendText = String(parts[1] || "").replace(/[$,\s]/g, "").toLowerCase();
+  const spendRequirement = /^\d+(\.\d+)?k$/.test(spendText)
+    ? Math.round(Number.parseFloat(spendText) * 1000)
+    : /^\d+$/.test(spendText) ? Number(spendText) : null;
+  const periodMatch = String(parts[2] || "").match(/(\d+)\s*mo/i);
+  return {
+    bonusAmount,
+    spendRequirement,
+    bonusPeriodMonths: bonusAmount ? Number(periodMatch?.[1] || 3) : null,
+  };
+}
+
 const source = await loadSource();
 const db = createClient(required("NEXT_PUBLIC_SUPABASE_URL"), required("SUPABASE_SERVICE_ROLE_KEY"), {
   auth: { autoRefreshToken: false, persistSession: false },
@@ -39,23 +54,29 @@ await upsertInChunks(db, "card_types", source.cardTypes.map((card) => ({
   annual_fee: card.annualFee,
 })));
 
-await upsertInChunks(db, "accounts", source.accounts.map((account) => ({
-  id: account.id,
-  household_id: householdId,
-  owner: account.owner,
-  card_type_id: account.cardTypeId,
-  kind: account.kind,
-  card_index: account.cardIndex,
-  applied_on: account.appliedOn,
-  approved_on: account.approvedOn,
-  opened_how: account.openedHow,
-  offer: account.offer,
-  annual_fee: account.annualFee,
-  bonus_received: Boolean(account.bonusReceived),
-  status: account.approvedOn ? (account.closedOn ? "closed" : "active") : account.status,
-  closed_on: account.closedOn,
-  closed_how: account.closedHow,
-})));
+await upsertInChunks(db, "accounts", source.accounts.map((account) => {
+  const parsedOffer = parseOffer(account.offer);
+  return {
+    id: account.id,
+    household_id: householdId,
+    owner: account.owner,
+    card_type_id: account.cardTypeId,
+    kind: account.kind,
+    card_index: account.cardIndex,
+    applied_on: account.appliedOn,
+    approved_on: account.approvedOn,
+    opened_how: account.openedHow,
+    offer: account.offer,
+    bonus_amount: parsedOffer.bonusAmount,
+    spend_requirement: parsedOffer.spendRequirement,
+    bonus_period_months: parsedOffer.bonusPeriodMonths,
+    annual_fee: account.annualFee,
+    bonus_received: Boolean(account.bonusReceived),
+    status: account.approvedOn ? (account.closedOn ? "closed" : "active") : account.status,
+    closed_on: account.closedOn,
+    closed_how: account.closedHow,
+  };
+}));
 
 await upsertInChunks(db, "benefits", source.benefits.map((benefit) => ({
   id: benefit.id,

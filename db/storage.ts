@@ -144,6 +144,9 @@ export async function readAppData(context: HouseholdContext) {
     approvedOn: row.approved_on,
     openedHow: row.opened_how,
     offer: row.offer,
+    bonusAmount: row.bonus_amount,
+    spendRequirement: row.spend_requirement === null ? null : Number(row.spend_requirement),
+    bonusPeriodMonths: row.bonus_period_months === null ? null : Number(row.bonus_period_months),
     annualFee: Number(row.annual_fee || 0),
     bonusReceived: row.bonus_received ? 1 : 0,
     status: row.status,
@@ -213,7 +216,12 @@ export async function applyAction(context: HouseholdContext, body: Record<string
       applied_on: body.appliedOn || null,
       approved_on: body.approvedOn || null,
       opened_how: body.openedHow || "applied",
-      offer: body.offer || null,
+      offer: body.bonusAmount
+        ? [String(body.bonusAmount), body.spendRequirement === "" ? null : `$${Number(body.spendRequirement || 0).toLocaleString("en-US")}`, `${Number(body.bonusPeriodMonths || 3)}mo`].filter(Boolean).join(" / ")
+        : null,
+      bonus_amount: body.bonusAmount || null,
+      spend_requirement: body.bonusAmount && body.spendRequirement !== "" ? Number(body.spendRequirement || 0) : null,
+      bonus_period_months: body.bonusAmount ? Number(body.bonusPeriodMonths || 3) : null,
       annual_fee: Number(body.annualFee || 0),
       bonus_received: Boolean(body.bonusReceived),
       status: body.approvedOn ? "active" : "pending",
@@ -263,6 +271,11 @@ export async function applyAction(context: HouseholdContext, body: Record<string
       status: "closed",
       closed_on: String(body.closedOn),
       closed_how: String(body.closedHow || "closed in Cardfolio"),
+    }).eq("household_id", householdId).eq("id", Number(body.accountId));
+    if (error) throw error;
+  } else if (action === "toggleBonus") {
+    const { error } = await db.from("accounts").update({
+      bonus_received: Boolean(body.received),
     }).eq("household_id", householdId).eq("id", Number(body.accountId));
     if (error) throw error;
   } else if (action === "toggleUsage") {

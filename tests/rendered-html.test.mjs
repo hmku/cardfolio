@@ -14,8 +14,11 @@ test("Cardfolio replaces every temporary starter marker", async () => {
   assert.match(page, /AuthGate/);
   assert.match(authGate, /signInWithOtp/);
   assert.match(layout, /Cardfolio/);
-  assert.match(component, /5\/24 status/);
+  assert.match(component, /5\/24 by cardholder/);
   assert.match(component, /Annual fee watchlist/);
+  assert.match(component, /Signup bonuses in progress/);
+  assert.match(component, /Qualification period/);
+  assert.match(component, /kind-pill/);
   assert.match(component, /Usage by card/);
   assert.match(component, /Card types/);
   assert.match(component, /Annual fee/);

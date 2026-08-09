@@ -130,7 +130,7 @@ export function TrackerApp({ accessToken, userEmail, onSignOut }: { accessToken:
   const approvedAccounts = ownerAccounts.filter((account) => Boolean(account.approvedOn));
   const activeAccounts = ownerAccounts.filter((account) => Boolean(account.approvedOn) && !account.closedOn);
   const fiveTwentyFourByOwner = owners.map((name) => {
-    const window = fiveTwentyFourAccounts(data.accounts.filter((account) => account.owner === name), referenceDate);
+    const window = fiveTwentyFourAccounts((data?.accounts ?? []).filter((account) => account.owner === name), referenceDate);
     const nextDrop = [...window].sort((a, b) => String(a.approvedOn).localeCompare(String(b.approvedOn)))[0] || null;
     return { owner: name, window, nextDrop };
   });

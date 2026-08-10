@@ -22,6 +22,8 @@ test("Cardfolio replaces every temporary starter marker", async () => {
   assert.match(component, /Qualification period/);
   assert.match(component, /kind-pill/);
   assert.match(component, /Usage by card/);
+  assert.match(component, /Sorted by card opening date, newest first/);
+  assert.match(component, /String\(b\.account\.approvedOn\)\.localeCompare\(String\(a\.account\.approvedOn\)\)/);
   assert.match(component, /Important credits/);
   assert.match(component, /Clear, office supply, and wireless/);
   assert.match(component, /Credits this period/);

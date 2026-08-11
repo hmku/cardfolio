@@ -250,6 +250,10 @@ export function TrackerApp({ accessToken, userEmail, onSignOut }: { accessToken:
     .filter((item) => !item.used)
     .sort((a, b) => a.period.end.getTime() - b.period.end.getTime());
 
+  const creditPreviewGroups = priorityBenefitSummaries
+    .map((summary) => ({ summary, outstanding: summary.accounts.filter((row) => !row.used) }))
+    .filter((group) => group.outstanding.length > 0);
+
   const creditsUsed = benefitSummaries.reduce((total, summary) => total + summary.used, 0);
   const creditsTotal = benefitSummaries.reduce((total, summary) => total + summary.total, 0);
 
@@ -566,7 +570,7 @@ export function TrackerApp({ accessToken, userEmail, onSignOut }: { accessToken:
               <article className="panel review-panel">
                 <div className="panel-heading"><div><p className="eyebrow">Needs attention</p><h2>Action queue</h2></div><button className="text-button" onClick={() => { setStatus("all"); setView("cards"); }}>View cards →</button></div>
                 <div className="review-list">
-                  {actionQueue.slice(0, 5).map(({ account, action }) => <div className="review-row" key={account.id}><span className={`issuer-badge ${account.issuer.replace(/\s/g, "").toLowerCase()}`}>{initials(account.issuer)}</span><button className="review-card-name card-link" onClick={() => openAccountDetails(account)}><strong>{account.cardName}{account.cardIndex ? ` ·${account.cardIndex}` : ""}</strong><span>{account.owner} · {account.openedHow || "Opening method not recorded"}</span></button><span className="action-code">{action}</span>{action === "CLOSE" ? <button className="row-action" onClick={() => openCloseAccount(account)} disabled={saving}>Close</button> : <button className="row-action" onClick={() => openAccountDetails(account)} disabled={saving}>Review</button>}</div>)}
+                  {actionQueue.slice(0, 5).map(({ account, action }) => <div className="review-row" key={account.id}><span className={`issuer-badge ${account.issuer.replace(/\s/g, "").toLowerCase()}`}>{initials(account.issuer)}</span><button className="review-card-name card-link" onClick={() => openAccountDetails(account)}><strong>{account.cardName}{account.cardIndex ? ` ·${account.cardIndex}` : ""}</strong><span>{account.owner} · opened {formatDate(account.approvedOn || account.appliedOn)} · {account.openedHow || "method not recorded"}</span></button><span className="action-code">{action}</span>{action === "CLOSE" ? <button className="row-action" onClick={() => openCloseAccount(account)} disabled={saving}>Close</button> : <button className="row-action" onClick={() => openAccountDetails(account)} disabled={saving}>Review</button>}</div>)}
                   {actionQueue.length === 0 && <div className="empty-state">No cards currently match the spreadsheet action rules.</div>}
                 </div>
               </article>
@@ -596,7 +600,8 @@ export function TrackerApp({ accessToken, userEmail, onSignOut }: { accessToken:
             <article className="panel credits-preview">
               <div className="panel-heading"><div><p className="eyebrow">Use it or lose it</p><h2>Credits in progress</h2></div><button className="text-button" onClick={() => setView("credits")}>Manage all credits →</button></div>
               <div className="credit-preview-grid">
-                {urgentCreditInstances.slice(0, 4).map((item) => <button className="credit-preview-card" key={`${item.benefit.id}-${item.account.id}`} onClick={() => { setExpandedBenefit(item.benefit.id); setView("credits"); }}><div><span className="mini-card-mark">{initials(item.benefit.cardName)}</span><span><strong>{item.benefit.name}</strong><small>{item.account.owner} · {item.benefit.cardName}</small></span><b>{money.format(item.benefit.amount)}</b></div><p className="credit-due"><span>{formatDate(item.period.start.toISOString().slice(0, 10))}–{formatDate(item.period.end.toISOString().slice(0, 10))}</span><strong>{daysUntilDate(item.period.end, referenceDate)}d left</strong></p></button>)}
+                {creditPreviewGroups.slice(0, 4).map(({ summary, outstanding }) => <button className="credit-preview-card" key={summary.benefit.id} onClick={() => { setExpandedBenefit(summary.benefit.id); setView("credits"); }}><div><span className="mini-card-mark">{initials(summary.benefit.cardName)}</span><span><strong>{summary.benefit.name}</strong><small>{summary.benefit.cardName} · {outstanding.length} {outstanding.length === 1 ? "card" : "cards"}</small></span><b>{money.format(summary.benefit.amount)}</b></div><div className="credit-preview-accounts">{outstanding.map(({ account, period }) => <span className="credit-preview-account" key={account.id}><span><strong>{account.owner} · {account.cardName}{account.cardIndex ? ` ${account.cardIndex}` : ""}</strong><small>Opened {formatDate(account.approvedOn)}</small></span><em>{daysUntilDate(period.end, referenceDate)}d left</em></span>)}</div></button>)}
+                {creditPreviewGroups.length === 0 && <div className="empty-state">All priority credits are marked used for their current periods.</div>}
               </div>
             </article>
           </section>

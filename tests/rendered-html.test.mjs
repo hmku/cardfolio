@@ -18,10 +18,13 @@ test("Cardfolio replaces every temporary starter marker", async () => {
   assert.match(component, /5\/24 by cardholder/);
   assert.match(component, /Action queue/);
   assert.match(component, /cardAction\(account, data\.accounts, referenceDate, data\.actionRules\)/);
+  assert.match(component, /opened \{formatDate\(account\.approvedOn \|\| account\.appliedOn\)\}/);
   assert.match(component, /Signup bonuses in progress/);
   assert.match(component, /Qualification period/);
   assert.match(component, /kind-pill/);
   assert.match(component, /Usage by card/);
+  assert.match(component, /creditPreviewGroups/);
+  assert.match(component, /credit-preview-accounts/);
   assert.match(component, /Sorted by card opening date, newest first/);
   assert.match(component, /String\(b\.account\.approvedOn\)\.localeCompare\(String\(a\.account\.approvedOn\)\)/);
   assert.match(component, /Important credits/);

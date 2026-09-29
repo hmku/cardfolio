@@ -21,3 +21,8 @@ Update it in the same commit as the related change.
 - Schema changes go in a new file in `supabase/migrations/` (never edit applied ones).
 - Before pushing, run `npm run check` (lint, type-check, tests, build).
 - Commit to `main`; Vercel deploys every push.
+
+## Always commit and push
+
+After every change, commit it and push to `main` right away, without waiting to be asked.
+Run `npm run check` first; if it fails, fix the problem rather than pushing a broken build.

@@ -67,7 +67,6 @@ button { cursor: pointer; }
 /* People strip */
 .people { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 10px; }
 .person { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; align-items: center; text-align: left; }
-.person.selected { border-color: var(--ink); }
 .person .dot { grid-row: span 2; }
 .person strong { font-size: 15px; }
 .person .facts { display: flex; flex-wrap: wrap; gap: 4px 14px; color: var(--muted); font-size: 13px; }
@@ -223,3 +222,30 @@ button:disabled { opacity: .55; cursor: default; }
 td.sticky, th.sticky { max-width: min(15rem, 46vw); }
 td.sticky { white-space: normal; overflow-wrap: break-word; min-width: 6.5rem; }
 td.sticky .who { flex-wrap: wrap; }
+
+/* To-do list (top of both tabs) */
+.todo { display: grid; gap: 6px; }
+.todo-head { display: flex; align-items: baseline; gap: 8px; padding-inline: 2px; }
+.todo-head h2 { font-size: 15px; margin: 0; }
+.todo-head .meta { color: var(--due); font-size: 13px; font-weight: 600; }
+.todo-more { justify-self: start; }
+@media (max-width: 600px) {
+  .due-item { flex-wrap: wrap; gap: 2px 10px; }
+  .due-item .when { margin-left: 74px; flex-basis: 100%; }
+}
+
+/* Cards tab: a table on wide screens, stacked tiles on phones */
+.tiles { display: none; list-style: none; margin: 0; padding: 0; }
+.tiles li + li { border-top: 1px solid var(--line); }
+.tile { display: grid; gap: 5px; width: 100%; text-align: left; border: 0; background: transparent; padding: 11px 14px; }
+.tile:active { background: var(--surface-2); }
+.tile-title { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.tile-facts { color: var(--muted); font-size: 13px; }
+.tile.dim .who, .tile.dim .tile-facts { color: var(--faint); }
+.card-table td { white-space: nowrap; }
+.card-table td.sticky { white-space: normal; }
+.show-closed { justify-self: center; }
+@media (max-width: 720px) {
+  .card-table { display: none; }
+  .tiles { display: block; }
+}

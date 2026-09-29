@@ -43,6 +43,11 @@ done and move them to **Done** with the date.
 
 ## Done
 
+- 2026-09-29: UI revamp: two tabs, Cards (every account, newest first; table on desktop,
+  tiles on phones; closed & declined behind a toggle) and Credits (the checkbox grids only).
+  A to-do list (credits, reviews, bonuses, pending applications) sits at the top of both.
+  The per-person filter is gone; the cardholder cards are stats only.
+
 - 2026-09-29: Card labels use cardholder initials like 1Password ("biz plat HK7", "csr SL1");
   initials are editable in Settings → Cardholders and inferred from the sheet on import.
 

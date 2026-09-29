@@ -8,20 +8,22 @@ import { bonusLabel, cardTag, holdingName, indexPortfolio, shortName, type Accou
 import { dueItems, personStats, type DueItem } from "../lib/core/stats";
 import * as data from "../lib/data";
 import { AccountDrawer, type ProductChange } from "./AccountDrawer";
-import { CardGroups, groupId, OtherCards, PendingApplications, TimelineTable, type CellTarget } from "./CardGroups";
+import { CardGroups, groupId, type CellTarget } from "./CardGroups";
+import { CardList } from "./CardList";
 import { CreditMenu } from "./CreditCell";
 import { SettingsDrawer, type Membership } from "./SettingsDrawer";
 import { CheckIcon, Dot, inDays, money, personTone, shortDate, Toast, type ToastMessage } from "./ui";
 
 type Props = { db: SupabaseClient; accessToken: string; onSignOut: () => Promise<void> };
-type View = "cards" | "timeline";
-type Prefs = { person: number | "all"; view: View; collapsed: Record<string, boolean>; history: boolean };
+type View = "cards" | "credits";
+type Prefs = { view: View; collapsed: Record<string, boolean>; showClosed: boolean };
 type Panel = { kind: "account"; id: number | null } | { kind: "settings" } | null;
 type Menu = { target: CellTarget; anchor: DOMRect } | null;
 
-const PREFS_KEY = "cardfolio-prefs-v2";
+const PREFS_KEY = "cardfolio-prefs-v3";
+const TODO_PREVIEW = 5;
 const LIVE_TABLES = ["accounts", "account_products", "credits", "credit_uses", "credit_opt_outs", "products", "people", "action_rules"];
-const DEFAULT_PREFS: Prefs = { person: "all", view: "cards", collapsed: {}, history: false };
+const DEFAULT_PREFS: Prefs = { view: "cards", collapsed: {}, showClosed: false };
 
 function readPrefs(): Prefs {
   if (typeof window === "undefined") return DEFAULT_PREFS;
@@ -53,7 +55,7 @@ export function Portfolio({ db, accessToken, onSignOut }: Props) {
   const [loadError, setLoadError] = useState("");
   const [today, setToday] = useState(() => atNoon(new Date()));
   const [prefs, setPrefs] = useState<Prefs>(readPrefs);
-  const [dueOnly, setDueOnly] = useState(false);
+  const [showAllTodos, setShowAllTodos] = useState(false);
   const [search, setSearch] = useState("");
   const [panel, setPanel] = useState<Panel>(null);
   const [menu, setMenu] = useState<Menu>(null);
@@ -192,7 +194,6 @@ export function Portfolio({ db, accessToken, onSignOut }: Props) {
   // ---------- filters ----------
   const include = useCallback((account: Account) => {
     if (!portfolio) return false;
-    if (prefs.person !== "all" && account.personId !== prefs.person) return false;
     if (!search) return true;
     const haystack = [
       portfolio.person(account.personId)?.name,
@@ -203,10 +204,9 @@ export function Portfolio({ db, accessToken, onSignOut }: Props) {
       }),
     ].join(" ").toLowerCase();
     return search.toLowerCase().split(/\s+/).every((word) => haystack.includes(word));
-  }, [portfolio, prefs.person, search]);
+  }, [portfolio, search]);
 
   const due = useMemo(() => (portfolio ? dueItems(portfolio, today, include) : []), [portfolio, today, include]);
-  const dueHoldings = useMemo(() => new Set(due.flatMap((item) => (item.kind === "credit" ? item.holdings.map((holding) => holding.id) : [portfolio?.current(item.account.id)?.id ?? -1]))), [due, portfolio]);
 
   if (loadError && !portfolio) {
     return (
@@ -227,15 +227,15 @@ export function Portfolio({ db, accessToken, onSignOut }: Props) {
   const people = [...portfolio.people].sort((left, right) => left.sort - right.sort);
   const viewerPerson = people.find((person) => person.email && person.email.toLowerCase() === membership.email.toLowerCase()) || people[0];
   const groupProps = {
-    portfolio, today, include, dueOnly, dueHoldings, collapsed: prefs.collapsed,
+    portfolio, today, include, collapsed: prefs.collapsed,
     onCollapse: (key: string) => updatePrefs({ collapsed: { ...prefs.collapsed, [key]: !prefs.collapsed[key] } }),
     onOpenAccount: (id: number) => setPanel({ kind: "account", id }),
     onToggle: toggleCredit,
     onMenu: (target: CellTarget, anchor: DOMRect) => setMenu({ target, anchor }),
   };
-  const history = portfolio.accounts.filter((account) => (account.status === "closed" || account.status === "declined") && include(account))
-    .sort((left, right) => String(right.closedOn || right.appliedOn).localeCompare(String(left.closedOn || left.appliedOn)));
-  const timeline = portfolio.accounts.filter(include)
+  const isCurrent = (account: Account) => account.status === "open" || account.status === "pending";
+  const hiddenCount = portfolio.accounts.filter((account) => !isCurrent(account) && include(account)).length;
+  const cardList = portfolio.accounts.filter((account) => include(account) && (prefs.showClosed || isCurrent(account)))
     .sort((left, right) => String(right.appliedOn || right.approvedOn).localeCompare(String(left.appliedOn || left.approvedOn)) || right.id - left.id);
   const menuState = menu ? creditState(portfolio, menu.target.credit, menu.target.holding, today) : null;
   const selectedAccount = panel?.kind === "account" && panel.id !== null ? portfolio.account(panel.id) : undefined;
@@ -274,9 +274,8 @@ export function Portfolio({ db, accessToken, onSignOut }: Props) {
       <section className="people" aria-label="Cardholders">
         {people.map((person) => {
           const stats = personStats(portfolio, person.id, today);
-          const selected = prefs.person === person.id;
           return (
-            <button key={person.id} type="button" className={`person ${selected ? "selected" : ""}`} aria-pressed={selected} onClick={() => updatePrefs({ person: selected ? "all" : person.id })}>
+            <div key={person.id} className="person">
               <Dot name={person.name} tone={personTone(person.sort)} large />
               <strong>{person.name}</strong>
               <span className="facts">
@@ -285,47 +284,60 @@ export function Portfolio({ db, accessToken, onSignOut }: Props) {
                 <span>5/24 <b className="num">{stats.fiveTwentyFour.count}</b>{stats.fiveTwentyFour.nextDrop ? `, drops ${shortDate(stats.fiveTwentyFour.nextDrop)}` : ""}</span>
                 {stats.pending > 0 && <span><b className="num">{stats.pending}</b> pending</span>}
               </span>
-            </button>
+            </div>
           );
         })}
       </section>
 
       <div className="toolbar" role="toolbar" aria-label="View options">
-        <div className="seg" aria-label="Show cards for">
-          <button type="button" aria-pressed={prefs.person === "all"} onClick={() => updatePrefs({ person: "all" })}>Everyone</button>
-          {people.map((person) => <button key={person.id} type="button" aria-pressed={prefs.person === person.id} onClick={() => updatePrefs({ person: person.id })}>{person.name}</button>)}
+        <div className="seg" aria-label="View">
+          <button type="button" aria-pressed={prefs.view === "cards"} onClick={() => updatePrefs({ view: "cards" })}>Cards</button>
+          <button type="button" aria-pressed={prefs.view === "credits"} onClick={() => updatePrefs({ view: "credits" })}>Credits</button>
         </div>
-        <div className="seg" aria-label="Layout">
-          <button type="button" aria-pressed={prefs.view === "cards"} onClick={() => updatePrefs({ view: "cards" })}>By card</button>
-          <button type="button" aria-pressed={prefs.view === "timeline"} onClick={() => updatePrefs({ view: "timeline" })}>Timeline</button>
-        </div>
-        {prefs.view === "cards" && (
-          <button type="button" className="chip-toggle" aria-pressed={dueOnly} onClick={() => setDueOnly(!dueOnly)}>Due soon <span className="count num">{due.length}</span></button>
-        )}
         <input className="search" type="search" placeholder="Search cards, notes, last digits" aria-label="Search cards, notes, or last digits" value={search} onChange={(event) => setSearch(event.target.value)} />
       </div>
 
       <main style={{ display: "grid", gap: 14 }}>
+        {due.length > 0 && (
+          <section className="todo" aria-label="To do">
+            <div className="todo-head"><h2>To do</h2><span className="meta num">{due.length}</span></div>
+            <div className="due-list">
+              {(showAllTodos ? due : due.slice(0, TODO_PREVIEW)).map((item, index) => {
+                const text = dueText(portfolio, item);
+                const accountId = item.kind === "credit" ? null : item.account.id;
+                const product = item.kind === "credit" ? portfolio.product(item.credit.productId) : undefined;
+                return (
+                  <button key={index} type="button" className="due-item" onClick={() => {
+                    if (accountId !== null) setPanel({ kind: "account", id: accountId });
+                    else if (product) {
+                      updatePrefs({ view: "credits", collapsed: { ...prefs.collapsed, [`product-${product.id}`]: false } });
+                      requestAnimationFrame(() => document.getElementById(groupId(product.slug))?.scrollIntoView({ behavior: "smooth", block: "start" }));
+                    }
+                  }}>
+                    <span className="due-kind">{text.label}</span><span>{text.text}</span><span className="when">{text.when}</span>
+                  </button>
+                );
+              })}
+            </div>
+            {due.length > TODO_PREVIEW && (
+              <button type="button" className="btn small todo-more" onClick={() => setShowAllTodos(!showAllTodos)}>
+                {showAllTodos ? "Show fewer" : `Show all ${due.length}`}
+              </button>
+            )}
+          </section>
+        )}
+
         {prefs.view === "cards" ? (
           <>
-            {dueOnly && (due.length ? (
-              <div className="due-list">
-                {due.map((item, index) => {
-                  const text = dueText(portfolio, item);
-                  const accountId = item.kind === "credit" ? null : item.account.id;
-                  const slug = item.kind === "credit" ? portfolio.product(item.credit.productId)?.slug : null;
-                  return (
-                    <button key={index} type="button" className="due-item" onClick={() => {
-                      if (accountId !== null) setPanel({ kind: "account", id: accountId });
-                      else if (slug) document.getElementById(groupId(slug))?.scrollIntoView({ behavior: "smooth", block: "start" });
-                    }}>
-                      <span className="due-kind">{text.label}</span><span>{text.text}</span><span className="when">{text.when}</span>
-                    </button>
-                  );
-                })}
-              </div>
-            ) : <div className="empty">Nothing is due in the next month.</div>)}
-
+            <CardList portfolio={portfolio} accounts={cardList} today={today} onOpenAccount={groupProps.onOpenAccount} />
+            {hiddenCount > 0 && (
+              <button type="button" className="btn show-closed" aria-pressed={prefs.showClosed} onClick={() => updatePrefs({ showClosed: !prefs.showClosed })}>
+                {prefs.showClosed ? "Hide closed & declined" : `Show closed & declined (${hiddenCount})`}
+              </button>
+            )}
+          </>
+        ) : (
+          <>
             <div className="legend">
               <span><span className="cell used"><CheckIcon /></span>Used</span>
               <span><span className="cell partial" style={{ width: 26 }}><span className="num" style={{ fontSize: 9 }}>$30</span></span>Partly used</span>
@@ -333,27 +345,9 @@ export function Portfolio({ db, accessToken, onSignOut }: Props) {
               <span><span className="cell off">–</span>Not enrolled</span>
               <span>Tap a box to mark it used. Press and hold (or right-click) for a partial amount or to mark it not enrolled.</span>
             </div>
-
-            {!dueOnly && <PendingApplications {...groupProps} />}
             <CardGroups {...groupProps} />
-            <OtherCards {...groupProps} />
-
-            {!dueOnly && (
-              <section className={`group ${prefs.history ? "" : "collapsed"}`} id="g-history">
-                <button type="button" className="group-head" aria-expanded={prefs.history} onClick={() => updatePrefs({ history: !prefs.history })}>
-                  <span className="caret" aria-hidden="true">▾</span><h2>History</h2>
-                  <span className="meta">{history.filter((account) => account.status === "closed").length} closed · {history.filter((account) => account.status === "declined").length} declined · still counted for 5/24 and card numbers</span>
-                </button>
-                <div className="table-wrap">{prefs.history && <TimelineTable portfolio={portfolio} accounts={history} onOpenAccount={groupProps.onOpenAccount} />}</div>
-              </section>
-            )}
           </>
-        ) : timeline.length ? (
-          <section className="group">
-            <div className="group-head"><h2>All cards, newest first</h2><span className="meta">{timeline.length} accounts</span></div>
-            <div className="table-wrap"><TimelineTable portfolio={portfolio} accounts={timeline} onOpenAccount={groupProps.onOpenAccount} /></div>
-          </section>
-        ) : <div className="empty">No cards match.</div>}
+        )}
       </main>
 
       {panel?.kind === "account" && (
@@ -361,7 +355,7 @@ export function Portfolio({ db, accessToken, onSignOut }: Props) {
           key={panel.id ?? "new"}
           portfolio={portfolio}
           accountId={panel.id}
-          defaultPersonId={prefs.person === "all" ? viewerPerson?.id ?? 0 : prefs.person}
+          defaultPersonId={viewerPerson?.id ?? 0}
           today={today}
           onClose={() => setPanel(null)}
           onSave={saveAccount}

@@ -56,7 +56,7 @@ export async function loadPortfolio(db: SupabaseClient, householdId: string): Pr
   ]);
   return {
     people: people.map((row) => ({ id: num(row.id), name: String(row.name), email: text(row.email), sort: num(row.sort) })),
-    products: products.map((row) => ({ id: num(row.id), slug: String(row.slug), name: String(row.name), issuer: String(row.issuer), kind: row.kind as Kind, annualFeeCents: num(row.annual_fee_cents) })),
+    products: products.map((row) => ({ id: num(row.id), slug: String(row.slug), name: String(row.name), shortName: text(row.short_name), issuer: String(row.issuer), kind: row.kind as Kind, annualFeeCents: num(row.annual_fee_cents) })),
     accounts: accounts.map((row) => ({
       id: num(row.id),
       personId: num(row.person_id),
@@ -173,11 +173,17 @@ export async function deleteCredit(context: Context, id: number) {
 
 // ---------- card types and rules ----------
 
-export type ProductDraft = Pick<Product, "name" | "issuer" | "kind" | "annualFeeCents"> & { slug?: string };
+export type ProductDraft = Pick<Product, "name" | "issuer" | "kind" | "annualFeeCents"> & { slug?: string; shortName?: string | null };
 
 export async function saveProduct(context: Context, id: number | null, draft: ProductDraft) {
   const { db, householdId } = context;
-  const values = { name: draft.name.trim(), issuer: draft.issuer.trim() || "Other", kind: draft.kind, annual_fee_cents: Math.round(draft.annualFeeCents) };
+  const values = {
+    name: draft.name.trim(),
+    issuer: draft.issuer.trim() || "Other",
+    kind: draft.kind,
+    annual_fee_cents: Math.round(draft.annualFeeCents),
+    ...(draft.shortName !== undefined && { short_name: draft.shortName?.trim() || null }),
+  };
   if (id !== null) {
     check(await db.from("products").update(values).eq("household_id", householdId).eq("id", id), "save the card type");
     return id;

@@ -118,7 +118,7 @@ export type ImportedCredit = {
 
 export type ImportPlan = {
   people: string[];
-  products: Array<{ slug: string; name: string; issuer: string; kind: Kind; annualFeeCents: number }>;
+  products: Array<{ slug: string; name: string; shortName: string | null; issuer: string; kind: Kind; annualFeeCents: number }>;
   accounts: ImportedAccount[];
   credits: ImportedCredit[];
   warnings: string[];
@@ -364,6 +364,7 @@ export function planSheetImport(trackerRows: SheetTrackerRow[], creditRows: Shee
     return {
       slug,
       name: catalog?.name || titleCase(slug),
+      shortName: null,
       issuer: catalog?.issuer || "Other",
       kind: catalog?.kind || "personal",
       annualFeeCents: latest?.holding.annualFeeCents || 0,

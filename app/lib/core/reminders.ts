@@ -1,5 +1,5 @@
 import { addDays, parseDate } from "./dates.ts";
-import { bonusLabel, formatMoney, holdingName, type Portfolio } from "./model.ts";
+import { bonusLabel, formatMoney, holdingName, shortName, type Portfolio } from "./model.ts";
 import { ruleMatches } from "./rules.ts";
 import { dueItems, type DueItem } from "./stats.ts";
 
@@ -20,7 +20,7 @@ const when = (days: number) => (days === 0 ? "today" : days === 1 ? "tomorrow" :
 
 function line(portfolio: Portfolio, item: DueItem) {
   if (item.kind === "credit") {
-    const product = portfolio.product(item.credit.productId)?.name || "";
+    const product = shortName(portfolio.product(item.credit.productId));
     return `${item.credit.name} ${formatMoney(item.credit.amountCents)} on ${plural(item.holdings.length, product)}: ${item.period.label} ends ${when(item.daysLeft)}`;
   }
   const person = portfolio.person(item.account.personId)?.name || "";

@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { creditIsDue, creditState, eligibleHoldings } from "../lib/core/credits";
 import { isoDate } from "../lib/core/dates";
-import { holdingName, nextHoldingNumber, type Account, type BonusUnit, type Holding, type Kind, type OpenedVia, type Portfolio } from "../lib/core/model";
+import { holdingName, nextHoldingNumber, shortName, type Account, type BonusUnit, type Holding, type Kind, type OpenedVia, type Portfolio } from "../lib/core/model";
 import type { AccountDraft, ProductDraft } from "../lib/data";
 import type { CellTarget } from "./CardGroups";
 import { CreditCell } from "./CreditCell";
@@ -209,7 +209,7 @@ export function AccountDrawer(props: Props) {
               return (
                 <li key={holding.id} className={holding.id === current.id && account.status === "open" ? "current" : ""}>
                   <span className="grow">
-                    <strong>{holdingName(portfolio, holding)}</strong>
+                    <strong>{holdingName(portfolio, holding, true)}</strong>
                     <br /><small>{holding.change === "opened" ? "Opened" : holding.change === "upgrade" ? "Upgraded" : "Downgraded"} {fullDate(holding.startedOn)}{end ? ` · until ${fullDate(end)}` : ""}</small>
                   </span>
                   <span className="num">{holding.annualFeeCents ? money(holding.annualFeeCents) : "no fee"}</span>
@@ -248,7 +248,7 @@ export function AccountDrawer(props: Props) {
               </div>
               <p className="hint">
                 {change.productId !== "new" && change.productId
-                  ? `Becomes ${portfolio.product(change.productId)?.name} #${nextHoldingNumber(portfolio.holdings, account.personId, change.productId)}. `
+                  ? `Becomes ${shortName(portfolio.product(change.productId))} #${nextHoldingNumber(portfolio.holdings, account.personId, change.productId)}. `
                   : ""}
                 The account keeps its opening date, so 5/24 doesn&apos;t change.
               </p>

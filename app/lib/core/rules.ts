@@ -33,7 +33,7 @@ function matchesCard(portfolio: Portfolio, account: Account, names: string[]) {
   const product = portfolio.product(portfolio.current(account.id)?.productId ?? -1);
   if (!product) return false;
   const wanted = new Set(names.map((name) => name.trim().toLowerCase()));
-  return wanted.has(product.slug.toLowerCase()) || wanted.has(product.name.toLowerCase());
+  return [product.slug, product.name, product.shortName].some((name) => name && wanted.has(name.toLowerCase()));
 }
 
 export function ruleMatches(portfolio: Portfolio, rule: ActionRule, account: Account, today: Date) {

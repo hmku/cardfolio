@@ -4,7 +4,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { creditState } from "../lib/core/credits";
 import { atNoon } from "../lib/core/dates";
-import { bonusLabel, holdingName, indexPortfolio, type Account, type Portfolio as PortfolioModel, type PortfolioData } from "../lib/core/model";
+import { bonusLabel, holdingName, indexPortfolio, shortName, type Account, type Portfolio as PortfolioModel, type PortfolioData } from "../lib/core/model";
 import { dueItems, personStats, type DueItem } from "../lib/core/stats";
 import * as data from "../lib/data";
 import { AccountDrawer, type ProductChange } from "./AccountDrawer";
@@ -35,7 +35,7 @@ function dueText(portfolio: PortfolioModel, item: DueItem) {
   };
   switch (item.kind) {
     case "credit":
-      return { label: "Credit", text: `${item.credit.name} ${money(item.credit.amountCents)} on ${portfolio.product(item.credit.productId)?.name}: ${item.holdings.length} card${item.holdings.length === 1 ? "" : "s"} left`, when: `${item.period.label} ends ${inDays(item.daysLeft)}` };
+      return { label: "Credit", text: `${item.credit.name} ${money(item.credit.amountCents)} on ${shortName(portfolio.product(item.credit.productId))}: ${item.holdings.length} card${item.holdings.length === 1 ? "" : "s"} left`, when: `${item.period.label} ends ${inDays(item.daysLeft)}` };
     case "review":
       return { label: "Review", text: `${item.rule.name}: ${who(item.account)}`, when: "" };
     case "bonus":
@@ -163,7 +163,7 @@ export function Portfolio({ db, accessToken, onSignOut }: Props) {
           ...(amountCents === null ? [] : [{ id: -Date.now(), creditId: credit.id, holdingId: holding.id, periodKey, amountCents, usedOn: null, recordedBy: membership?.email || null, source: "manual" as const }]),
         ],
       }),
-      success: `${message} ${credit.name} on ${portfolio.product(credit.productId)?.name} · ${holdingLabel}`,
+      success: `${message} ${credit.name} on ${shortName(portfolio.product(credit.productId))} · ${holdingLabel}`,
       undo: () => setUse(target, previous, "Restored"),
     });
   }
@@ -199,7 +199,7 @@ export function Portfolio({ db, accessToken, onSignOut }: Props) {
       account.note,
       ...portfolio.holdingsOf(account.id).flatMap((holding) => {
         const product = portfolio.product(holding.productId);
-        return [product?.name, product?.slug, product?.issuer, holding.last4, holding.number ? `#${holding.number}` : ""];
+        return [product?.name, product?.slug, product?.shortName, product?.issuer, holding.last4, holding.number ? `#${holding.number}` : ""];
       }),
     ].join(" ").toLowerCase();
     return search.toLowerCase().split(/\s+/).every((word) => haystack.includes(word));
@@ -412,7 +412,7 @@ export function Portfolio({ db, accessToken, onSignOut }: Props) {
           credit={menu.target.credit}
           state={menuState}
           anchor={menu.anchor}
-          heading={`${portfolio.product(menu.target.credit.productId)?.name} · ${portfolio.person(menu.target.holding.personId)?.name} #${menu.target.holding.number ?? "?"}`}
+          heading={`${shortName(portfolio.product(menu.target.credit.productId))} · ${portfolio.person(menu.target.holding.personId)?.name} #${menu.target.holding.number ?? "?"}`}
           onClose={() => setMenu(null)}
           onUse={(amountCents) => { setMenu(null); setUse(menu.target, amountCents, amountCents === null ? "Cleared" : amountCents >= menu.target.credit.amountCents ? "Marked used:" : `Logged ${money(amountCents)} of`); }}
           onEnroll={(enrolled) => { setMenu(null); setEnrolled(menu.target, enrolled); }}

@@ -3,7 +3,7 @@
 import { useState, type FormEvent } from "react";
 import { CADENCE_LABELS } from "../lib/core/credits";
 import { exportTables, toCsv } from "../lib/core/export";
-import type { Cadence, Credit, Kind, Portfolio, Product } from "../lib/core/model";
+import { shortName, type Cadence, type Credit, type Kind, type Portfolio, type Product } from "../lib/core/model";
 import { describeRule, DEFAULT_ACTION_RULES } from "../lib/core/rules";
 import type { CreditDraft, ProductDraft } from "../lib/data";
 import { ReminderSettings } from "./ReminderSettings";
@@ -71,7 +71,7 @@ function CreditRow({ credit, onSave, onDelete }: { credit: Credit; onSave: Props
 function ProductSettings({ portfolio, product, onSaveProduct, onSaveCredit, onDeleteCredit }: { portfolio: Portfolio; product: Product } & Pick<Props, "onSaveProduct" | "onSaveCredit" | "onDeleteCredit">) {
   const credits = portfolio.credits.filter((credit) => credit.productId === product.id).sort((left, right) => left.sort - right.sort);
   const open = portfolio.accounts.filter((account) => account.status === "open" && portfolio.current(account.id)?.productId === product.id).length;
-  const [draft, setDraft] = useState<ProductDraft>({ name: product.name, issuer: product.issuer, kind: product.kind, annualFeeCents: product.annualFeeCents });
+  const [draft, setDraft] = useState<ProductDraft>({ name: product.name, shortName: product.shortName ?? "", issuer: product.issuer, kind: product.kind, annualFeeCents: product.annualFeeCents });
   const [newCredit, setNewCredit] = useState({ name: "", amount: "", cadence: "calendar_year" as Cadence });
   const saveProduct = (patch: Partial<ProductDraft>) => {
     const next = { ...draft, ...patch };
@@ -86,9 +86,10 @@ function ProductSettings({ portfolio, product, onSaveProduct, onSaveCredit, onDe
   };
   return (
     <details className="product-card">
-      <summary><strong>{product.name}</strong><span className="sub">{open} open · {credits.length ? `${credits.length} credit${credits.length === 1 ? "" : "s"}` : "no credits"}</span></summary>
+      <summary><strong>{product.name}</strong><span className="sub">{shortName(product)}</span><span className="sub">{open} open · {credits.length ? `${credits.length} credit${credits.length === 1 ? "" : "s"}` : "no credits"}</span></summary>
       <div className="fields">
         <label className="f full">Name<input value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} onBlur={() => saveProduct({})} /></label>
+        <label className="f">Short name<input value={draft.shortName ?? ""} placeholder={product.slug} onChange={(event) => setDraft({ ...draft, shortName: event.target.value })} onBlur={() => saveProduct({})} /></label>
         <label className="f">Issuer<input value={draft.issuer} onChange={(event) => setDraft({ ...draft, issuer: event.target.value })} onBlur={() => saveProduct({})} /></label>
         <label className="f">Kind
           <select value={draft.kind} onChange={(event) => saveProduct({ kind: event.target.value as Kind })}>

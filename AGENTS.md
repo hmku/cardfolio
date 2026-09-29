@@ -19,6 +19,9 @@ Update it in the same commit as the related change.
 - The browser reads and writes Supabase directly under row-level security; server routes
   in `app/api/` handle membership, invites, push reminders and exports.
 - Schema changes go in a new file in `supabase/migrations/` (never edit applied ones).
+- Card names: use the short name (`shortName()` / `holdingName()`, the sheet abbreviation
+  like "biz plat #7") wherever space is tight: tables, tags, lists, toasts, notifications.
+  Keep full names (`holdingName(..., true)`) for headings, dropdowns and detail views.
 - Before pushing, run `npm run check` (lint, type-check, tests, build).
 - Commit to `main`; Vercel deploys every push.
 

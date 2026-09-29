@@ -3,7 +3,7 @@
 import type { ReactNode } from "react";
 import { creditIsDue, creditState, creditSummary, eligibleHoldings, periodFor, DUE_WINDOW_DAYS } from "../lib/core/credits";
 import { daysBetween, parseDate } from "../lib/core/dates";
-import { bonusLabel, holdingName, type Account, type Credit, type Holding, type Portfolio } from "../lib/core/model";
+import { bonusLabel, holdingName, shortName, type Account, type Credit, type Holding, type Portfolio } from "../lib/core/model";
 import { accountAction } from "../lib/core/rules";
 import { bonusStatus, BONUS_WINDOW_DAYS, feeStatus } from "../lib/core/stats";
 import { CreditCell } from "./CreditCell";
@@ -124,7 +124,7 @@ export function CardGroups(props: GroupProps) {
         return (
           <section key={key} className={`group ${isCollapsed ? "collapsed" : ""}`} id={groupId(product.slug)}>
             <GroupHead id={key} title={product.name} collapsed={isCollapsed} onToggle={onCollapse}
-              meta={`${product.issuer} · ${kind} · ${openRows.length} open${fees.length ? ` · ${fees.map(money).join(" / ")} fee` : " · no fee"}`} />
+              meta={`${shortName(product)} · ${product.issuer} · ${kind} · ${openRows.length} open${fees.length ? ` · ${fees.map(money).join(" / ")} fee` : " · no fee"}`} />
             <div className="table-wrap">
               <table>
                 <thead>
@@ -207,7 +207,7 @@ export function OtherCards({ portfolio, today, include, dueOnly, dueHoldings, co
     .filter((account) => account.status === "open" && include(account))
     .map((account) => ({ account, holding: portfolio.current(account.id)! }))
     .filter(({ holding }) => holding && !withCredits.has(holding.productId) && (!dueOnly || dueHoldings.has(holding.id)))
-    .sort((left, right) => (portfolio.product(left.holding.productId)?.name || "").localeCompare(portfolio.product(right.holding.productId)?.name || "") || left.holding.startedOn.localeCompare(right.holding.startedOn));
+    .sort((left, right) => shortName(portfolio.product(left.holding.productId)).localeCompare(shortName(portfolio.product(right.holding.productId))) || left.holding.startedOn.localeCompare(right.holding.startedOn));
   if (!rows.length) return null;
   const isCollapsed = Boolean(collapsed.other) && !dueOnly;
   return (
@@ -219,7 +219,7 @@ export function OtherCards({ portfolio, today, include, dueOnly, dueHoldings, co
           <tbody>
             {rows.map(({ account, holding }) => (
               <tr key={account.id} className="row" onClick={() => onOpenAccount(account.id)}>
-                <td className="sticky">{portfolio.product(holding.productId)?.name}</td>
+                <td className="sticky">{shortName(portfolio.product(holding.productId))}</td>
                 <td><WhoLabel portfolio={portfolio} holding={holding} /></td>
                 <td className="num">{monthYear(holding.startedOn)}</td>
                 <td className="num">{holding.annualFeeCents ? money(holding.annualFeeCents) : "—"}</td>

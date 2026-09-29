@@ -218,3 +218,8 @@ button:disabled { opacity: .55; cursor: default; }
 .auth-message.success { background: var(--used-bg); color: var(--used); }
 .auth-message.error { background: var(--alert-bg); color: var(--alert); }
 .loading-screen p { color: var(--muted); }
+
+/* The pinned first column must never grow wider than the screen, or it hides the rest. */
+td.sticky, th.sticky { max-width: min(15rem, 46vw); }
+td.sticky { white-space: normal; overflow-wrap: break-word; min-width: 6.5rem; }
+td.sticky .who { flex-wrap: wrap; }

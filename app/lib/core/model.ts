@@ -10,7 +10,12 @@ export type UseSource = "manual" | "import" | "plaid";
 
 export type Person = { id: number; name: string; email: string | null; sort: number };
 
-export type Product = { id: number; slug: string; name: string; issuer: string; kind: Kind; annualFeeCents: number };
+export type Product = { id: number; slug: string; name: string; shortName: string | null; issuer: string; kind: Kind; annualFeeCents: number };
+
+/** The compact name for tight spaces: the override if set, else the sheet abbreviation (slug). */
+export function shortName(product: Pick<Product, "slug" | "shortName"> | undefined) {
+  return product?.shortName?.trim() || product?.slug || "unknown card";
+}
 
 export type Bonus = { amount: number; unit: BonusUnit; spendCents: number | null; months: number };
 
@@ -160,10 +165,11 @@ export function nextHoldingNumber(holdings: Holding[], personId: number, product
     .reduce((highest, holding) => Math.max(highest, holding.number || 0), 0) + 1;
 }
 
-/** "CSR #5" */
-export function holdingName(portfolio: Portfolio, holding: Holding) {
+/** "CSR #5" (short name) or "Chase Sapphire Reserve #5" with `full`. */
+export function holdingName(portfolio: Portfolio, holding: Holding, full = false) {
   const product = portfolio.product(holding.productId);
-  return `${product?.name || "Unknown card"}${holding.number ? ` #${holding.number}` : ""}`;
+  const name = full ? product?.name || "Unknown card" : shortName(product);
+  return `${name}${holding.number ? ` #${holding.number}` : ""}`;
 }
 
 export function isActiveOn(portfolio: Portfolio, holding: Holding, start: Date, end: Date) {

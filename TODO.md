@@ -5,22 +5,6 @@ done and move them to **Done** with the date.
 
 ## Needs Harrison
 
-- [ ] **Send sign-in emails from cardfolio@harrisonku.com** (so the email can include the
-      6-digit code; Supabase only allows editing the template with custom SMTP)
-  1. resend.com → sign up → Domains → Add `harrisonku.com`.
-  2. Vercel → Domains → harrisonku.com → DNS Records → add each record Resend shows
-     (usually TXT `resend._domainkey`, MX + TXT for `send`). Then Verify in Resend.
-  3. Resend → API Keys → Create (Sending access, harrisonku.com only). Copy the `re_…` key.
-  4. Supabase → Authentication → Emails → Set up SMTP: host `smtp.resend.com`, port `465`,
-     username `resend`, password = the key, sender `cardfolio@harrisonku.com`, name `Cardfolio`.
-  5. Replace the **Magic Link** template body with:
-     ```html
-     <h2>Sign in to Cardfolio</h2>
-     <p>Your code: <strong>{{ .Token }}</strong></p>
-     <p>Or <a href="{{ .ConfirmationURL }}">tap here to sign in</a>.</p>
-     ```
-     Optional subject: "Your Cardfolio sign-in code".
-  6. Sign out and back in to check the email arrives with the code.
 - [ ] **Turn on reminders** on each device (Settings → Reminders → Turn on, then Send a test).
       On iPhone, add the site to the home screen first and turn it on from there. Sophia too.
 - [ ] **Card last digits from 1Password**: `brew install 1password-cli jq`, enable
@@ -38,10 +22,10 @@ done and move them to **Done** with the date.
 
 ## Optional setup
 
-- [ ] **Let Claude sign in to test**: invite e.g. `harrisonku3+cardfolio@gmail.com` from
-      Settings, connect a Gmail connector so the sign-in email can be read, and allow
-      `cardfolio.harrisonku.com` and `ylrkwnqrmuxlzouziabz.supabase.co` in the Claude Code
-      environment's network settings. The account has full edit access to real data.
+- [ ] **Let Claude sign in to test**: `devtest068@gmail.com` is invited (member) and a Gmail
+      connector for it is connected. Remaining: allow `cardfolio.harrisonku.com` and
+      `ylrkwnqrmuxlzouziabz.supabase.co` in the Claude Code environment's network settings
+      (the container can't reach either yet). The account has full edit access to real data.
 - [ ] **Google Sheet copy**: create a Google Cloud service account with the Sheets API,
       share an empty spreadsheet with it, and set `GOOGLE_SERVICE_ACCOUNT_EMAIL`,
       `GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY` and `CARDFOLIO_EXPORT_SPREADSHEET_ID` in Vercel
@@ -62,6 +46,11 @@ done and move them to **Done** with the date.
       via RPC (they only reveal the caller's own membership); consider revoking `anon`.
 
 ## Done
+
+- 2026-09-29: Sign-in emails sent from cardfolio@harrisonku.com via Resend, with the 6-digit code.
+- 2026-09-29: Short card names (the sheet abbreviations, overridable in Settings) in tables,
+  tags, due list, toasts and notifications; fixed the phone Timeline where a long product
+  history made the pinned first column cover the table.
 
 - 2026-09-29: Rebuilt as a one-page app with product histories and per-card credits;
   imported the sheet; deployed to cardfolio.harrisonku.com.

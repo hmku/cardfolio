@@ -52,11 +52,13 @@ test("product changes become one account with a product history", () => {
     .filter((account) => account.personId === personId("Harrison") && portfolio.holdingsOf(account.id).some((holding) => holding.productId === productId("csr")))
     .map((account) => portfolio.holdingsOf(account.id).map((holding) => holdingName(portfolio, holding)));
   assert.deepEqual(chains, [
-    ["Chase Freedom Unlimited #1", "Chase Sapphire Reserve #2", "Chase Freedom Flex #2", "Chase Sapphire Reserve #4", "Chase Freedom Flex #3"],
-    ["Chase Sapphire Reserve #1", "Chase Freedom Flex #1", "Chase Sapphire Reserve #3", "Chase Freedom Unlimited #2", "Chase Sapphire Reserve #5"],
+    ["cfu #1", "csr #2", "cff #2", "csr #4", "cff #3"],
+    ["csr #1", "cff #1", "csr #3", "cfu #2", "csr #5"],
   ]);
   const explorer = portfolio.holdings.filter((holding) => holding.personId === personId("Harrison") && holding.productId === productId("united explorer"));
   assert.deepEqual(explorer.map((holding) => holding.change), ["opened", "upgrade"], "the return from Gateway is an upgrade");
+  const first = portfolio.holdings.find((holding) => holding.productId === productId("csr") && holding.number === 1)!;
+  assert.equal(holdingName(portfolio, first, true), "Chase Sapphire Reserve #1", "full names are still available");
   const csr5 = portfolio.holdings.find((holding) => holding.number === 5 && holding.productId === productId("csr"))!;
   assert.equal(portfolio.current(csr5.accountId)!.annualFeeCents, 79_500);
   assert.equal(nextHoldingNumber(portfolio.holdings, personId("Harrison"), productId("csr")), 6);
@@ -79,9 +81,9 @@ test("action rules flag the same cards as the sheet", () => {
     .map(({ account, rule }) => `${rule!.actionCode} ${portfolio.person(account.personId)!.name} ${holdingName(portfolio, portfolio.current(account.id)!)}`)
     .sort();
   assert.deepEqual(flagged, [
-    "CLOSE Harrison Amex Business Platinum #7",
-    "CLOSE Harrison Wyndham Business #2",
-    "CLOSE Sophia Amex Business Platinum #4",
+    "CLOSE Harrison biz plat #7",
+    "CLOSE Harrison wyndham biz #2",
+    "CLOSE Sophia biz plat #4",
   ]);
 });
 
@@ -137,7 +139,7 @@ test("bonus deadlines and fee dates come from the approval date", () => {
 test("daily reminders ping on set days and summarize on Mondays", async () => {
   const { dailyReminder, todayInTimeZone } = await import("../app/lib/core/reminders.ts");
   const on = (date: string) => dailyReminder(portfolio, parseDate(date)!);
-  const hilton = (reminder: ReturnType<typeof on>) => reminder?.lines.some((line) => line.startsWith("Hilton $50 on 7 Amex Business Platinums: Q3 ends")) ?? false;
+  const hilton = (reminder: ReturnType<typeof on>) => reminder?.lines.some((line) => line.startsWith("Hilton $50 on 7 biz plats: Q3 ends")) ?? false;
 
   assert.ok(hilton(on("2026-09-23")), "a week before the quarter ends");
   assert.ok(hilton(on("2026-09-28")), "Monday summary");

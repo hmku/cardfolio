@@ -4,10 +4,12 @@ import { useMemo, useState } from "react";
 import { creditIsDue, creditState, eligibleHoldings } from "../lib/core/credits";
 import { isoDate } from "../lib/core/dates";
 import { holdingName, nextHoldingNumber, personCode, shortName, type Account, type BonusUnit, type Holding, type Kind, type OpenedVia, type Portfolio } from "../lib/core/model";
+import { OPENED_VIA_LABELS } from "../lib/presentation/labels";
 import type { AccountDraft, ProductDraft } from "../lib/data";
-import type { CellTarget } from "./CardGroups";
+import type { CellTarget } from "./CreditCell";
 import { CreditCell } from "./CreditCell";
-import { Drawer, fullDate, money, shortDate, toCents, toDollarsInput } from "./ui";
+import { Drawer } from "./ui";
+import { fullDate, money, shortDate, toCents, toDollarsInput } from "../lib/presentation/format";
 
 export type ProductChange = { productId: number | "new"; newProduct?: ProductDraft; date: string; annualFeeCents: number; last4: string | null; direction: "upgrade" | "downgrade" };
 
@@ -24,8 +26,6 @@ type Props = {
   onToggle: (target: CellTarget) => void;
   onMenu: (target: CellTarget, anchor: DOMRect) => void;
 };
-
-const VIA: Array<[OpenedVia, string]> = [["applied", "Applied"], ["referral", "Referral"], ["nll_offer", "NLL offer"], ["other", "Other"]];
 
 function draftFrom(portfolio: Portfolio, account: Account | undefined, defaultPersonId: number, today: Date): AccountDraft {
   if (account) {
@@ -111,7 +111,7 @@ export function AccountDrawer(props: Props) {
   }
 
   const title = account && current
-    ? `${holdingName(portfolio, current)} · ${portfolio.person(account.personId)?.name}`
+    ? `${holdingName(portfolio, current, true)} · ${portfolio.person(account.personId)?.name}`
     : "Add a card";
 
   return (
@@ -154,7 +154,7 @@ export function AccountDrawer(props: Props) {
           </label>
           <label className="f" htmlFor="f-via">How we got it
             <select id="f-via" value={draft.openedVia} onChange={(event) => set({ openedVia: event.target.value as OpenedVia })}>
-              {VIA.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+              {Object.entries(OPENED_VIA_LABELS).filter(([value]) => value !== "product_change").map(([value, label]) => <option key={value} value={value}>{label}</option>)}
               {draft.openedVia === "product_change" && <option value="product_change">Product change (not counted for 5/24)</option>}
             </select>
           </label>

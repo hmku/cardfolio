@@ -2,8 +2,12 @@
 
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import type { CreditState } from "../lib/core/credits";
-import type { Credit } from "../lib/core/model";
-import { CheckIcon, money, shortDate, fullDate } from "./ui";
+import type { Credit, Holding } from "../lib/core/model";
+import { useDialogFocus } from "./useDialogFocus";
+import { CheckIcon } from "./ui";
+import { money, shortDate, fullDate } from "../lib/presentation/format";
+
+export type CellTarget = { credit: Credit; holding: Holding };
 
 const LONG_PRESS_MS = 450;
 
@@ -23,6 +27,8 @@ export function CreditCell({ credit, state, due, label, onToggle, onMenu }: Cell
   const button = useRef<HTMLButtonElement>(null);
   const openMenu = () => { if (button.current) onMenu(button.current.getBoundingClientRect()); };
   const cancel = () => { if (timer.current) clearTimeout(timer.current); timer.current = null; };
+
+  useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
 
   let className = "cell";
   let content: React.ReactNode = null;
@@ -90,13 +96,8 @@ type MenuProps = {
 
 export function CreditMenu({ credit, state, heading, anchor, onUse, onEnroll, onClose }: MenuProps) {
   const [amount, setAmount] = useState(state.kind === "partial" ? String(state.usedCents / 100) : "");
-  const first = useRef<HTMLButtonElement>(null);
-  useEffect(() => {
-    first.current?.focus();
-    const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); };
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  const panel = useRef<HTMLDivElement>(null);
+  useDialogFocus(panel, onClose);
 
   const width = 256;
   const left = Math.min(Math.max(8, anchor.left - 100), window.innerWidth - width - 8);
@@ -111,21 +112,21 @@ export function CreditMenu({ credit, state, heading, anchor, onUse, onEnroll, on
   return (
     <>
       <div className="menu-scrim" onClick={onClose} />
-      <div className="pop" role="dialog" aria-label={`${credit.name} options`} style={{ left, top, width }}>
+      <div ref={panel} tabIndex={-1} className="pop" role="dialog" aria-modal="true" aria-label={`${credit.name} options`} style={{ left, top, width }}>
         <div>
           <h3>{credit.name} · {money(credit.amountCents)}</h3>
           <p>{heading}{state.kind !== "off" && ` · ${state.period.label} ends ${shortDate(state.period.end)}`}</p>
         </div>
         {state.kind !== "off" && (
           <>
-            <button ref={first} type="button" className="opt" onClick={() => onUse(credit.amountCents)}>Used in full ({money(credit.amountCents)})</button>
+            <button type="button" className="opt" onClick={() => onUse(credit.amountCents)}>Used in full ({money(credit.amountCents)})</button>
             <form onSubmit={savePartial}>
               <input id="partial-amount" type="number" min="0.01" step="0.01" max={credit.amountCents / 100} inputMode="decimal" placeholder="Amount used ($)" aria-label="Amount used in dollars" value={amount} onChange={(event) => setAmount(event.target.value)} />
               <button type="submit" className="btn small">Save</button>
             </form>
           </>
         )}
-        <button ref={state.kind === "off" ? first : undefined} type="button" className="opt" onClick={() => onEnroll(state.kind === "off")}>
+        <button type="button" className="opt" onClick={() => onEnroll(state.kind === "off")}>
           {state.kind === "off" ? "Track this credit on this card" : "Not enrolled on this card"}
         </button>
         {(state.kind === "used" || state.kind === "partial") && <button type="button" className="opt" onClick={() => onUse(null)}>Clear this period</button>}

@@ -1,15 +1,11 @@
 "use client";
 
-import type { ReactNode } from "react";
 import { creditIsDue, creditState, creditSummary, eligibleHoldings, periodFor, DUE_WINDOW_DAYS } from "../lib/core/credits";
-import { daysBetween, parseDate } from "../lib/core/dates";
-import { bonusLabel, cardTag, holdingName, shortName, type Account, type Credit, type Holding, type Portfolio } from "../lib/core/model";
-import { accountAction } from "../lib/core/rules";
-import { bonusStatus, BONUS_WINDOW_DAYS, feeStatus } from "../lib/core/stats";
-import { CreditCell } from "./CreditCell";
-import { Dot, inDays, money, monthYear, personTone, shortDate, Tag } from "./ui";
-
-export type CellTarget = { credit: Credit; holding: Holding };
+import { daysBetween } from "../lib/core/dates";
+import { holdingName, shortName, type Account, type Credit, type Holding, type Portfolio } from "../lib/core/model";
+import { CreditCell, type CellTarget } from "./CreditCell";
+import { StatusTags, WhoLabel } from "./CardDetails";
+import { inDays, money, monthYear, shortDate } from "../lib/presentation/format";
 
 type Handlers = {
   onOpenAccount: (accountId: number) => void;
@@ -24,54 +20,6 @@ type GroupProps = Handlers & {
   collapsed: Record<string, boolean>;
   onCollapse: (key: string) => void;
 };
-
-const FEE_WINDOW_DAYS = 45;
-const RECENT_CHANGE_DAYS = 120;
-
-export function WhoLabel({ portfolio, holding, withProduct }: { portfolio: Portfolio; holding: Holding; withProduct?: boolean }) {
-  const person = portfolio.person(holding.personId);
-  const name = person?.name || "Unknown";
-  return (
-    <span className="who">
-      <Dot name={name} tone={personTone(person?.sort ?? 0)} />
-      {withProduct ? holdingName(portfolio, holding) : <span className="num" title={name}>{cardTag(portfolio, holding) || name}</span>}
-      {holding.last4 && <span className="last4 num">··{holding.last4}</span>}
-    </span>
-  );
-}
-
-/** The tags that explain what's going on with a card, most urgent first. */
-export function StatusTags({ portfolio, account, holding, today }: { portfolio: Portfolio; account: Account; holding: Holding; today: Date }) {
-  const current = portfolio.current(account.id);
-  const tags: ReactNode[] = [];
-  if (current && current.id !== holding.id) {
-    tags.push(account.status === "open"
-      ? <Tag key="now">Now {holdingName(portfolio, current)}</Tag>
-      : <Tag key="closed">Closed {shortDate(account.closedOn)}</Tag>);
-    return <div className="status">{tags}</div>;
-  }
-  const rule = accountAction(portfolio, account, today);
-  if (rule) tags.push(<Tag key="rule" tone="alert" title={rule.name}>{rule.name}</Tag>);
-  const bonus = bonusStatus(account, today);
-  if (bonus && account.bonus) {
-    tags.push(bonus.daysLeft < 0
-      ? <Tag key="bonus" tone="alert">{bonusLabel(account.bonus)} bonus not marked earned · deadline was {shortDate(bonus.deadline)}</Tag>
-      : <Tag key="bonus" tone={bonus.daysLeft <= BONUS_WINDOW_DAYS ? "due" : undefined}>{bonusLabel(account.bonus)} bonus · {account.bonus.spendCents ? `spend ${money(account.bonus.spendCents)} by ` : "by "}{shortDate(bonus.deadline)} <span className="num">({inDays(bonus.daysLeft)})</span></Tag>);
-  }
-  const fee = feeStatus(portfolio, account, today);
-  if (fee && fee.daysLeft <= FEE_WINDOW_DAYS) tags.push(<Tag key="fee" tone="due">{money(fee.feeCents)} fee {inDays(fee.daysLeft)}</Tag>);
-  if (holding.change !== "opened") {
-    const started = parseDate(holding.startedOn);
-    const previous = portfolio.holdingsOf(account.id).filter((item) => item.startedOn < holding.startedOn).pop();
-    if (started && previous && daysBetween(started, today) <= RECENT_CHANGE_DAYS) {
-      tags.push(<Tag key="change">{holding.change === "upgrade" ? "Upgraded" : "Downgraded"} from {holdingName(portfolio, previous)} {shortDate(holding.startedOn)}</Tag>);
-    }
-  }
-  if (account.status === "closed") tags.push(<Tag key="closed">Closed {shortDate(account.closedOn)}</Tag>);
-  if (account.status === "pending") tags.push(<Tag key="pending" tone="info">Pending · applied {shortDate(account.appliedOn)}</Tag>);
-  if (account.status === "declined") tags.push(<Tag key="declined">Declined {shortDate(account.closedOn || account.appliedOn)}</Tag>);
-  return <div className="status">{tags}</div>;
-}
 
 function GroupHead({ id, title, meta, collapsed, onToggle }: { id: string; title: string; meta: string; collapsed: boolean; onToggle: (key: string) => void }) {
   return (
@@ -113,6 +61,7 @@ export function CardGroups(props: GroupProps) {
 
   return (
     <>
+      {groups.length === 0 && <div className="empty">No cards with credits match.</div>}
       {groups.map(({ product, credits, eligible, rows }) => {
         const key = `product-${product.id}`;
         const isCollapsed = Boolean(collapsed[key]);
@@ -139,7 +88,7 @@ export function CardGroups(props: GroupProps) {
                     const dim = account.status !== "open" || portfolio.current(account.id)?.id !== holding.id;
                     return (
                       <tr key={holding.id} className={`row ${dim ? "dim" : ""}`} onClick={() => props.onOpenAccount(account.id)}>
-                        <td className="sticky"><WhoLabel portfolio={portfolio} holding={holding} /></td>
+                        <td className="sticky"><button type="button" className="card-link" onClick={(event) => { event.stopPropagation(); props.onOpenAccount(account.id); }}><WhoLabel portfolio={portfolio} holding={holding} /></button></td>
                         <td className="num">{monthYear(holding.startedOn)}</td>
                         {credits.map((credit) => {
                           if (!eligible.get(credit.id)!.has(holding.id)) return <td key={credit.id} className="credit" />;
@@ -189,7 +138,7 @@ function CreditHeader({ portfolio, credit, rows, today }: { portfolio: Portfolio
   const due = credit.remind && !cardYear && daysLeft <= DUE_WINDOW_DAYS && summary.used < summary.enrolled;
   const meta = cardYear ? "per card year" : `${period.label} · ${daysLeft <= DUE_WINDOW_DAYS ? `ends ${inDays(daysLeft)}` : `ends ${shortDate(period.end)}`}`;
   return (
-    <th className={`credit ${credit.remind ? "" : "muted"} ${due ? "due-col" : ""}`} title={credit.remind ? undefined : "Low priority: left out of Due soon"}>
+    <th className={`credit ${credit.remind ? "" : "muted"} ${due ? "due-col" : ""}`} title={credit.remind ? undefined : "Low priority: left out of To do"}>
       <span className="cname">{credit.name}</span>
       <span className="cmeta num">{money(credit.amountCents)}</span>
       <span className="cmeta">{meta}</span>

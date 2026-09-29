@@ -3,15 +3,14 @@
 Cardfolio is a private household credit card tracker. Everything is on one page:
 
 - **Cardholder stats**: open and closed cards, 5/24 count and when it next drops.
-- **Card types with credits** (Amex Business Platinum, CSR, …): one row per card, one
-  checkbox column per credit. Tap a box to mark a credit used; press and hold (or
-  right-click) to log a partial amount or mark the card not enrolled. The footer shows
-  the `used/tracked` count for the current period.
-- **Other open cards**, **pending applications**, and a collapsed **history** of closed
-  and declined cards.
-- **Due soon**: credits ending within a month, annual fee reviews, bonus deadlines and
-  pending applications.
-- **Timeline**: the flat, date-sorted ledger, like the original sheet.
+- **To do**, above both tabs: credits ending within a month, annual fee reviews, bonus
+  deadlines and pending applications.
+- **Cards**: every current account, newest first. A table on desktop and tiles on phones,
+  with red decision rows, amber bonuses in progress, blue pending applications, and a
+  color key that filters the list. Closed and declined cards sit behind a toggle.
+- **Credits**: one group per card type, one row per card, one checkbox column per credit.
+  Tap a box to mark a credit used; press and hold (or right-click) to log a partial amount
+  or mark it not enrolled. The footer shows the current period's `used/tracked` count.
 
 Card types, credits, reminders, cardholders, sign-in access and exports live in
 **Settings**. Changes appear live for everyone signed in.
@@ -36,6 +35,9 @@ Rules that follow from this:
 - **Card numbers** are stored, not recomputed, so adding a forgotten old card never
   renumbers the others. New cards and product changes get the next free number.
 - **Card-year credits and annual fee dates** follow the account's approval anniversary.
+
+UI display helpers live in `app/lib/presentation/`, shared card identity/status rendering
+in `app/components/CardDetails.tsx`, and generic UI primitives in `app/components/ui.tsx`.
 
 All business logic is plain TypeScript in `app/lib/core/` with no framework imports, so
 a future mobile app can share it.

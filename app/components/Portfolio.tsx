@@ -4,15 +4,17 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { creditState } from "../lib/core/credits";
 import { atNoon } from "../lib/core/dates";
-import { bonusLabel, cardTag, holdingName, indexPortfolio, shortName, type Account, type Portfolio as PortfolioModel, type PortfolioData } from "../lib/core/model";
-import { dueItems, personStats, type DueItem } from "../lib/core/stats";
+import { cardTag, holdingName, indexPortfolio, type Account, type PortfolioData } from "../lib/core/model";
+import { dueItems, personStats } from "../lib/core/stats";
 import * as data from "../lib/data";
 import { AccountDrawer, type ProductChange } from "./AccountDrawer";
-import { CardGroups, groupId, type CellTarget } from "./CardGroups";
+import { CardGroups, groupId } from "./CardGroups";
+import { DueList } from "./DueList";
 import { CardList } from "./CardList";
-import { CreditMenu } from "./CreditCell";
+import { CreditMenu, type CellTarget } from "./CreditCell";
 import { SettingsDrawer, type Membership } from "./SettingsDrawer";
-import { CheckIcon, Dot, inDays, money, personTone, shortDate, Toast, type ToastMessage } from "./ui";
+import { CheckIcon, Dot, personTone, Toast, type ToastMessage } from "./ui";
+import { money, shortDate } from "../lib/presentation/format";
 
 type Props = { db: SupabaseClient; accessToken: string; onSignOut: () => Promise<void> };
 type View = "cards" | "credits";
@@ -21,7 +23,6 @@ type Panel = { kind: "account"; id: number | null } | { kind: "settings" } | nul
 type Menu = { target: CellTarget; anchor: DOMRect } | null;
 
 const PREFS_KEY = "cardfolio-prefs-v3";
-const TODO_PREVIEW = 5;
 const LIVE_TABLES = ["accounts", "account_products", "credits", "credit_uses", "credit_opt_outs", "products", "people", "action_rules"];
 const DEFAULT_PREFS: Prefs = { view: "cards", collapsed: {}, showClosed: false };
 
@@ -30,32 +31,12 @@ function readPrefs(): Prefs {
   try { return { ...DEFAULT_PREFS, ...JSON.parse(localStorage.getItem(PREFS_KEY) || "{}") }; } catch { return DEFAULT_PREFS; }
 }
 
-function dueText(portfolio: PortfolioModel, item: DueItem) {
-  const who = (account: Account) => {
-    const holding = portfolio.current(account.id);
-    return holding ? holdingName(portfolio, holding) : portfolio.person(account.personId)?.name || "";
-  };
-  switch (item.kind) {
-    case "credit":
-      return { label: "Credit", text: `${item.credit.name} ${money(item.credit.amountCents)} on ${shortName(portfolio.product(item.credit.productId))}: ${item.holdings.length} card${item.holdings.length === 1 ? "" : "s"} left`, when: `${item.period.label} ends ${inDays(item.daysLeft)}` };
-    case "review":
-      return { label: "Review", text: `${item.rule.name}: ${who(item.account)}`, when: "" };
-    case "bonus":
-      return item.daysLeft < 0
-        ? { label: "Bonus", text: `Mark the ${bonusLabel(item.account.bonus!)} bonus earned, or note what happened: ${who(item.account)}`, when: `deadline was ${shortDate(item.deadline)}` }
-        : { label: "Bonus", text: `Spend ${item.account.bonus?.spendCents ? money(item.account.bonus.spendCents) : "the minimum"} for ${bonusLabel(item.account.bonus!)}: ${who(item.account)}`, when: `by ${shortDate(item.deadline)} (${inDays(item.daysLeft)})` };
-    case "pending":
-      return { label: "Pending", text: `${who(item.account)} application`, when: `applied ${item.daysWaiting}d ago` };
-  }
-}
-
 export function Portfolio({ db, accessToken, onSignOut }: Props) {
   const [raw, setRaw] = useState<PortfolioData | null>(null);
   const [membership, setMembership] = useState<(Membership & { householdId: string }) | null>(null);
   const [loadError, setLoadError] = useState("");
   const [today, setToday] = useState(() => atNoon(new Date()));
   const [prefs, setPrefs] = useState<Prefs>(readPrefs);
-  const [showAllTodos, setShowAllTodos] = useState(false);
   const [search, setSearch] = useState("");
   const [panel, setPanel] = useState<Panel>(null);
   const [menu, setMenu] = useState<Menu>(null);
@@ -289,34 +270,10 @@ export function Portfolio({ db, accessToken, onSignOut }: Props) {
         })}
       </section>
 
-      {due.length > 0 && (
-        <section className="todo" aria-label="To do">
-          <div className="todo-head"><h2>To do</h2><span className="meta num">{due.length}</span></div>
-          <div className="due-list">
-            {(showAllTodos ? due : due.slice(0, TODO_PREVIEW)).map((item, index) => {
-              const text = dueText(portfolio, item);
-              const accountId = item.kind === "credit" ? null : item.account.id;
-              const product = item.kind === "credit" ? portfolio.product(item.credit.productId) : undefined;
-              return (
-                <button key={index} type="button" className="due-item" onClick={() => {
-                  if (accountId !== null) setPanel({ kind: "account", id: accountId });
-                  else if (product) {
-                    updatePrefs({ view: "credits", collapsed: { ...prefs.collapsed, [`product-${product.id}`]: false } });
-                    requestAnimationFrame(() => document.getElementById(groupId(product.slug))?.scrollIntoView({ behavior: "smooth", block: "start" }));
-                  }
-                }}>
-                  <span className="due-kind">{text.label}</span><span>{text.text}</span><span className="when">{text.when}</span>
-                </button>
-              );
-            })}
-          </div>
-          {due.length > TODO_PREVIEW && (
-            <button type="button" className="btn small todo-more" onClick={() => setShowAllTodos(!showAllTodos)}>
-              {showAllTodos ? "Show fewer" : `Show all ${due.length}`}
-            </button>
-          )}
-        </section>
-      )}
+      <DueList portfolio={portfolio} items={due} onOpenAccount={groupProps.onOpenAccount} onOpenCredits={(product) => {
+        updatePrefs({ view: "credits", collapsed: { ...prefs.collapsed, [`product-${product.id}`]: false } });
+        requestAnimationFrame(() => document.getElementById(groupId(product.slug))?.scrollIntoView({ behavior: "smooth", block: "start" }));
+      }} />
 
       <div className="toolbar" role="toolbar" aria-label="View options">
         <div className="seg" aria-label="View">
@@ -326,7 +283,7 @@ export function Portfolio({ db, accessToken, onSignOut }: Props) {
         <input className="search" type="search" placeholder="Search cards, notes, last digits" aria-label="Search cards, notes, or last digits" value={search} onChange={(event) => setSearch(event.target.value)} />
       </div>
 
-      <main style={{ display: "grid", gap: 14 }}>
+      <main className="portfolio-views">
         {prefs.view === "cards" ? (
           <>
             <CardList portfolio={portfolio} accounts={cardList} today={today} onOpenAccount={groupProps.onOpenAccount} />
@@ -340,7 +297,7 @@ export function Portfolio({ db, accessToken, onSignOut }: Props) {
           <>
             <div className="legend">
               <span><span className="cell used"><CheckIcon /></span>Used</span>
-              <span><span className="cell partial" style={{ width: 26 }}><span className="num" style={{ fontSize: 9 }}>$30</span></span>Partly used</span>
+              <span><span className="cell partial"><span className="num">$30</span></span>Partly used</span>
               <span><span className="cell" />Not used</span>
               <span><span className="cell off">–</span>Not enrolled</span>
               <span>Tap a box to mark it used. Press and hold (or right-click) for a partial amount or to mark it not enrolled.</span>

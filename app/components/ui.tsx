@@ -1,28 +1,8 @@
 "use client";
 
-import { useEffect, useRef, type ReactNode } from "react";
-import { parseDate } from "../lib/core/dates";
-import { formatMoney } from "../lib/core/model";
+import { useEffect, useEffectEvent, useRef, type ReactNode } from "react";
 
-export const money = formatMoney;
-
-const shortFormat = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric" });
-const monthYearFormat = new Intl.DateTimeFormat("en-US", { month: "short", year: "numeric" });
-const fullFormat = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric" });
-
-type DateLike = Date | string | null | undefined;
-const toDate = (value: DateLike) => (typeof value === "string" ? parseDate(value) : value || null);
-
-export const shortDate = (value: DateLike) => { const date = toDate(value); return date ? shortFormat.format(date) : "—"; };
-export const monthYear = (value: DateLike) => { const date = toDate(value); return date ? monthYearFormat.format(date) : "—"; };
-export const fullDate = (value: DateLike) => { const date = toDate(value); return date ? fullFormat.format(date) : "—"; };
-
-export function inDays(days: number) {
-  if (days === 0) return "today";
-  if (days === 1) return "tomorrow";
-  if (days === -1) return "yesterday";
-  return days < 0 ? `${-days}d ago` : `in ${days}d`;
-}
+import { useDialogFocus } from "./useDialogFocus";
 
 const PERSON_TONES = ["tone-0", "tone-1"];
 
@@ -45,17 +25,16 @@ export const CheckIcon = () => (
 
 export function Drawer({ title, onClose, children, footer }: { title: string; onClose: () => void; children: ReactNode; footer?: ReactNode }) {
   const panel = useRef<HTMLElement>(null);
+  useDialogFocus(panel, onClose);
   useEffect(() => {
-    const previous = document.activeElement as HTMLElement | null;
-    panel.current?.querySelector<HTMLElement>("input, select, button")?.focus();
-    const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); };
-    document.addEventListener("keydown", onKey);
-    return () => { document.removeEventListener("keydown", onKey); previous?.focus?.(); };
-  }, [onClose]);
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = previous; };
+  }, []);
   return (
     <>
       <div className="scrim" onClick={onClose} />
-      <aside className="drawer" role="dialog" aria-modal="true" aria-label={title} ref={panel}>
+      <aside className="drawer" role="dialog" aria-modal="true" aria-label={title} ref={panel} tabIndex={-1}>
         <div className="drawer-head"><h2>{title}</h2><button type="button" className="btn small" onClick={onClose}>Close</button></div>
         <div className="drawer-body">{children}</div>
         {footer && <div className="drawer-foot">{footer}</div>}
@@ -67,11 +46,12 @@ export function Drawer({ title, onClose, children, footer }: { title: string; on
 export type ToastMessage = { id: number; text: string; undo?: () => void; error?: boolean };
 
 export function Toast({ toast, onDone }: { toast: ToastMessage | null; onDone: () => void }) {
+  const done = useEffectEvent(onDone);
   useEffect(() => {
     if (!toast) return;
-    const timer = setTimeout(onDone, toast.error ? 8000 : 5000);
+    const timer = setTimeout(() => done(), toast.error ? 8000 : 5000);
     return () => clearTimeout(timer);
-  }, [toast, onDone]);
+  }, [toast]);
   if (!toast) return null;
   return (
     <div className="toast" role={toast.error ? "alert" : "status"} style={toast.error ? { background: "var(--alert)" } : undefined}>
@@ -80,7 +60,3 @@ export function Toast({ toast, onDone }: { toast: ToastMessage | null; onDone: (
     </div>
   );
 }
-
-/** Dollar input helpers: the UI edits dollars, the database stores cents. */
-export const toCents = (value: string) => Math.round(Number(value || 0) * 100);
-export const toDollarsInput = (cents: number | null | undefined) => (cents ? String(cents / 100) : "");

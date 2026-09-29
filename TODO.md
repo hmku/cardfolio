@@ -27,6 +27,17 @@ done and move them to **Done** with the date.
       `GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY` and `CARDFOLIO_EXPORT_SPREADSHEET_ID` in Vercel
       (see README).
 
+## Review follow-ups
+
+- [ ] Review and release `review/code-organization-ui-consistency` after a signed-in
+      desktop/phone smoke test in light and dark mode; see `docs/code-review-2026-09-29.md`.
+- [ ] Make credit replacement, product changes/undo, and account edits transactional;
+      add failure and concurrent-write tests before changing the browser data API.
+- [ ] Preserve Settings drafts when a save/invite fails and disable duplicate submissions;
+      give async handlers an explicit success/failure contract.
+- [ ] Prevent stale portfolio reloads from replacing newer data; clear pending realtime
+      reload and sheet-sync timers on cleanup.
+
 ## Ideas / later
 
 - [ ] Plaid: connect card accounts, detect statement credits, track bonus spend and fee
@@ -42,6 +53,12 @@ done and move them to **Done** with the date.
       via RPC (they only reveal the caller's own membership); consider revoking `anon`.
 
 ## Done
+
+- 2026-09-29: Review branch consolidates card statuses/identity/formatters, separates the
+  to-do component, adds stable dialog focus and toast timers, and fixes empty search,
+  last-digit visibility, phone wrapping, and stale “Due soon” wording. Regression tests
+  and local desktop/phone browser checks added/completed; release is tracked above.
+
 
 - 2026-09-29: Cards tab color-coding: red rows to decide (keep or close, missed bonus), amber
   bonuses in progress, blue pending; the color key above the list filters to each. Bonuses

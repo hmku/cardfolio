@@ -7,7 +7,8 @@ import { personCode, shortName, type Cadence, type Credit, type Kind, type Perso
 import { describeRule, DEFAULT_ACTION_RULES } from "../lib/core/rules";
 import type { CreditDraft, ProductDraft } from "../lib/data";
 import { ReminderSettings } from "./ReminderSettings";
-import { Drawer, toCents, toDollarsInput } from "./ui";
+import { Drawer } from "./ui";
+import { toCents, toDollarsInput } from "../lib/presentation/format";
 
 export type Membership = {
   email: string;
@@ -63,7 +64,7 @@ function CreditRow({ credit, onSave, onDelete }: { credit: Credit; onSave: Props
       <select aria-label="How often" value={credit.cadence} onChange={(event) => void onSave(credit.id, { cadence: event.target.value as Cadence })}>
         {CADENCES.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
       </select>
-      <label className="check" title="Include in Due soon"><input type="checkbox" checked={credit.remind} onChange={(event) => void onSave(credit.id, { remind: event.target.checked })} /> Remind</label>
+      <label className="check" title="Include in To do"><input type="checkbox" checked={credit.remind} onChange={(event) => void onSave(credit.id, { remind: event.target.checked })} /> Remind</label>
       <button type="button" className="btn small danger" onClick={() => (confirm ? void onDelete(credit.id) : setConfirm(true))}>{confirm ? "Sure?" : "Delete"}</button>
     </div>
   );
@@ -123,7 +124,7 @@ function PersonRow({ person, onSave }: { person: Person; onSave: Props["onSavePe
     <div className="settings-row">
       <span className="grow">{person.name}</span>
       <label className="check">Initials
-        <input className="search" style={{ marginLeft: 0, width: "4.5rem", flex: "none" }} aria-label={`${person.name}'s initials`} maxLength={4} placeholder={personCode(person)} value={code}
+        <input className="search person-code-input" aria-label={`${person.name}'s initials`} maxLength={4} placeholder={personCode(person)} value={code}
           onChange={(event) => setCode(event.target.value.replace(/[^a-z]/gi, "").toUpperCase())} onBlur={save} />
       </label>
     </div>
@@ -148,7 +149,7 @@ export function SettingsDrawer(props: Props) {
     <Drawer title="Settings" onClose={props.onClose}>
       <div className="fieldset">
         <h3>Card types and credits</h3>
-        <p className="hint">Credits set to Remind show up in Due soon. Amounts are per card, per period.</p>
+        <p className="hint">Credits set to Remind show up in To do. Amounts are per card, per period.</p>
         <div className="settings-list">
           {products.map((product) => <ProductSettings key={product.id} portfolio={portfolio} product={product} onSaveProduct={props.onSaveProduct} onSaveCredit={props.onSaveCredit} onDeleteCredit={props.onDeleteCredit} />)}
         </div>
@@ -175,7 +176,7 @@ export function SettingsDrawer(props: Props) {
           {portfolio.people.map((item) => <PersonRow key={item.id} person={item} onSave={props.onSavePerson} />)}
         </div>
         <form className="inline-actions" onSubmit={(event) => { event.preventDefault(); if (person.trim()) void props.onAddPerson(person).then(() => setPerson("")); }}>
-          <input className="search" style={{ marginLeft: 0 }} aria-label="New cardholder name" placeholder="Add a cardholder" value={person} onChange={(event) => setPerson(event.target.value)} />
+          <input className="search" aria-label="New cardholder name" placeholder="Add a cardholder" value={person} onChange={(event) => setPerson(event.target.value)} />
           <button type="submit" className="btn small">Add</button>
         </form>
       </div>
@@ -188,7 +189,7 @@ export function SettingsDrawer(props: Props) {
         </div>
         {membership.role === "owner" && (
           <form className="inline-actions" onSubmit={(event) => { event.preventDefault(); if (invite.trim()) void props.onInvite(invite).then(() => setInvite("")); }}>
-            <input className="search" style={{ marginLeft: 0 }} type="email" aria-label="Email to invite" placeholder="Invite by email" value={invite} onChange={(event) => setInvite(event.target.value)} />
+            <input className="search" type="email" aria-label="Email to invite" placeholder="Invite by email" value={invite} onChange={(event) => setInvite(event.target.value)} />
             <button type="submit" className="btn small">Invite</button>
           </form>
         )}

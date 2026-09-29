@@ -21,7 +21,7 @@ done and move them to **Done** with the date.
       Amex site itself couldn't be reached): Hotel $300/half, Resy $100/qtr, lululemon $75/qtr,
       Airline fee $200/yr, Digital entertainment $25/mo, Uber Cash $15/mo, Uber One $120/yr,
       Walmart+ $12.95/mo, CLEAR $209/yr, Oura $200/yr, Equinox $300/yr. Delete any you won't
-      use in Settings → Card types, or mark them not enrolled per card. Uber Cash is $35 in
+      use in Settings → Card types and credits, or mark them not enrolled per card. Uber Cash is $35 in
       December; the app can't vary a monthly amount yet, so log the extra $20 as a partial use.
 - [ ] Stop editing the tracker, credits and stats tabs of the Google Sheet once the app is
       the source of truth.

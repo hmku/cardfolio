@@ -43,6 +43,9 @@ done and move them to **Done** with the date.
 
 ## Done
 
+- 2026-09-29: The card drawer reloads after a product change or undo, so its form shows the
+  new card type, fee and number (before, pressing Save could write the old product back).
+
 - 2026-09-29: Date fields on iPhone match the other fields (left-aligned, same height and width).
 
 - 2026-09-29: Cards tab color-coding: red rows to decide (keep or close, missed bonus), amber

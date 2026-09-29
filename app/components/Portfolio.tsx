@@ -59,6 +59,8 @@ export function Portfolio({ db, accessToken, onSignOut }: Props) {
   const [search, setSearch] = useState("");
   const [panel, setPanel] = useState<Panel>(null);
   const [menu, setMenu] = useState<Menu>(null);
+  // Bumped after a product change so the open drawer re-reads the card instead of keeping a stale form.
+  const [drawerVersion, setDrawerVersion] = useState(0);
   const [toast, setToast] = useState<ToastMessage | null>(null);
   const reloadTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const syncTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -259,6 +261,7 @@ export function Portfolio({ db, accessToken, onSignOut }: Props) {
       const productId = change.productId === "new" ? await data.saveProduct(ctx, null, change.newProduct!) : change.productId;
       await data.changeProduct(ctx, selectedAccount, selectedCurrent, { productId, date: change.date, annualFeeCents: change.annualFeeCents, last4: change.last4, direction: change.direction }, portfolio!.holdings);
     }, { success: "Product change saved", rethrow: true });
+    setDrawerVersion((value) => value + 1);
   }
 
   return (
@@ -352,7 +355,7 @@ export function Portfolio({ db, accessToken, onSignOut }: Props) {
 
       {panel?.kind === "account" && (
         <AccountDrawer
-          key={panel.id ?? "new"}
+          key={`${panel.id ?? "new"}-${drawerVersion}`}
           portfolio={portfolio}
           accountId={panel.id}
           defaultPersonId={viewerPerson?.id ?? 0}
@@ -365,6 +368,7 @@ export function Portfolio({ db, accessToken, onSignOut }: Props) {
             const previous = portfolio.holdingsOf(selectedAccount.id).filter((holding) => holding.id !== selectedCurrent.id).pop();
             if (!previous) return;
             await write((ctx) => data.undoProductChange(ctx, selectedCurrent, previous), { success: "Product change removed", rethrow: true });
+            setDrawerVersion((value) => value + 1);
           }}
           onDelete={async () => {
             if (!selectedAccount) return;

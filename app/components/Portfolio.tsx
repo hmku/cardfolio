@@ -16,14 +16,14 @@ import { CheckIcon, Dot, inDays, money, personTone, shortDate, Toast, type Toast
 
 type Props = { db: SupabaseClient; accessToken: string; onSignOut: () => Promise<void> };
 type View = "cards" | "credits";
-type Prefs = { view: View; collapsed: Record<string, boolean>; showClosed: boolean };
+type Prefs = { view: View; collapsed: Record<string, boolean>; showClosed: boolean; creditsShowClosed: boolean };
 type Panel = { kind: "account"; id: number | null } | { kind: "settings" } | null;
 type Menu = { target: CellTarget; anchor: DOMRect } | null;
 
 const PREFS_KEY = "cardfolio-prefs-v3";
 const TODO_PREVIEW = 5;
 const LIVE_TABLES = ["accounts", "account_products", "credits", "credit_uses", "credit_opt_outs", "products", "people", "action_rules"];
-const DEFAULT_PREFS: Prefs = { view: "cards", collapsed: {}, showClosed: false };
+const DEFAULT_PREFS: Prefs = { view: "cards", collapsed: {}, showClosed: false, creditsShowClosed: false };
 
 function readPrefs(): Prefs {
   if (typeof window === "undefined") return DEFAULT_PREFS;
@@ -230,6 +230,8 @@ export function Portfolio({ db, accessToken, onSignOut }: Props) {
   const viewerPerson = people.find((person) => person.email && person.email.toLowerCase() === membership.email.toLowerCase()) || people[0];
   const groupProps = {
     portfolio, today, include, collapsed: prefs.collapsed,
+    showClosed: prefs.creditsShowClosed,
+    onShowClosed: (show: boolean) => updatePrefs({ creditsShowClosed: show }),
     onCollapse: (key: string) => updatePrefs({ collapsed: { ...prefs.collapsed, [key]: !prefs.collapsed[key] } }),
     onOpenAccount: (id: number) => setPanel({ kind: "account", id }),
     onToggle: toggleCredit,

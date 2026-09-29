@@ -17,6 +17,12 @@ done and move them to **Done** with the date.
     Harrison's United Gateway (from United Explorer #2, Dec 2024) and Sophia's Biz Green #2
     (from Biz Gold #1, Apr 2026). Close them if that's wrong.
   - Credit checkboxes were guessed from the sheet's `used/total` counts; fix any wrong ones.
+- [ ] **Check the Amex Platinum credits** (added 2026-09-29 from public 2026 benefit lists; the
+      Amex site itself couldn't be reached): Hotel $300/half, Resy $100/qtr, lululemon $75/qtr,
+      Airline fee $200/yr, Digital entertainment $25/mo, Uber Cash $15/mo, Uber One $120/yr,
+      Walmart+ $12.95/mo, CLEAR $209/yr, Oura $200/yr, Equinox $300/yr. Delete any you won't
+      use in Settings → Card types, or mark them not enrolled per card. Uber Cash is $35 in
+      December; the app can't vary a monthly amount yet, so log the extra $20 as a partial use.
 - [ ] Stop editing the tracker, credits and stats tabs of the Google Sheet once the app is
       the source of truth.
 
@@ -42,6 +48,9 @@ done and move them to **Done** with the date.
       via RPC (they only reveal the caller's own membership); consider revoking `anon`.
 
 ## Done
+
+- 2026-09-29: Credits tab hides closed cards and earlier products ("Show closed cards" at the
+  bottom); biz plat Hilton now sits left of Wireless; added the Amex Platinum credits.
 
 - 2026-09-29: Cards kept open past their first annual fee (over a year old, not in a review
   window) get a light violet shade and a "Kept · $695 fee May 2027" tag; filter them from the

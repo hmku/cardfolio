@@ -18,7 +18,7 @@ done and move them to **Done** with the date.
     (from Biz Gold #1, Apr 2026). Close them if that's wrong.
   - Credit checkboxes were guessed from the sheet's `used/total` counts; fix any wrong ones.
 - [ ] **Check the Amex Platinum credits** (added 2026-09-29 from public 2026 benefit lists; the
-      Amex site itself couldn't be reached): Hotel $300/half, Resy $100/qtr, lululemon $75/qtr,
+      Amex site itself couldn't be reached): Fine Hotels $300/half, Resy $100/qtr, lululemon $75/qtr,
       Airline fee $200/yr, Digital entertainment $25/mo, Uber Cash $15/mo, Uber One $120/yr,
       Walmart+ $12.95/mo, CLEAR $209/yr, Oura $200/yr, Equinox $300/yr. Delete any you won't
       use in Settings → Card types and credits, or mark them not enrolled per card. Uber Cash is $35 in
@@ -43,6 +43,10 @@ done and move them to **Done** with the date.
 - [ ] Credit history view: past periods per card (e.g. last year's Dell credit on every Biz Plat).
 - [ ] Native mobile app (Expo) reusing `app/lib/core`, only if the home-screen web app
       feels limiting.
+- [ ] Shared credits across card types (Airline fee, Fine Hotels and CLEAR are identical on
+      amex plat and biz plat). For now they're kept in sync by hand: same name, amount, cadence
+      and reminder setting. A real merge needs a credit-to-product link table plus grid,
+      Settings, reminder and export changes; only worth it if more overlaps show up.
 - [ ] Drop the `legacy_*` tables once nothing from the v1 app is needed.
 - [ ] Supabase security advisor: `is_cardfolio_member` / `is_cardfolio_owner` are callable
       via RPC (they only reveal the caller's own membership); consider revoking `anon`.

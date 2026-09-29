@@ -43,6 +43,8 @@ done and move them to **Done** with the date.
 
 ## Done
 
+- 2026-09-29: Date fields on iPhone match the other fields (left-aligned, same height and width).
+
 - 2026-09-29: Cards tab color-coding: red rows to decide (keep or close, missed bonus), amber
   bonuses in progress, blue pending; the color key above the list filters to each. Bonuses
   always show as a pill (green once earned). Opened date is bold on every row. The to-do list

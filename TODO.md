@@ -43,6 +43,10 @@ done and move them to **Done** with the date.
 
 ## Done
 
+- 2026-09-29: Cards kept open past their first annual fee (over a year old, not in a review
+  window) get a light violet shade and a "Kept · $695 fee May 2027" tag; filter them from the
+  color key ("kept with a fee").
+
 - 2026-09-29: The card drawer reloads after a product change or undo, so its form shows the
   new card type, fee and number (before, pressing Save could write the old product back).
 

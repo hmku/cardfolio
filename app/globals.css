@@ -20,6 +20,8 @@
   --alert-bg: #fbe6e1;
   --info: #2358a8;
   --info-bg: #e2ecfa;
+  --kept: #6a4fb3;
+  --kept-bg: #efeaf9;
   --harrison: #2f64b5;
   --harrison-bg: #e2ebf8;
   --sophia: #a2437b;
@@ -33,7 +35,7 @@
     --bg: #11161c; --surface: #182029; --surface-2: #1d2630; --ink: #e6ebf0; --muted: #9eabb7; --faint: #6f7d8a;
     --line: #2c3845; --line-soft: #243039; --primary: #e6ebf0; --primary-ink: #11161c;
     --used: #4cc896; --used-bg: #173a2d; --partial: #e6b95a; --partial-bg: #3a3018; --due: #f0a04b; --due-bg: #3b2a16;
-    --alert: #f07d69; --alert-bg: #41221d; --info: #83b1f0; --info-bg: #1b2c45; --harrison: #7fa9ea; --harrison-bg: #1f3149; --sophia: #e08ab9; --sophia-bg: #3d2233;
+    --alert: #f07d69; --alert-bg: #41221d; --info: #83b1f0; --info-bg: #1b2c45; --kept: #b7a2ee; --kept-bg: #28223b; --harrison: #7fa9ea; --harrison-bg: #1f3149; --sophia: #e08ab9; --sophia-bg: #3d2233;
     --shadow: 0 12px 40px rgba(0, 0, 0, .5); color-scheme: dark;
   }
 }
@@ -41,7 +43,7 @@
   --bg: #11161c; --surface: #182029; --surface-2: #1d2630; --ink: #e6ebf0; --muted: #9eabb7; --faint: #6f7d8a;
   --line: #2c3845; --line-soft: #243039; --primary: #e6ebf0; --primary-ink: #11161c;
   --used: #4cc896; --used-bg: #173a2d; --partial: #e6b95a; --partial-bg: #3a3018; --due: #f0a04b; --due-bg: #3b2a16;
-  --alert: #f07d69; --alert-bg: #41221d; --info: #83b1f0; --info-bg: #1b2c45; --harrison: #7fa9ea; --harrison-bg: #1f3149; --sophia: #e08ab9; --sophia-bg: #3d2233;
+  --alert: #f07d69; --alert-bg: #41221d; --info: #83b1f0; --info-bg: #1b2c45; --kept: #b7a2ee; --kept-bg: #28223b; --harrison: #7fa9ea; --harrison-bg: #1f3149; --sophia: #e08ab9; --sophia-bg: #3d2233;
   --shadow: 0 12px 40px rgba(0, 0, 0, .5); color-scheme: dark;
 }
 * { box-sizing: border-box; }
@@ -124,6 +126,7 @@ td.status-cell, th.status-cell { width: 100%; }
 .tag.alert { background: var(--alert-bg); color: var(--alert); border-color: transparent; }
 .tag.due { background: var(--due-bg); color: var(--due); border-color: transparent; }
 .tag.info { background: var(--info-bg); color: var(--info); border-color: transparent; }
+.tag.kept { background: var(--kept-bg); color: var(--kept); border-color: transparent; }
 .tag.ok { background: var(--used-bg); color: var(--used); border-color: transparent; }
 
 /* Credit columns */
@@ -256,6 +259,10 @@ td.sticky .who { flex-wrap: wrap; }
 .flag-key-item.alert[aria-pressed="true"] { background: var(--alert-bg); border-color: var(--alert); color: var(--alert); }
 .flag-key-item.due[aria-pressed="true"] { background: var(--due-bg); border-color: var(--due); color: var(--due); }
 .flag-key-item.info[aria-pressed="true"] { background: var(--info-bg); border-color: var(--info); color: var(--info); }
+.flag-key-item.kept[aria-pressed="true"] { background: var(--kept-bg); border-color: var(--kept); color: var(--kept); }
+.flag-key-item.kept i { background: var(--kept); opacity: .7; }
+tr.row.flag-kept td, .tile.flag-kept { background: color-mix(in srgb, var(--kept-bg) 45%, var(--surface)); }
+tr.row.flag-kept td.sticky, .tile.flag-kept { box-shadow: inset 3px 0 0 color-mix(in srgb, var(--kept) 60%, transparent); }
 .flag-key-clear { border: 0; background: transparent; color: var(--muted); text-decoration: underline; padding: 4px 2px; }
 .flag-key-item i { width: 10px; height: 10px; border-radius: 3px; }
 .flag-key-item.alert i { background: var(--alert); }

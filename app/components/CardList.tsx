@@ -11,7 +11,7 @@ const VIA_LABELS: Record<Account["openedVia"], string> = { applied: "Applied", r
 const FEE_WINDOW_DAYS = 45;
 const RECENT_CHANGE_DAYS = 120;
 
-type Tone = "alert" | "due" | "info";
+type Tone = "alert" | "due" | "info" | "kept";
 type Props = { portfolio: Portfolio; accounts: Account[]; today: Date; onOpenAccount: (id: number) => void };
 
 /** "$695 fee posted Sep 13" when this year's fee has already hit, else "$95 fee tomorrow". */
@@ -22,14 +22,22 @@ function feeTiming(account: Account, fee: { next: Date; daysLeft: number; feeCen
   return `${money(fee.feeCents)} fee ${inDays(fee.daysLeft)}`;
 }
 
+/** Open over a year (so the first fee has posted) and not in a review window right now. */
+function keptPastFirstFee(account: Account, today: Date) {
+  const approved = parseDate(account.approvedOn);
+  return account.status === "open" && Boolean(approved) && daysBetween(approved!, today) >= 365;
+}
+
 /**
  * What a card needs, as tags plus the row's shade: red when there's a decision to make
  * (keep or close, a missed bonus), amber while a bonus is still being worked on, blue while
- * an application is pending. Everything else is plain.
+ * an application is pending, and a light violet for cards kept past their first annual fee
+ * (worth a second look now and then). Everything else is plain.
  */
 function cardStatus(portfolio: Portfolio, account: Account, holding: Holding, today: Date) {
   const tags: ReactNode[] = [];
   const tones: Tone[] = [];
+  let kept = false;
 
   const rule = accountAction(portfolio, account, today);
   const fee = feeStatus(portfolio, account, today);
@@ -37,6 +45,11 @@ function cardStatus(portfolio: Portfolio, account: Account, holding: Holding, to
     tones.push("alert");
     tags.push(<Tag key="rule" tone="alert" title={rule.name}>
       {rule.actionCode === "CLOSE" && fee ? `Keep or close? ${feeTiming(account, fee, today)}` : rule.name}
+    </Tag>);
+  } else if (fee && keptPastFirstFee(account, today)) {
+    kept = true;
+    tags.push(<Tag key="kept" tone="kept" title="Open more than a year with an annual fee">
+      Kept · {money(fee.feeCents)} fee {fee.daysLeft <= FEE_WINDOW_DAYS ? inDays(fee.daysLeft) : monthYear(fee.next)}
     </Tag>);
   } else if (fee && fee.daysLeft <= FEE_WINDOW_DAYS) {
     tags.push(<Tag key="fee">{money(fee.feeCents)} fee {inDays(fee.daysLeft)}</Tag>);
@@ -68,6 +81,7 @@ function cardStatus(portfolio: Portfolio, account: Account, holding: Holding, to
   }
   if (account.status === "closed") tags.push(<Tag key="closed">Closed {monthYear(account.closedOn)}</Tag>);
   if (account.status === "declined") tags.push(<Tag key="declined">Declined {shortDate(account.closedOn || account.appliedOn)}</Tag>);
+  if (kept) tones.push("kept");
   return { tone: tones[0] ?? null, tags, bonusInProgress: Boolean(bonus) };
 }
 
@@ -100,7 +114,7 @@ export function CardList({ portfolio, accounts, today, onOpenAccount }: Props) {
     const holding = portfolio.current(account.id)!;
     return { account, holding, person: portfolio.person(account.personId), status: cardStatus(portfolio, account, holding, today) };
   });
-  const counts = { alert: 0, due: 0, info: 0 };
+  const counts = { alert: 0, due: 0, info: 0, kept: 0 };
   for (const row of all) if (row.status.tone) counts[row.status.tone] += 1;
   const filter = only && counts[only] ? only : null;
   const rows = filter ? all.filter((row) => row.status.tone === filter) : all;
@@ -112,11 +126,12 @@ export function CardList({ portfolio, accounts, today, onOpenAccount }: Props) {
 
   return (
     <>
-      {(counts.alert > 0 || counts.due > 0 || counts.info > 0) && (
+      {(counts.alert > 0 || counts.due > 0 || counts.info > 0 || counts.kept > 0) && (
         <div className="flag-key" role="group" aria-label="Show only">
           {keyItem("alert", `${counts.alert} to decide`)}
           {keyItem("due", `${counts.due} bonus${counts.due === 1 ? "" : "es"} in progress`)}
           {keyItem("info", `${counts.info} pending`)}
+          {keyItem("kept", `${counts.kept} kept with a fee`)}
           {filter && <button type="button" className="flag-key-clear" onClick={() => setOnly(null)}>Show all</button>}
         </div>
       )}

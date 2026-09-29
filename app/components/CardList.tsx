@@ -27,7 +27,7 @@ export function CardList({ portfolio, accounts, today, onOpenAccount }: Props) {
     const holding = portfolio.current(account.id)!;
     return { account, holding, status: cardStatus(portfolio, account, holding, today) };
   });
-  const counts = { alert: 0, due: 0, info: 0 };
+  const counts = { alert: 0, due: 0, info: 0, kept: 0 };
   for (const row of all) if (row.status.tone) counts[row.status.tone] += 1;
   const filter = only && counts[only] ? only : null;
   const rows = filter ? all.filter((row) => row.status.tone === filter) : all;
@@ -39,11 +39,12 @@ export function CardList({ portfolio, accounts, today, onOpenAccount }: Props) {
 
   return (
     <>
-      {(counts.alert > 0 || counts.due > 0 || counts.info > 0) && (
+      {(counts.alert > 0 || counts.due > 0 || counts.info > 0 || counts.kept > 0) && (
         <div className="flag-key" role="group" aria-label="Show only">
           {keyItem("alert", `${counts.alert} to decide`)}
           {keyItem("due", `${counts.due} bonus${counts.due === 1 ? "" : "es"} in progress`)}
           {keyItem("info", `${counts.info} pending`)}
+          {keyItem("kept", `${counts.kept} kept with a fee`)}
           {filter && <button type="button" className="flag-key-clear" onClick={() => setOnly(null)}>Show all</button>}
         </div>
       )}

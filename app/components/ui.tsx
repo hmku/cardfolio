@@ -15,7 +15,7 @@ export function Dot({ name, tone, large }: { name: string; tone: string; large?:
   return <span className={`dot ${tone}`} aria-hidden="true" style={large ? { width: 32, height: 32, fontSize: 14 } : undefined}>{name.slice(0, 1).toUpperCase()}</span>;
 }
 
-export function Tag({ tone, title, children }: { tone?: "alert" | "due" | "ok" | "info"; title?: string; children: ReactNode }) {
+export function Tag({ tone, title, children }: { tone?: "alert" | "due" | "ok" | "info" | "kept"; title?: string; children: ReactNode }) {
   return <span className={`tag ${tone || ""}`} title={title}>{children}</span>;
 }
 

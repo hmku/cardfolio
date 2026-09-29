@@ -18,13 +18,13 @@ import { money, shortDate } from "../lib/presentation/format";
 
 type Props = { db: SupabaseClient; accessToken: string; onSignOut: () => Promise<void> };
 type View = "cards" | "credits";
-type Prefs = { view: View; collapsed: Record<string, boolean>; showClosed: boolean };
+type Prefs = { view: View; collapsed: Record<string, boolean>; showClosed: boolean; creditsShowClosed: boolean };
 type Panel = { kind: "account"; id: number | null } | { kind: "settings" } | null;
 type Menu = { target: CellTarget; anchor: DOMRect } | null;
 
 const PREFS_KEY = "cardfolio-prefs-v3";
 const LIVE_TABLES = ["accounts", "account_products", "credits", "credit_uses", "credit_opt_outs", "products", "people", "action_rules"];
-const DEFAULT_PREFS: Prefs = { view: "cards", collapsed: {}, showClosed: false };
+const DEFAULT_PREFS: Prefs = { view: "cards", collapsed: {}, showClosed: false, creditsShowClosed: false };
 
 function readPrefs(): Prefs {
   if (typeof window === "undefined") return DEFAULT_PREFS;
@@ -40,6 +40,8 @@ export function Portfolio({ db, accessToken, onSignOut }: Props) {
   const [search, setSearch] = useState("");
   const [panel, setPanel] = useState<Panel>(null);
   const [menu, setMenu] = useState<Menu>(null);
+  // Bumped after a product change so the open drawer re-reads the card instead of keeping a stale form.
+  const [drawerVersion, setDrawerVersion] = useState(0);
   const [toast, setToast] = useState<ToastMessage | null>(null);
   const reloadTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const syncTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -209,6 +211,8 @@ export function Portfolio({ db, accessToken, onSignOut }: Props) {
   const viewerPerson = people.find((person) => person.email && person.email.toLowerCase() === membership.email.toLowerCase()) || people[0];
   const groupProps = {
     portfolio, today, include, collapsed: prefs.collapsed,
+    showClosed: prefs.creditsShowClosed,
+    onShowClosed: (show: boolean) => updatePrefs({ creditsShowClosed: show }),
     onCollapse: (key: string) => updatePrefs({ collapsed: { ...prefs.collapsed, [key]: !prefs.collapsed[key] } }),
     onOpenAccount: (id: number) => setPanel({ kind: "account", id }),
     onToggle: toggleCredit,
@@ -240,6 +244,7 @@ export function Portfolio({ db, accessToken, onSignOut }: Props) {
       const productId = change.productId === "new" ? await data.saveProduct(ctx, null, change.newProduct!) : change.productId;
       await data.changeProduct(ctx, selectedAccount, selectedCurrent, { productId, date: change.date, annualFeeCents: change.annualFeeCents, last4: change.last4, direction: change.direction }, portfolio!.holdings);
     }, { success: "Product change saved", rethrow: true });
+    setDrawerVersion((value) => value + 1);
   }
 
   return (
@@ -309,7 +314,7 @@ export function Portfolio({ db, accessToken, onSignOut }: Props) {
 
       {panel?.kind === "account" && (
         <AccountDrawer
-          key={panel.id ?? "new"}
+          key={`${panel.id ?? "new"}-${drawerVersion}`}
           portfolio={portfolio}
           accountId={panel.id}
           defaultPersonId={viewerPerson?.id ?? 0}
@@ -322,6 +327,7 @@ export function Portfolio({ db, accessToken, onSignOut }: Props) {
             const previous = portfolio.holdingsOf(selectedAccount.id).filter((holding) => holding.id !== selectedCurrent.id).pop();
             if (!previous) return;
             await write((ctx) => data.undoProductChange(ctx, selectedCurrent, previous), { success: "Product change removed", rethrow: true });
+            setDrawerVersion((value) => value + 1);
           }}
           onDelete={async () => {
             if (!selectedAccount) return;

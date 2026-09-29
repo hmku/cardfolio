@@ -6,11 +6,13 @@ Cardfolio is a private household credit card tracker. Everything is on one page:
 - **To do**, above both tabs: credits ending within a month, annual fee reviews, bonus
   deadlines and pending applications.
 - **Cards**: every current account, newest first. A table on desktop and tiles on phones,
-  with red decision rows, amber bonuses in progress, blue pending applications, and a
+  with red decision rows, amber bonuses in progress, blue pending applications, violet
+  fee cards kept past their first year, and a
   color key that filters the list. Closed and declined cards sit behind a toggle.
 - **Credits**: one group per card type, one row per card, one checkbox column per credit.
   Tap a box to mark a credit used; press and hold (or right-click) to log a partial amount
   or mark it not enrolled. The footer shows the current period's `used/tracked` count.
+  Closed cards and earlier products are hidden behind "Show closed cards".
 
 Card types, credits, reminders, cardholders, sign-in access and exports live in
 **Settings**. Changes appear live for everyone signed in.

@@ -19,6 +19,9 @@ type GroupProps = Handlers & {
   include: (account: Account) => boolean;
   collapsed: Record<string, boolean>;
   onCollapse: (key: string) => void;
+  /** Closed cards and earlier products (before an upgrade or downgrade) are hidden unless set. */
+  showClosed: boolean;
+  onShowClosed: (show: boolean) => void;
 };
 
 function GroupHead({ id, title, meta, collapsed, onToggle }: { id: string; title: string; meta: string; collapsed: boolean; onToggle: (key: string) => void }) {
@@ -35,7 +38,8 @@ export const groupId = (key: string) => `g-${key.replace(/[^a-z0-9]+/gi, "-")}`;
 
 /** Card types with credits: one row per card, one checkbox column per credit. */
 export function CardGroups(props: GroupProps) {
-  const { portfolio, today, include, collapsed, onCollapse } = props;
+  const { portfolio, today, include, collapsed, onCollapse, showClosed, onShowClosed } = props;
+  let closedRows = 0;
   const productsWithCredits = [...new Set(portfolio.credits.map((credit) => credit.productId))];
 
   const groups = productsWithCredits.map((productId) => {
@@ -48,7 +52,9 @@ export function CardGroups(props: GroupProps) {
       if (!account || !include(account)) return false;
       const isCurrentOpen = account.status === "open" && portfolio.current(account.id)?.id === holding.id;
       const hasCredit = credits.some((credit) => eligible.get(credit.id)!.has(holding.id));
-      return isCurrentOpen || hasCredit;
+      if (isCurrentOpen) return true;
+      if (hasCredit) closedRows += 1;
+      return hasCredit && showClosed;
     }).sort((left, right) => {
       const leftOpen = portfolio.current(left.accountId)?.id === left.id && portfolio.account(left.accountId)?.status === "open";
       const rightOpen = portfolio.current(right.accountId)?.id === right.id && portfolio.account(right.accountId)?.status === "open";
@@ -126,6 +132,11 @@ export function CardGroups(props: GroupProps) {
           </section>
         );
       })}
+      {closedRows > 0 && (
+        <button type="button" className="btn show-closed" aria-pressed={showClosed} onClick={() => onShowClosed(!showClosed)}>
+          {showClosed ? "Hide closed cards" : `Show closed cards (${closedRows})`}
+        </button>
+      )}
     </>
   );
 }

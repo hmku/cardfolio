@@ -54,7 +54,7 @@ test("fee reviews describe an estimated anniversary rather than claiming a state
   const value = { ...account, approvedOn: "2025-09-13", bonusEarned: true };
   const status = cardStatus(fixture(value, [holding], true), value, holding, today);
   assert.equal(status.tone, "alert");
-  assert.match(status.tags[0].text, /fee anniversary Sep 13/);
+  assert.equal(status.tags[0].text, "Keep or close? $95 fee, renewed Sep 13");
   assert.doesNotMatch(status.tags[0].text, /posted/);
 });
 
@@ -66,4 +66,15 @@ test("review priority outranks an in-progress bonus and future changes aren't ca
   assert.equal(status.tone, "alert");
   assert.equal(status.tags.find((tag) => tag.key === "bonus")?.tone, "due");
   assert.ok(!status.tags.some((tag) => tag.key === "change"));
+});
+
+test("fee cards kept past their first year get the light kept tone, below everything else", () => {
+  const value = { ...account, approvedOn: "2024-03-10", bonusEarned: true };
+  const status = cardStatus(fixture(value), value, holding, today);
+  assert.equal(status.tone, "kept");
+  assert.equal(status.tags[0].text, "Kept · $95 fee Mar 2027");
+  const young = { ...account, approvedOn: "2025-12-01", bonusEarned: true };
+  assert.equal(cardStatus(fixture(young), young, holding, today).tone, null, "not before the first fee");
+  const pending = { ...value, status: "pending" as const };
+  assert.equal(cardStatus(fixture(pending), pending, holding, today).tone, "info");
 });

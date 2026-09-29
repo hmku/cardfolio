@@ -92,3 +92,18 @@ to-do navigation. Assess the pre-existing follow-ups separately and don't blindl
 combine migration work with this UI refactor. Once satisfied, merge the accepted
 changes into main and release through the existing Vercel workflow. Verify the
 production deployment and report the released commit, checks, and deferred work.
+
+## Release notes (merge into main)
+
+Accepted with amendments after reconciling with the five commits that landed on `main` after
+`9334dc4` (iOS date inputs, drawer refresh after product changes, the violet "kept with a fee"
+tone, hidden closed cards on Credits, and TODO updates):
+
+- `card-status.ts` gained the `kept` tone (priority: alert, due, info, kept) and its test.
+- Fee-soon tags stay neutral: amber is reserved for bonuses in progress, which also shade the row.
+- Review tags read "Keep or close? $695 fee, renewed Sep 13" / "renews in 12d"; bonus tags
+  keep "172d left".
+- `.tag` wraps with `overflow-wrap: break-word`, not `anywhere`, so narrow columns don't
+  break words mid-letter; phone tile names keep their bolder weight.
+
+The pre-existing follow-ups above are tracked in TODO.md under "Review follow-ups".

@@ -4,10 +4,16 @@ import { accountAction } from "../core/rules.ts";
 import { bonusStatus, feeStatus } from "../core/stats.ts";
 import { inDays, money, monthYear, shortDate } from "./format.ts";
 
-export type CardTone = "alert" | "due" | "info";
+export type CardTone = "alert" | "due" | "info" | "kept";
 export type StatusTag = { key: string; text: string; tone?: CardTone; title?: string };
 const FEE_WINDOW_DAYS = 45;
 const RECENT_CHANGE_DAYS = 120;
+const YEAR_DAYS = 365;
+
+function approvedDays(account: Account, today: Date) {
+  const approved = parseDate(account.approvedOn);
+  return approved ? daysBetween(approved, today) : -1;
+}
 
 /** Shared presentation for Cards and Credits; financial rules stay in core. */
 export function cardStatus(portfolio: Portfolio, account: Account, holding: Holding, today: Date) {
@@ -28,13 +34,18 @@ export function cardStatus(portfolio: Portfolio, account: Account, holding: Hold
     tones.push("alert");
     const approved = parseDate(account.approvedOn);
     const last = approved ? anniversaryIn(approved, today.getFullYear()) : null;
-    // An anniversary estimates the posting date; the app does not read statements yet.
+    // The app knows the approval anniversary, not when the fee posts on a statement.
     const timing = fee && last && last.getTime() <= today.getTime() && fee.daysLeft > 180
-      ? `fee anniversary ${shortDate(last)}` : fee ? `fee ${inDays(fee.daysLeft)}` : "";
+      ? `renewed ${shortDate(last)}` : fee ? `renews ${inDays(fee.daysLeft)}` : "";
     tags.push({ key: "rule", tone: "alert", title: rule.name,
-      text: rule.actionCode === "CLOSE" && fee ? `Keep or close? ${money(fee.feeCents)} ${timing}` : rule.name });
+      text: rule.actionCode === "CLOSE" && fee ? `Keep or close? ${money(fee.feeCents)} fee, ${timing}` : rule.name });
+  } else if (fee && approvedDays(account, today) >= YEAR_DAYS) {
+    // Kept past its first fee and outside a review window: a light "think about it" nudge.
+    tones.push("kept");
+    tags.push({ key: "kept", tone: "kept", title: "Open more than a year with an annual fee",
+      text: `Kept · ${money(fee.feeCents)} fee ${fee.daysLeft <= FEE_WINDOW_DAYS ? inDays(fee.daysLeft) : monthYear(fee.next)}` });
   } else if (fee && fee.daysLeft <= FEE_WINDOW_DAYS) {
-    tags.push({ key: "fee", tone: "due", text: `${money(fee.feeCents)} fee ${inDays(fee.daysLeft)}` });
+    tags.push({ key: "fee", text: `${money(fee.feeCents)} fee ${inDays(fee.daysLeft)}` });
   }
 
   const bonus = bonusStatus(account, today);
@@ -44,7 +55,7 @@ export function cardStatus(portfolio: Portfolio, account: Account, holding: Hold
     const spend = account.bonus.spendCents ? `spend ${money(account.bonus.spendCents)}` : "earn";
     tags.push({ key: "bonus", tone: overdue ? "alert" : "due", text: overdue
       ? `Bonus deadline passed ${shortDate(bonus.deadline)}: earned it?`
-      : `${bonusLabel(account.bonus)}: ${spend} by ${shortDate(bonus.deadline)} · ${inDays(bonus.daysLeft)}` });
+      : `${bonusLabel(account.bonus)}: ${spend} by ${shortDate(bonus.deadline)} · ${bonus.daysLeft}d left` });
   }
   if (account.status === "pending") {
     tones.push("info");
@@ -61,7 +72,7 @@ export function cardStatus(portfolio: Portfolio, account: Account, holding: Hold
   }
   if (account.status === "closed") tags.push({ key: "closed", text: `Closed ${monthYear(account.closedOn)}` });
   if (account.status === "declined") tags.push({ key: "declined", text: `Declined ${shortDate(account.closedOn || account.appliedOn)}` });
-  // Priority is explicit: a missed bonus outranks an in-progress bonus, then pending.
-  const tone = (["alert", "due", "info"] as const).find((tone) => tones.includes(tone)) ?? null;
+  // Priority is explicit: decisions, then bonuses in progress, pending, and kept-with-a-fee.
+  const tone = (["alert", "due", "info", "kept"] as const).find((tone) => tones.includes(tone)) ?? null;
   return { tone, tags, bonusInProgress: Boolean(bonus) };
 }

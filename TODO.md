@@ -17,6 +17,12 @@ done and move them to **Done** with the date.
     Harrison's United Gateway (from United Explorer #2, Dec 2024) and Sophia's Biz Green #2
     (from Biz Gold #1, Apr 2026). Close them if that's wrong.
   - Credit checkboxes were guessed from the sheet's `used/total` counts; fix any wrong ones.
+- [ ] **Check the Amex Platinum credits** (added 2026-09-29 from public 2026 benefit lists; the
+      Amex site itself couldn't be reached): Fine Hotels $300/half, Resy $100/qtr, lululemon $75/qtr,
+      Airline fee $200/yr, Digital entertainment $25/mo, Uber Cash $15/mo, Uber One $120/yr,
+      Walmart+ $12.95/mo, CLEAR $209/yr, Oura $200/yr, Equinox $300/yr. Delete any you won't
+      use in Settings → Card types and credits, or mark them not enrolled per card. Uber Cash is $35 in
+      December; the app can't vary a monthly amount yet, so log the extra $20 as a partial use.
 - [ ] Stop editing the tracker, credits and stats tabs of the Google Sheet once the app is
       the source of truth.
 
@@ -29,8 +35,6 @@ done and move them to **Done** with the date.
 
 ## Review follow-ups
 
-- [ ] Review and release `review/code-organization-ui-consistency` after a signed-in
-      desktop/phone smoke test in light and dark mode; see `docs/code-review-2026-09-29.md`.
 - [ ] Make credit replacement, product changes/undo, and account edits transactional;
       add failure and concurrent-write tests before changing the browser data API.
 - [ ] Preserve Settings drafts when a save/invite fails and disable duplicate submissions;
@@ -48,18 +52,34 @@ done and move them to **Done** with the date.
 - [ ] Credit history view: past periods per card (e.g. last year's Dell credit on every Biz Plat).
 - [ ] Native mobile app (Expo) reusing `app/lib/core`, only if the home-screen web app
       feels limiting.
+- [ ] Shared credits across card types (Airline fee, Fine Hotels and CLEAR are identical on
+      amex plat and biz plat). For now they're kept in sync by hand: same name, amount, cadence
+      and reminder setting. A real merge needs a credit-to-product link table plus grid,
+      Settings, reminder and export changes; only worth it if more overlaps show up.
 - [ ] Drop the `legacy_*` tables once nothing from the v1 app is needed.
 - [ ] Supabase security advisor: `is_cardfolio_member` / `is_cardfolio_owner` are callable
       via RPC (they only reveal the caller's own membership); consider revoking `anon`.
 
 ## Done
 
-- 2026-09-29: Review branch consolidates card statuses/identity/formatters, separates the
-  to-do component, adds stable dialog focus and toast timers, and fixes empty search,
-  last-digit visibility, phone wrapping, and stale “Due soon” wording. Regression tests
-  and local desktop/phone browser checks added/completed; release is tracked above.
+- 2026-09-29: Released the code-organization review (`review/code-organization-ui-consistency`):
+  one shared card-status module for Cards and Credits (`app/lib/presentation/`), shared card
+  identity with last digits on desktop too, a separate to-do component, dialog focus/Escape
+  handling and scroll lock, empty Credits search state, and "To do" wording in Settings.
+  Amended on merge: kept the violet "kept" tone, neutral fee-soon tags, "Nd left" bonus
+  wording, and "renewed/renews" instead of "fee anniversary" for reviews.
 
+- 2026-09-29: Credits tab hides closed cards and earlier products ("Show closed cards" at the
+  bottom); biz plat Hilton now sits left of Wireless; added the Amex Platinum credits.
 
+- 2026-09-29: Cards kept open past their first annual fee (over a year old, not in a review
+  window) get a light violet shade and a "Kept · $695 fee May 2027" tag; filter them from the
+  color key ("kept with a fee").
+
+- 2026-09-29: The card drawer reloads after a product change or undo, so its form shows the
+  new card type, fee and number (before, pressing Save could write the old product back).
+
+- 2026-09-29: Date fields on iPhone match the other fields (left-aligned, same height and width).
 - 2026-09-29: Cards tab color-coding: red rows to decide (keep or close, missed bonus), amber
   bonuses in progress, blue pending; the color key above the list filters to each. Bonuses
   always show as a pill (green once earned). Opened date is bold on every row. The to-do list

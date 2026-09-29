@@ -25,6 +25,23 @@ Update it in the same commit as the related change.
 - Before pushing, run `npm run check` (lint, type-check, tests, build).
 - Commit to `main`; Vercel deploys every push.
 
+## Testing on production
+
+A test member, `devtest068@gmail.com`, can sign in to https://cardfolio.harrisonku.com. It sees
+and can edit the household's real data: only read unless the owner asks for a change, and undo
+anything you change.
+
+1. The Claude Code environment must allow `cardfolio.harrisonku.com` and
+   `ylrkwnqrmuxlzouziabz.supabase.co` (already added to the "Default" environment).
+2. Playwright's Chromium must trust the egress proxy CA: install `libnss3-tools`, split
+   `/root/.ccr/ca-bundle.crt` and add the Anthropic proxy CAs to `sql:$HOME/.pki/nssdb`
+   with `certutil -A -t "C,,"`. Launch Chromium with `proxy: { server: process.env.HTTPS_PROXY }`.
+3. Enter the email, press "Email me a sign-in code" once, keep that page open, then read the
+   newest "Your Cardfolio sign-in code" email from `cardfolio@harrisonku.com` with the Gmail
+   connector and type the code. Pressing send again invalidates the earlier code.
+4. Live updates (Supabase realtime websockets) fail through the container proxy; that's
+   expected there and not an app bug.
+
 ## Always commit and push
 
 After every change, commit it and push to `main` right away, without waiting to be asked.

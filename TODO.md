@@ -22,10 +22,6 @@ done and move them to **Done** with the date.
 
 ## Optional setup
 
-- [ ] **Let Claude sign in to test**: `devtest068@gmail.com` is invited (member) and a Gmail
-      connector for it is connected. Remaining: allow `cardfolio.harrisonku.com` and
-      `ylrkwnqrmuxlzouziabz.supabase.co` in the Claude Code environment's network settings
-      (the container can't reach either yet). The account has full edit access to real data.
 - [ ] **Google Sheet copy**: create a Google Cloud service account with the Sheets API,
       share an empty spreadsheet with it, and set `GOOGLE_SERVICE_ACCOUNT_EMAIL`,
       `GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY` and `CARDFOLIO_EXPORT_SPREADSHEET_ID` in Vercel
@@ -46,6 +42,9 @@ done and move them to **Done** with the date.
       via RPC (they only reveal the caller's own membership); consider revoking `anon`.
 
 ## Done
+
+- 2026-09-29: Claude can sign in to production as `devtest068@gmail.com` (member) to test;
+  see AGENTS.md → Testing on production.
 
 - 2026-09-29: Sign-in emails sent from cardfolio@harrisonku.com via Resend, with the 6-digit code.
 - 2026-09-29: Short card names (the sheet abbreviations, overridable in Settings) in tables,

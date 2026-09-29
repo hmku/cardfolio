@@ -286,7 +286,7 @@ export function planSheetImport(trackerRows: SheetTrackerRow[], creditRows: Shee
         number: row.approved ? row.number : null,
         startedOn: (row.approved || row.applied)!,
         endedOn: index < chain.length - 1 ? chain[index + 1].approved : null,
-        change: index === 0 ? "opened" : row.how === "downgraded" ? "downgrade" : "upgrade",
+        change: row.how === "downgraded" ? "downgrade" : row.how === "upgraded" ? "upgrade" : "opened",
         annualFeeCents: row.feeCents,
         sourceRow: row.sourceRow,
       })),

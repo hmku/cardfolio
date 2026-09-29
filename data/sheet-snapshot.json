@@ -3,7 +3,7 @@
  "sourceSpreadsheetId": "1WDoVTl_LaXAzzTFsglBUKrMu5TybUxZFhbcA5KS9oLY",
  "notes": [
   "Tracker and credits tabs only.",
-  "Includes two edits made after export: the Biz Plat/Biz Gold bonuses marked earned, and the CFU upgraded back to CSR #5 on 2025-06-01."
+  "Includes one edit not yet in the sheet: the CFU upgraded back to CSR #5 on 2025-06-01 ($795)."
  ],
  "tracker": [
   {
@@ -1976,7 +1976,7 @@
    "how": "nll",
    "offer": "90k / 4k / 6mo",
    "af": 0.0,
-   "sub": false,
+   "sub": true,
    "closed": null,
    "closedHow": null
   },
@@ -1990,7 +1990,7 @@
    "how": "nll",
    "offer": "90k / 4k / 6mo",
    "af": 0.0,
-   "sub": false,
+   "sub": true,
    "closed": null,
    "closedHow": null
   },

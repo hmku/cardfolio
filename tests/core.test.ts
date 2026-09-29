@@ -55,6 +55,8 @@ test("product changes become one account with a product history", () => {
     ["Chase Freedom Unlimited #1", "Chase Sapphire Reserve #2", "Chase Freedom Flex #2", "Chase Sapphire Reserve #4", "Chase Freedom Flex #3"],
     ["Chase Sapphire Reserve #1", "Chase Freedom Flex #1", "Chase Sapphire Reserve #3", "Chase Freedom Unlimited #2", "Chase Sapphire Reserve #5"],
   ]);
+  const explorer = portfolio.holdings.filter((holding) => holding.personId === personId("Harrison") && holding.productId === productId("united explorer"));
+  assert.deepEqual(explorer.map((holding) => holding.change), ["opened", "upgrade"], "the return from Gateway is an upgrade");
   const csr5 = portfolio.holdings.find((holding) => holding.number === 5 && holding.productId === productId("csr"))!;
   assert.equal(portfolio.current(csr5.accountId)!.annualFeeCents, 79_500);
   assert.equal(nextHoldingNumber(portfolio.holdings, personId("Harrison"), productId("csr")), 6);

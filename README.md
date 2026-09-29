@@ -58,9 +58,9 @@ invites. The secret key is server-only.
 
 ## Importing the Google Sheet
 
-`data/sheet-snapshot.json` holds the tracker and credits tabs as of 2026-09-29, plus two
-edits made after that export (the Sophia Biz Plat/Biz Gold bonuses marked earned, and the
-CFU upgraded back to CSR #5 on 2025-06-01).
+`data/sheet-snapshot.json` holds the tracker and credits tabs as of 2026-09-29, plus one
+edit that isn't in the sheet: the CFU upgraded back to CSR #5 on 2025-06-01. (If you
+re-import from CSV, add that row to the sheet first.)
 
 ```bash
 npm run db:import-sheet -- --snapshot data/sheet-snapshot.json > import.sql

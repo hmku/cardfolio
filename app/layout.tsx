@@ -9,7 +9,7 @@ export const metadata: Metadata = {
   title: "Cardfolio",
   description: "Household credit card tracker: cards, product changes, 5/24 and recurring credits on one page.",
   appleWebApp: { capable: true, title: "Cardfolio", statusBarStyle: "default" },
-  icons: { icon: "/icon.svg", apple: "/apple-touch-icon.png" },
+  icons: { icon: "/icon.svg", apple: "/icon.svg" },
 };
 
 export const viewport: Viewport = {

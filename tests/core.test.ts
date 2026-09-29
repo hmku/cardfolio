@@ -133,3 +133,19 @@ test("bonus deadlines and fee dates come from the approval date", () => {
   assert.equal(isoDate(feeStatus(portfolio, amexPlat, today)!.next), "2027-09-20");
   assert.equal(holdingsOf("Sophia", "biz plat").length, 6);
 });
+
+test("daily reminders ping on set days and summarize on Mondays", async () => {
+  const { dailyReminder, todayInTimeZone } = await import("../app/lib/core/reminders.ts");
+  const on = (date: string) => dailyReminder(portfolio, parseDate(date)!);
+  const hilton = (reminder: ReturnType<typeof on>) => reminder?.lines.some((line) => line.startsWith("Hilton $50 on 7 Amex Business Platinums: Q3 ends")) ?? false;
+
+  assert.ok(hilton(on("2026-09-23")), "a week before the quarter ends");
+  assert.ok(hilton(on("2026-09-28")), "Monday summary");
+  assert.equal(on("2026-09-28")!.title.startsWith("This week in Cardfolio"), true);
+  assert.equal(hilton(on("2026-09-29")), false, "no ping the day before the last day");
+  assert.ok(hilton(on("2026-09-30")), "last day");
+  assert.equal(on("2026-09-24")?.lines.some((line) => line.startsWith("Hilton")) ?? false, false);
+  assert.ok(on("2026-09-30")!.body.split("\n").length <= 5, "notification body stays short");
+
+  assert.equal(isoDate(todayInTimeZone("America/New_York", new Date("2026-09-30T03:30:00Z"))), "2026-09-29");
+});

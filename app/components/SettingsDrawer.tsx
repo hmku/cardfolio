@@ -6,6 +6,7 @@ import { exportTables, toCsv } from "../lib/core/export";
 import type { Cadence, Credit, Kind, Portfolio, Product } from "../lib/core/model";
 import { describeRule, DEFAULT_ACTION_RULES } from "../lib/core/rules";
 import type { CreditDraft, ProductDraft } from "../lib/data";
+import { ReminderSettings } from "./ReminderSettings";
 import { Drawer, toCents, toDollarsInput } from "./ui";
 
 export type Membership = {
@@ -29,6 +30,8 @@ type Props = {
   onInvite: (email: string) => Promise<void>;
   onSyncSheet: () => Promise<void>;
   onSignOut: () => Promise<void>;
+  accessToken: string;
+  notify: (text: string, error?: boolean) => void;
 };
 
 const CADENCES = Object.entries(CADENCE_LABELS) as [Cadence, string][];
@@ -170,6 +173,8 @@ export function SettingsDrawer(props: Props) {
           </form>
         )}
       </div>
+
+      <ReminderSettings accessToken={props.accessToken} notify={props.notify} />
 
       <div className="fieldset">
         <h3>Export</h3>

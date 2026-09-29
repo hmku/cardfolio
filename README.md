@@ -83,6 +83,36 @@ How the importer reads the sheet:
   sheet counts fewer cards than are eligible, cards that were already closed or changed
   (then the newest) are marked not enrolled. Check these once after importing.
 
+## Reminders
+
+Settings → Reminders turns on notifications for the device you're using (each phone or
+browser is turned on separately). A daily job (`vercel.json`, 13:00 UTC ≈ 9am Eastern)
+notifies when a tracked credit is 7 days, 2 days or 0 days from the end of its period, when
+a welcome bonus deadline is 30, 14 or 3 days away, and on the first day a review reminder
+matches. Mondays send a summary of everything due. On iPhone, add the site to the home
+screen and turn reminders on from there (iOS only allows notifications for home-screen apps).
+
+Needs `NEXT_PUBLIC_VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` and `CRON_SECRET`
+(see `.env.example`). The time zone defaults to America/New_York (`REMINDER_TIME_ZONE`).
+
+## Signing in
+
+The sign-in email contains a link and a 6-digit code. Typing the code signs in the exact
+browser or home-screen app it's typed into; sessions then last until you sign out. For the
+code to appear, the Supabase **Magic Link** email template (Authentication → Emails) must
+include `{{ .Token }}`, for example:
+
+```html
+<h2>Sign in to Cardfolio</h2>
+<p>Your code: <strong>{{ .Token }}</strong></p>
+<p>Or <a href="{{ .ConfirmationURL }}">tap here to sign in</a>.</p>
+```
+
+## Card last digits from 1Password
+
+`scripts/1password-last-digits.sh` uses the 1Password CLI to print each saved card's title,
+cardholder and last 4 digits (5 for Amex) as CSV. It never prints full numbers or CVVs.
+
 ## Google Sheet copy (optional)
 
 Cardfolio can overwrite the `tracker`, `credits` and `stats` tabs of a separate

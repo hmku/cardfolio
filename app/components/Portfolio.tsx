@@ -384,6 +384,8 @@ export function Portfolio({ db, accessToken, onSignOut }: Props) {
 
       {panel?.kind === "settings" && (
         <SettingsDrawer
+          accessToken={accessToken}
+          notify={(text, error) => notify(text, undefined, error)}
           portfolio={portfolio}
           today={today}
           membership={membership}

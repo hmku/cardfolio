@@ -23,7 +23,7 @@ export function publicAuthConfig() {
   };
 }
 
-function adminClient() {
+export function adminClient() {
   return createClient(
     requiredEnv("NEXT_PUBLIC_SUPABASE_URL"),
     requiredEnv("SUPABASE_SERVICE_ROLE_KEY"),

@@ -51,7 +51,9 @@ done and move them to **Done** with the date.
 
 - [ ] Plaid: connect card accounts, detect statement credits, track bonus spend and fee
       postings (`credit_uses.source = 'plaid'` is already in the schema). Needs a Plaid
-      production account.
+      production account. Plaid can't report autopay settings directly, but payments on the
+      due-date schedule (often labeled "AUTOPAY") show it; flag cards with a balance due and
+      no payment by the due date. It has no opening dates or product-change history.
 - [ ] Credit history view: past periods per card (e.g. last year's Dell credit on every Biz Plat).
 - [ ] Native mobile app (Expo) reusing `app/lib/core`, only if the home-screen web app
       feels limiting.

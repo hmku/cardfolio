@@ -108,7 +108,7 @@ function main() {
     replace
       ? ["credit_opt_outs", "credit_uses", "credits", "account_products", "accounts", "products", "people"].map((table) => `delete from public.${table} where household_id = ${sql(household)};`).join("\n")
       : `do $$ begin if exists (select 1 from public.accounts where household_id = ${sql(household)}) then raise exception 'Cardfolio already has accounts. Re-run the import with --replace to overwrite them.'; end if; end $$;`,
-    `insert into public.people (id, household_id, name, sort) values\n${values(plan.people.map((name, index) => [index + 1, household, name, index]))};`,
+    `insert into public.people (id, household_id, name, code, sort) values\n${values(plan.people.map((name, index) => [index + 1, household, name, plan.personCodes[name] ?? null, index]))};`,
     `insert into public.products (id, household_id, slug, name, short_name, issuer, kind, annual_fee_cents) values\n${values(plan.products.map((product, index) => [index + 1, household, product.slug, product.name, product.shortName, product.issuer, product.kind, product.annualFeeCents]))};`,
     `insert into public.accounts (id, household_id, person_id, applied_on, approved_on, opened_via, status, closed_on, bonus_amount, bonus_unit, bonus_spend_cents, bonus_months, bonus_earned, note, source_row) values\n${values(accountRows)};`,
     `insert into public.account_products (id, household_id, account_id, person_id, product_id, number, started_on, ended_on, change, annual_fee_cents) values\n${values(holdingRows)};`,

@@ -4,7 +4,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { creditState } from "../lib/core/credits";
 import { atNoon } from "../lib/core/dates";
-import { bonusLabel, holdingName, indexPortfolio, shortName, type Account, type Portfolio as PortfolioModel, type PortfolioData } from "../lib/core/model";
+import { bonusLabel, cardTag, holdingName, indexPortfolio, shortName, type Account, type Portfolio as PortfolioModel, type PortfolioData } from "../lib/core/model";
 import { dueItems, personStats, type DueItem } from "../lib/core/stats";
 import * as data from "../lib/data";
 import { AccountDrawer, type ProductChange } from "./AccountDrawer";
@@ -31,7 +31,7 @@ function readPrefs(): Prefs {
 function dueText(portfolio: PortfolioModel, item: DueItem) {
   const who = (account: Account) => {
     const holding = portfolio.current(account.id);
-    return `${portfolio.person(account.personId)?.name} · ${holding ? holdingName(portfolio, holding) : ""}`;
+    return holding ? holdingName(portfolio, holding) : portfolio.person(account.personId)?.name || "";
   };
   switch (item.kind) {
     case "credit":
@@ -153,7 +153,7 @@ export function Portfolio({ db, accessToken, onSignOut }: Props) {
     if (state.kind === "off") return;
     const periodKey = state.period.key;
     const previous = state.usedCents || null;
-    const holdingLabel = `${portfolio.person(holding.personId)?.name} #${holding.number ?? "?"}`;
+    const holdingLabel = holdingName(portfolio, holding);
     void write((ctx) => data.setCreditUse(ctx, credit.id, holding.id, periodKey, amountCents), {
       optimistic: (value) => ({
         ...value,
@@ -163,7 +163,7 @@ export function Portfolio({ db, accessToken, onSignOut }: Props) {
           ...(amountCents === null ? [] : [{ id: -Date.now(), creditId: credit.id, holdingId: holding.id, periodKey, amountCents, usedOn: null, recordedBy: membership?.email || null, source: "manual" as const }]),
         ],
       }),
-      success: `${message} ${credit.name} on ${shortName(portfolio.product(credit.productId))} · ${holdingLabel}`,
+      success: `${message} ${credit.name} on ${holdingLabel}`,
       undo: () => setUse(target, previous, "Restored"),
     });
   }
@@ -184,7 +184,7 @@ export function Portfolio({ db, accessToken, onSignOut }: Props) {
           ? value.optOuts.filter((row) => !(row.creditId === credit.id && row.holdingId === holding.id))
           : [...value.optOuts, { creditId: credit.id, holdingId: holding.id }],
       }),
-      success: `${credit.name} ${enrolled ? "tracked" : "marked not enrolled"} on ${portfolio?.person(holding.personId)?.name} #${holding.number ?? "?"}`,
+      success: `${credit.name} ${enrolled ? "tracked" : "marked not enrolled"} on ${portfolio ? holdingName(portfolio, holding) : ""}`,
       undo: () => setEnrolled(target, !enrolled),
     });
   }
@@ -199,7 +199,7 @@ export function Portfolio({ db, accessToken, onSignOut }: Props) {
       account.note,
       ...portfolio.holdingsOf(account.id).flatMap((holding) => {
         const product = portfolio.product(holding.productId);
-        return [product?.name, product?.slug, product?.shortName, product?.issuer, holding.last4, holding.number ? `#${holding.number}` : ""];
+        return [product?.name, product?.slug, product?.shortName, product?.issuer, holding.last4, cardTag(portfolio, holding)];
       }),
     ].join(" ").toLowerCase();
     return search.toLowerCase().split(/\s+/).every((word) => haystack.includes(word));
@@ -395,6 +395,7 @@ export function Portfolio({ db, accessToken, onSignOut }: Props) {
           onDeleteCredit={(id) => write((ctx) => data.deleteCredit(ctx, id), { success: "Credit deleted" })}
           onToggleRule={(id, enabled) => write((ctx) => data.setRuleEnabled(ctx, id, enabled))}
           onAddPerson={(name) => write((ctx) => data.addPerson(ctx, { name }, people.length), { success: `Added ${name.trim()}` })}
+          onSavePerson={(id, name, code) => write((ctx) => data.savePerson(ctx, id, { name, code }), { success: "Saved" })}
           onInvite={async (email) => {
             const response = await fetch("/api/session", { method: "POST", headers: { authorization: `Bearer ${accessToken}`, "content-type": "application/json" }, body: JSON.stringify({ action: "invite", email }) });
             const payload = await response.json();
@@ -412,7 +413,7 @@ export function Portfolio({ db, accessToken, onSignOut }: Props) {
           credit={menu.target.credit}
           state={menuState}
           anchor={menu.anchor}
-          heading={`${shortName(portfolio.product(menu.target.credit.productId))} · ${portfolio.person(menu.target.holding.personId)?.name} #${menu.target.holding.number ?? "?"}`}
+          heading={holdingName(portfolio, menu.target.holding)}
           onClose={() => setMenu(null)}
           onUse={(amountCents) => { setMenu(null); setUse(menu.target, amountCents, amountCents === null ? "Cleared" : amountCents >= menu.target.credit.amountCents ? "Marked used:" : `Logged ${money(amountCents)} of`); }}
           onEnroll={(enrolled) => { setMenu(null); setEnrolled(menu.target, enrolled); }}

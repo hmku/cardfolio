@@ -118,6 +118,8 @@ export type ImportedCredit = {
 
 export type ImportPlan = {
   people: string[];
+  /** Initials used in card labels, inferred from notes like "downgraded to cff hk1". */
+  personCodes: Record<string, string>;
   products: Array<{ slug: string; name: string; shortName: string | null; issuer: string; kind: Kind; annualFeeCents: number }>;
   accounts: ImportedAccount[];
   credits: ImportedCredit[];
@@ -427,7 +429,16 @@ export function planSheetImport(trackerRows: SheetTrackerRow[], creditRows: Shee
   });
 
   const people = [...new Set(rows.map((row) => row.person))].sort((left, right) => left.localeCompare(right));
-  return { people, products, accounts, credits, warnings };
+  const personCodes: Record<string, string> = {};
+  for (const person of people) {
+    const counts = new Map<string, number>();
+    for (const row of rows.filter((item) => item.person === person)) {
+      for (const match of row.closedHow.toLowerCase().matchAll(/\b([a-z]{2})\d+\b/g)) counts.set(match[1], (counts.get(match[1]) || 0) + 1);
+    }
+    const best = [...counts.entries()].sort((left, right) => right[1] - left[1])[0];
+    if (best) personCodes[person] = best[0].toUpperCase();
+  }
+  return { people, personCodes, products, accounts, credits, warnings };
 }
 
 /** Converts an import plan into in-memory portfolio rows with the same ids the SQL import assigns. */
@@ -446,7 +457,7 @@ export function planToPortfolioData(plan: ImportPlan): import("./model.ts").Port
   });
   let useId = 0;
   return {
-    people: plan.people.map((name, index) => ({ id: index + 1, name, email: null, sort: index })),
+    people: plan.people.map((name, index) => ({ id: index + 1, name, code: plan.personCodes[name] ?? null, email: null, sort: index })),
     products: plan.products.map((product, index) => ({ id: index + 1, ...product })),
     accounts,
     holdings,

@@ -55,7 +55,7 @@ export async function loadPortfolio(db: SupabaseClient, householdId: string): Pr
     selectAll(db, "action_rules", householdId, "priority"),
   ]);
   return {
-    people: people.map((row) => ({ id: num(row.id), name: String(row.name), email: text(row.email), sort: num(row.sort) })),
+    people: people.map((row) => ({ id: num(row.id), name: String(row.name), code: text(row.code), email: text(row.email), sort: num(row.sort) })),
     products: products.map((row) => ({ id: num(row.id), slug: String(row.slug), name: String(row.name), shortName: text(row.short_name), issuer: String(row.issuer), kind: row.kind as Kind, annualFeeCents: num(row.annual_fee_cents) })),
     accounts: accounts.map((row) => ({
       id: num(row.id),
@@ -336,9 +336,16 @@ export async function deleteAccount(context: Context, accountId: number) {
   check(await context.db.from("accounts").delete().eq("household_id", context.householdId).eq("id", accountId), "delete the card");
 }
 
-export type PersonDraft = { name: string };
+export type PersonDraft = { name: string; code?: string | null };
+
+const cleanCode = (code: string | null | undefined) => code?.trim().toUpperCase() || null;
 
 export async function addPerson(context: Context, draft: PersonDraft, sort: number) {
-  const row = check(await context.db.from("people").insert({ household_id: context.householdId, name: draft.name.trim(), sort }).select("id").single(), "add the person");
+  const row = check(await context.db.from("people").insert({ household_id: context.householdId, name: draft.name.trim(), code: cleanCode(draft.code), sort }).select("id").single(), "add the person");
   return num((row as Row).id);
+}
+
+export async function savePerson(context: Context, id: number, draft: PersonDraft) {
+  if (draft.code && !/^[A-Za-z]{1,4}$/.test(draft.code.trim())) throw new Error("Initials should be 1 to 4 letters, like HK.");
+  check(await context.db.from("people").update({ name: draft.name.trim(), code: cleanCode(draft.code) }).eq("household_id", context.householdId).eq("id", id), "save the cardholder");
 }

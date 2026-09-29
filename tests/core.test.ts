@@ -52,13 +52,14 @@ test("product changes become one account with a product history", () => {
     .filter((account) => account.personId === personId("Harrison") && portfolio.holdingsOf(account.id).some((holding) => holding.productId === productId("csr")))
     .map((account) => portfolio.holdingsOf(account.id).map((holding) => holdingName(portfolio, holding)));
   assert.deepEqual(chains, [
-    ["cfu #1", "csr #2", "cff #2", "csr #4", "cff #3"],
-    ["csr #1", "cff #1", "csr #3", "cfu #2", "csr #5"],
+    ["cfu HK1", "csr HK2", "cff HK2", "csr HK4", "cff HK3"],
+    ["csr HK1", "cff HK1", "csr HK3", "cfu HK2", "csr HK5"],
   ]);
   const explorer = portfolio.holdings.filter((holding) => holding.personId === personId("Harrison") && holding.productId === productId("united explorer"));
   assert.deepEqual(explorer.map((holding) => holding.change), ["opened", "upgrade"], "the return from Gateway is an upgrade");
   const first = portfolio.holdings.find((holding) => holding.productId === productId("csr") && holding.number === 1)!;
-  assert.equal(holdingName(portfolio, first, true), "Chase Sapphire Reserve #1", "full names are still available");
+  assert.equal(holdingName(portfolio, first, true), "Chase Sapphire Reserve HK1", "full names are still available");
+  assert.deepEqual(plan.personCodes, { Harrison: "HK", Sophia: "SL" }, "initials come from the sheet's hk1/sl1 notes");
   const csr5 = portfolio.holdings.find((holding) => holding.number === 5 && holding.productId === productId("csr"))!;
   assert.equal(portfolio.current(csr5.accountId)!.annualFeeCents, 79_500);
   assert.equal(nextHoldingNumber(portfolio.holdings, personId("Harrison"), productId("csr")), 6);
@@ -81,9 +82,9 @@ test("action rules flag the same cards as the sheet", () => {
     .map(({ account, rule }) => `${rule!.actionCode} ${portfolio.person(account.personId)!.name} ${holdingName(portfolio, portfolio.current(account.id)!)}`)
     .sort();
   assert.deepEqual(flagged, [
-    "CLOSE Harrison biz plat #7",
-    "CLOSE Harrison wyndham biz #2",
-    "CLOSE Sophia biz plat #4",
+    "CLOSE Harrison biz plat HK7",
+    "CLOSE Harrison wyndham biz HK2",
+    "CLOSE Sophia biz plat SL4",
   ]);
 });
 

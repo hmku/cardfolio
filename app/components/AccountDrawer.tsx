@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { creditIsDue, creditState, eligibleHoldings } from "../lib/core/credits";
 import { isoDate } from "../lib/core/dates";
-import { holdingName, nextHoldingNumber, shortName, type Account, type BonusUnit, type Holding, type Kind, type OpenedVia, type Portfolio } from "../lib/core/model";
+import { holdingName, nextHoldingNumber, personCode, shortName, type Account, type BonusUnit, type Holding, type Kind, type OpenedVia, type Portfolio } from "../lib/core/model";
 import type { AccountDraft, ProductDraft } from "../lib/data";
 import type { CellTarget } from "./CardGroups";
 import { CreditCell } from "./CreditCell";
@@ -159,7 +159,7 @@ export function AccountDrawer(props: Props) {
             </select>
           </label>
           <label className="f" htmlFor="f-number">Card number
-            <input id="f-number" type="number" min="1" inputMode="numeric" placeholder={autoNumber ? `#${autoNumber} (automatic)` : "Set when approved"} value={draft.number ?? ""}
+            <input id="f-number" type="number" min="1" inputMode="numeric" placeholder={autoNumber ? `${autoNumber} (automatic: ${personCode(portfolio.person(draft.personId))}${autoNumber})` : "Set when approved"} value={draft.number ?? ""}
               onChange={(event) => set({ number: event.target.value ? Number(event.target.value) : null })} />
           </label>
           <label className="f" htmlFor="f-last4">Last digits
@@ -177,7 +177,7 @@ export function AccountDrawer(props: Props) {
             <label className="f" htmlFor="f-closed">{draft.status === "closed" ? "Closed on" : "Declined on"}<input id="f-closed" type="date" value={draft.closedOn ?? ""} onChange={(event) => set({ closedOn: event.target.value || null })} /></label>
           )}
         </div>
-        <p className="hint">Card numbers count each card type per person in order, including upgrades and downgrades. Leave it blank to use the next number.</p>
+        <p className="hint">The card number counts each card type per person in order, including upgrades and downgrades, and shows with the cardholder&apos;s initials (HK7). Leave it blank to use the next number.</p>
       </div>
 
       <div className="fieldset">
@@ -248,7 +248,7 @@ export function AccountDrawer(props: Props) {
               </div>
               <p className="hint">
                 {change.productId !== "new" && change.productId
-                  ? `Becomes ${shortName(portfolio.product(change.productId))} #${nextHoldingNumber(portfolio.holdings, account.personId, change.productId)}. `
+                  ? `Becomes ${shortName(portfolio.product(change.productId))} ${personCode(portfolio.person(account.personId))}${nextHoldingNumber(portfolio.holdings, account.personId, change.productId)}. `
                   : ""}
                 The account keeps its opening date, so 5/24 doesn&apos;t change.
               </p>

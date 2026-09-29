@@ -3,7 +3,7 @@
 import { useState, type FormEvent } from "react";
 import { CADENCE_LABELS } from "../lib/core/credits";
 import { exportTables, toCsv } from "../lib/core/export";
-import { shortName, type Cadence, type Credit, type Kind, type Portfolio, type Product } from "../lib/core/model";
+import { personCode, shortName, type Cadence, type Credit, type Kind, type Person, type Portfolio, type Product } from "../lib/core/model";
 import { describeRule, DEFAULT_ACTION_RULES } from "../lib/core/rules";
 import type { CreditDraft, ProductDraft } from "../lib/data";
 import { ReminderSettings } from "./ReminderSettings";
@@ -27,6 +27,7 @@ type Props = {
   onDeleteCredit: (id: number) => Promise<void>;
   onToggleRule: (id: string, enabled: boolean) => Promise<void>;
   onAddPerson: (name: string) => Promise<void>;
+  onSavePerson: (id: number, name: string, code: string) => Promise<void>;
   onInvite: (email: string) => Promise<void>;
   onSyncSheet: () => Promise<void>;
   onSignOut: () => Promise<void>;
@@ -112,6 +113,23 @@ function ProductSettings({ portfolio, product, onSaveProduct, onSaveCredit, onDe
   );
 }
 
+function PersonRow({ person, onSave }: { person: Person; onSave: Props["onSavePerson"] }) {
+  const [code, setCode] = useState(person.code ?? "");
+  const save = () => {
+    const next = code.trim().toUpperCase();
+    if (next !== (person.code ?? "")) void onSave(person.id, person.name, next);
+  };
+  return (
+    <div className="settings-row">
+      <span className="grow">{person.name}</span>
+      <label className="check">Initials
+        <input className="search" style={{ marginLeft: 0, width: "4.5rem", flex: "none" }} aria-label={`${person.name}'s initials`} maxLength={4} placeholder={personCode(person)} value={code}
+          onChange={(event) => setCode(event.target.value.replace(/[^a-z]/gi, "").toUpperCase())} onBlur={save} />
+      </label>
+    </div>
+  );
+}
+
 export function SettingsDrawer(props: Props) {
   const { portfolio, today, membership } = props;
   const [invite, setInvite] = useState("");
@@ -152,8 +170,9 @@ export function SettingsDrawer(props: Props) {
 
       <div className="fieldset">
         <h3>Cardholders</h3>
+        <p className="hint">Initials label each card, like your 1Password entries: biz plat HK7 is this person&apos;s 7th biz plat.</p>
         <div className="settings-list">
-          {portfolio.people.map((item) => <div key={item.id} className="settings-row"><span className="grow">{item.name}</span></div>)}
+          {portfolio.people.map((item) => <PersonRow key={item.id} person={item} onSave={props.onSavePerson} />)}
         </div>
         <form className="inline-actions" onSubmit={(event) => { event.preventDefault(); if (person.trim()) void props.onAddPerson(person).then(() => setPerson("")); }}>
           <input className="search" style={{ marginLeft: 0 }} aria-label="New cardholder name" placeholder="Add a cardholder" value={person} onChange={(event) => setPerson(event.target.value)} />

@@ -23,9 +23,8 @@ function line(portfolio: Portfolio, item: DueItem) {
     const product = shortName(portfolio.product(item.credit.productId));
     return `${item.credit.name} ${formatMoney(item.credit.amountCents)} on ${plural(item.holdings.length, product)}: ${item.period.label} ends ${when(item.daysLeft)}`;
   }
-  const person = portfolio.person(item.account.personId)?.name || "";
   const holding = portfolio.current(item.account.id);
-  const card = holding ? `${person}'s ${holdingName(portfolio, holding)}` : person;
+  const card = holding ? holdingName(portfolio, holding) : portfolio.person(item.account.personId)?.name || "";
   if (item.kind === "review") return `${item.rule.name}: ${card}`;
   if (item.kind === "bonus") {
     const bonus = item.account.bonus ? bonusLabel(item.account.bonus) : "bonus";

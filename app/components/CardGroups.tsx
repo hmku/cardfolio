@@ -3,7 +3,7 @@
 import type { ReactNode } from "react";
 import { creditIsDue, creditState, creditSummary, eligibleHoldings, periodFor, DUE_WINDOW_DAYS } from "../lib/core/credits";
 import { daysBetween, parseDate } from "../lib/core/dates";
-import { bonusLabel, holdingName, shortName, type Account, type Credit, type Holding, type Portfolio } from "../lib/core/model";
+import { bonusLabel, cardTag, holdingName, shortName, type Account, type Credit, type Holding, type Portfolio } from "../lib/core/model";
 import { accountAction } from "../lib/core/rules";
 import { bonusStatus, BONUS_WINDOW_DAYS, feeStatus } from "../lib/core/stats";
 import { CreditCell } from "./CreditCell";
@@ -36,7 +36,7 @@ export function WhoLabel({ portfolio, holding, withProduct }: { portfolio: Portf
   return (
     <span className="who">
       <Dot name={name} tone={personTone(person?.sort ?? 0)} />
-      {withProduct ? holdingName(portfolio, holding) : <>{name}{holding.number ? <span className="num">#{holding.number}</span> : null}</>}
+      {withProduct ? holdingName(portfolio, holding) : <span className="num" title={name}>{cardTag(portfolio, holding) || name}</span>}
       {holding.last4 && <span className="last4 num">··{holding.last4}</span>}
     </span>
   );
@@ -146,10 +146,9 @@ export function CardGroups(props: GroupProps) {
                         {credits.map((credit) => {
                           if (!eligible.get(credit.id)!.has(holding.id)) return <td key={credit.id} className="credit" />;
                           const state = creditState(portfolio, credit, holding, today);
-                          const person = portfolio.person(holding.personId)?.name || "";
                           return (
                             <td key={credit.id} className="credit">
-                              <CreditCell credit={credit} state={state} due={creditIsDue(credit, state)} label={`${credit.name} on ${person} #${holding.number ?? "?"}`}
+                              <CreditCell credit={credit} state={state} due={creditIsDue(credit, state)} label={`${credit.name} on ${holdingName(portfolio, holding)}`}
                                 onToggle={() => props.onToggle({ credit, holding })} onMenu={(anchor) => props.onMenu({ credit, holding }, anchor)} />
                             </td>
                           );

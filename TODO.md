@@ -43,6 +43,9 @@ done and move them to **Done** with the date.
 
 ## Done
 
+- 2026-09-29: Card labels use cardholder initials like 1Password ("biz plat HK7", "csr SL1");
+  initials are editable in Settings → Cardholders and inferred from the sheet on import.
+
 - 2026-09-29: Claude can sign in to production as `devtest068@gmail.com` (member) to test;
   see AGENTS.md → Testing on production.
 

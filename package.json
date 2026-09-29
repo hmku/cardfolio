@@ -9,9 +9,10 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "test": "npm run build && node --experimental-strip-types --test tests/*.test.*",
+    "test": "node --experimental-strip-types --no-warnings --test tests/*.test.ts",
+    "check": "npm run lint && npx tsc --noEmit && npm test && npm run build",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
-    "db:migrate-data": "node scripts/migrate-to-supabase.mjs"
+    "db:import-sheet": "node --experimental-strip-types --no-warnings scripts/import-sheet.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.111.0",

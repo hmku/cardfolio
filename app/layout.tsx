@@ -1,30 +1,28 @@
-import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
-import { headers } from "next/headers";
+import type { Metadata, Viewport } from "next";
+import { IBM_Plex_Mono, IBM_Plex_Sans } from "next/font/google";
 import "./globals.css";
 
-const geistSans = Geist({ variable: "--font-geist-sans", subsets: ["latin"] });
-const geistMono = Geist_Mono({ variable: "--font-geist-mono", subsets: ["latin"] });
+const plexSans = IBM_Plex_Sans({ variable: "--font-plex-sans", subsets: ["latin"], weight: ["400", "500", "600", "700"] });
+const plexMono = IBM_Plex_Mono({ variable: "--font-plex-mono", subsets: ["latin"], weight: ["400", "500"] });
 
-export async function generateMetadata(): Promise<Metadata> {
-  const requestHeaders = await headers();
-  const host = requestHeaders.get("x-forwarded-host") || requestHeaders.get("host") || "localhost:3000";
-  const protocol = requestHeaders.get("x-forwarded-proto") || (host.includes("localhost") ? "http" : "https");
-  const origin = `${protocol}://${host}`;
-  const title = "Cardfolio — Credit card tracker";
-  const description = "Track card applications, annual fees, 5/24 status, and recurring card credits in one place.";
-  return {
-    title,
-    description,
-    openGraph: { title, description, type: "website", images: [{ url: `${origin}/og.png`, width: 1731, height: 909, alt: "Cardfolio credit card portfolio dashboard" }] },
-    twitter: { card: "summary_large_image", title, description, images: [`${origin}/og.png`] },
-  };
-}
+export const metadata: Metadata = {
+  title: "Cardfolio",
+  description: "Household credit card tracker: cards, product changes, 5/24 and recurring credits on one page.",
+  appleWebApp: { capable: true, title: "Cardfolio", statusBarStyle: "default" },
+  icons: { icon: "/icon.svg", apple: "/apple-touch-icon.png" },
+};
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
+  themeColor: [{ media: "(prefers-color-scheme: light)", color: "#eef1f4" }, { media: "(prefers-color-scheme: dark)", color: "#11161c" }],
+};
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="en">
-      <body className={`${geistSans.variable} ${geistMono.variable}`}>{children}</body>
+    <html lang="en" className={`${plexSans.variable} ${plexMono.variable}`}>
+      <body>{children}</body>
     </html>
   );
 }

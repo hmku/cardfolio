@@ -1,6 +1,6 @@
 import { publicAuthConfig } from "@/db/storage";
 
-export const runtime = "edge";
+export const runtime = "nodejs";
 
 export async function GET() {
   try {

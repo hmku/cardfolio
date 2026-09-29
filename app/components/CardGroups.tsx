@@ -68,7 +68,7 @@ export function StatusTags({ portfolio, account, holding, today }: { portfolio: 
     }
   }
   if (account.status === "closed") tags.push(<Tag key="closed">Closed {shortDate(account.closedOn)}</Tag>);
-  if (account.status === "pending") tags.push(<Tag key="pending" tone="due">Pending · applied {shortDate(account.appliedOn)}</Tag>);
+  if (account.status === "pending") tags.push(<Tag key="pending" tone="info">Pending · applied {shortDate(account.appliedOn)}</Tag>);
   if (account.status === "declined") tags.push(<Tag key="declined">Declined {shortDate(account.closedOn || account.appliedOn)}</Tag>);
   return <div className="status">{tags}</div>;
 }

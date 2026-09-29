@@ -18,6 +18,8 @@
   --due-bg: #fff1e0;
   --alert: #b93a26;
   --alert-bg: #fbe6e1;
+  --info: #2358a8;
+  --info-bg: #e2ecfa;
   --harrison: #2f64b5;
   --harrison-bg: #e2ebf8;
   --sophia: #a2437b;
@@ -31,7 +33,7 @@
     --bg: #11161c; --surface: #182029; --surface-2: #1d2630; --ink: #e6ebf0; --muted: #9eabb7; --faint: #6f7d8a;
     --line: #2c3845; --line-soft: #243039; --primary: #e6ebf0; --primary-ink: #11161c;
     --used: #4cc896; --used-bg: #173a2d; --partial: #e6b95a; --partial-bg: #3a3018; --due: #f0a04b; --due-bg: #3b2a16;
-    --alert: #f07d69; --alert-bg: #41221d; --harrison: #7fa9ea; --harrison-bg: #1f3149; --sophia: #e08ab9; --sophia-bg: #3d2233;
+    --alert: #f07d69; --alert-bg: #41221d; --info: #83b1f0; --info-bg: #1b2c45; --harrison: #7fa9ea; --harrison-bg: #1f3149; --sophia: #e08ab9; --sophia-bg: #3d2233;
     --shadow: 0 12px 40px rgba(0, 0, 0, .5); color-scheme: dark;
   }
 }
@@ -39,7 +41,7 @@
   --bg: #11161c; --surface: #182029; --surface-2: #1d2630; --ink: #e6ebf0; --muted: #9eabb7; --faint: #6f7d8a;
   --line: #2c3845; --line-soft: #243039; --primary: #e6ebf0; --primary-ink: #11161c;
   --used: #4cc896; --used-bg: #173a2d; --partial: #e6b95a; --partial-bg: #3a3018; --due: #f0a04b; --due-bg: #3b2a16;
-  --alert: #f07d69; --alert-bg: #41221d; --harrison: #7fa9ea; --harrison-bg: #1f3149; --sophia: #e08ab9; --sophia-bg: #3d2233;
+  --alert: #f07d69; --alert-bg: #41221d; --info: #83b1f0; --info-bg: #1b2c45; --harrison: #7fa9ea; --harrison-bg: #1f3149; --sophia: #e08ab9; --sophia-bg: #3d2233;
   --shadow: 0 12px 40px rgba(0, 0, 0, .5); color-scheme: dark;
 }
 * { box-sizing: border-box; }
@@ -121,6 +123,7 @@ td.status-cell, th.status-cell { width: 100%; }
 .tag { display: inline-flex; align-items: center; gap: 5px; border-radius: 6px; padding: 2px 8px; font-size: 12px; font-weight: 500; background: var(--surface-2); color: var(--muted); border: 1px solid var(--line-soft); white-space: nowrap; }
 .tag.alert { background: var(--alert-bg); color: var(--alert); border-color: transparent; }
 .tag.due { background: var(--due-bg); color: var(--due); border-color: transparent; }
+.tag.info { background: var(--info-bg); color: var(--info); border-color: transparent; }
 .tag.ok { background: var(--used-bg); color: var(--used); border-color: transparent; }
 
 /* Credit columns */
@@ -241,7 +244,30 @@ td.sticky .who { flex-wrap: wrap; }
 .tile:active { background: var(--surface-2); }
 .tile-title { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .tile-facts { color: var(--muted); font-size: 13px; }
-.tile.dim .who, .tile.dim .tile-facts { color: var(--faint); }
+.tile.dim .who, .tile.dim .tile-facts, .tile.dim .opened { color: var(--faint); }
+.tile .status { min-width: 0; }
+.card-table .sub, .tile .sub { display: block; }
+.opened { font-weight: 600; color: var(--ink); white-space: nowrap; }
+.tile-title .opened { font-size: 13px; }
+
+/* Shading for cards that need something: a colored bar on the left plus a light wash. */
+.flag-key { display: flex; flex-wrap: wrap; gap: 8px; font-size: 13px; color: var(--muted); padding-inline: 2px; }
+.flag-key-item { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--line); background: var(--surface); border-radius: 999px; padding: 4px 11px; color: var(--ink); font-weight: 500; }
+.flag-key-item.alert[aria-pressed="true"] { background: var(--alert-bg); border-color: var(--alert); color: var(--alert); }
+.flag-key-item.due[aria-pressed="true"] { background: var(--due-bg); border-color: var(--due); color: var(--due); }
+.flag-key-item.info[aria-pressed="true"] { background: var(--info-bg); border-color: var(--info); color: var(--info); }
+.flag-key-clear { border: 0; background: transparent; color: var(--muted); text-decoration: underline; padding: 4px 2px; }
+.flag-key-item i { width: 10px; height: 10px; border-radius: 3px; }
+.flag-key-item.alert i { background: var(--alert); }
+.flag-key-item.due i { background: var(--due); }
+.flag-key-item.info i { background: var(--info); }
+tr.row.flag-alert td, .tile.flag-alert { background: color-mix(in srgb, var(--alert-bg) 60%, var(--surface)); }
+tr.row.flag-due td, .tile.flag-due { background: color-mix(in srgb, var(--due-bg) 60%, var(--surface)); }
+tr.row.flag-info td, .tile.flag-info { background: color-mix(in srgb, var(--info-bg) 60%, var(--surface)); }
+tr.row.flag-alert td.sticky, .tile.flag-alert { box-shadow: inset 4px 0 0 var(--alert); }
+tr.row.flag-due td.sticky, .tile.flag-due { box-shadow: inset 4px 0 0 var(--due); }
+tr.row.flag-info td.sticky, .tile.flag-info { box-shadow: inset 4px 0 0 var(--info); }
+tr.row[class*="flag-"]:hover td { filter: brightness(.98); }
 .card-table td { white-space: nowrap; }
 .card-table td.sticky { white-space: normal; }
 .show-closed { justify-self: center; }

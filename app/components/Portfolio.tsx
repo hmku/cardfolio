@@ -289,6 +289,35 @@ export function Portfolio({ db, accessToken, onSignOut }: Props) {
         })}
       </section>
 
+      {due.length > 0 && (
+        <section className="todo" aria-label="To do">
+          <div className="todo-head"><h2>To do</h2><span className="meta num">{due.length}</span></div>
+          <div className="due-list">
+            {(showAllTodos ? due : due.slice(0, TODO_PREVIEW)).map((item, index) => {
+              const text = dueText(portfolio, item);
+              const accountId = item.kind === "credit" ? null : item.account.id;
+              const product = item.kind === "credit" ? portfolio.product(item.credit.productId) : undefined;
+              return (
+                <button key={index} type="button" className="due-item" onClick={() => {
+                  if (accountId !== null) setPanel({ kind: "account", id: accountId });
+                  else if (product) {
+                    updatePrefs({ view: "credits", collapsed: { ...prefs.collapsed, [`product-${product.id}`]: false } });
+                    requestAnimationFrame(() => document.getElementById(groupId(product.slug))?.scrollIntoView({ behavior: "smooth", block: "start" }));
+                  }
+                }}>
+                  <span className="due-kind">{text.label}</span><span>{text.text}</span><span className="when">{text.when}</span>
+                </button>
+              );
+            })}
+          </div>
+          {due.length > TODO_PREVIEW && (
+            <button type="button" className="btn small todo-more" onClick={() => setShowAllTodos(!showAllTodos)}>
+              {showAllTodos ? "Show fewer" : `Show all ${due.length}`}
+            </button>
+          )}
+        </section>
+      )}
+
       <div className="toolbar" role="toolbar" aria-label="View options">
         <div className="seg" aria-label="View">
           <button type="button" aria-pressed={prefs.view === "cards"} onClick={() => updatePrefs({ view: "cards" })}>Cards</button>
@@ -298,35 +327,6 @@ export function Portfolio({ db, accessToken, onSignOut }: Props) {
       </div>
 
       <main style={{ display: "grid", gap: 14 }}>
-        {due.length > 0 && (
-          <section className="todo" aria-label="To do">
-            <div className="todo-head"><h2>To do</h2><span className="meta num">{due.length}</span></div>
-            <div className="due-list">
-              {(showAllTodos ? due : due.slice(0, TODO_PREVIEW)).map((item, index) => {
-                const text = dueText(portfolio, item);
-                const accountId = item.kind === "credit" ? null : item.account.id;
-                const product = item.kind === "credit" ? portfolio.product(item.credit.productId) : undefined;
-                return (
-                  <button key={index} type="button" className="due-item" onClick={() => {
-                    if (accountId !== null) setPanel({ kind: "account", id: accountId });
-                    else if (product) {
-                      updatePrefs({ view: "credits", collapsed: { ...prefs.collapsed, [`product-${product.id}`]: false } });
-                      requestAnimationFrame(() => document.getElementById(groupId(product.slug))?.scrollIntoView({ behavior: "smooth", block: "start" }));
-                    }
-                  }}>
-                    <span className="due-kind">{text.label}</span><span>{text.text}</span><span className="when">{text.when}</span>
-                  </button>
-                );
-              })}
-            </div>
-            {due.length > TODO_PREVIEW && (
-              <button type="button" className="btn small todo-more" onClick={() => setShowAllTodos(!showAllTodos)}>
-                {showAllTodos ? "Show fewer" : `Show all ${due.length}`}
-              </button>
-            )}
-          </section>
-        )}
-
         {prefs.view === "cards" ? (
           <>
             <CardList portfolio={portfolio} accounts={cardList} today={today} onOpenAccount={groupProps.onOpenAccount} />

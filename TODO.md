@@ -43,6 +43,11 @@ done and move them to **Done** with the date.
 
 ## Done
 
+- 2026-09-29: Cards tab color-coding: red rows to decide (keep or close, missed bonus), amber
+  bonuses in progress, blue pending; the color key above the list filters to each. Bonuses
+  always show as a pill (green once earned). Opened date is bold on every row. The to-do list
+  now sits above the tabs.
+
 - 2026-09-29: UI revamp: two tabs, Cards (every account, newest first; table on desktop,
   tiles on phones; closed & declined behind a toggle) and Credits (the checkbox grids only).
   A to-do list (credits, reviews, bonuses, pending applications) sits at the top of both.

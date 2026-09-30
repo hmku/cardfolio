@@ -50,7 +50,7 @@ export type DueItem =
   | { kind: "bonus"; account: Account; deadline: Date; daysLeft: number }
   | { kind: "pending"; account: Account; daysWaiting: number };
 
-export const BONUS_WINDOW_DAYS = 60;
+const BONUS_WINDOW_DAYS = 60;
 
 /** Everything that needs attention, soonest first. `include` filters accounts (person, search). */
 export function dueItems(portfolio: Portfolio, today: Date, include: (account: Account) => boolean = () => true): DueItem[] {

@@ -5,9 +5,8 @@ import { CADENCE_LABELS } from "../lib/core/credits";
 import { exportTables, toCsv } from "../lib/core/export";
 import { personCode, shortName, type Cadence, type Credit, type Kind, type Person, type Portfolio, type Product } from "../lib/core/model";
 import { describeRule, DEFAULT_ACTION_RULES } from "../lib/core/rules";
-import type { Context, CreditDraft, ProductDraft } from "../lib/data";
+import type { CreditDraft, ProductDraft } from "../lib/data";
 import { ReminderSettings } from "./ReminderSettings";
-import { AgentSettings } from "./AgentSettings";
 import { Drawer } from "./ui";
 import { toCents, toDollarsInput } from "../lib/presentation/format";
 
@@ -36,7 +35,6 @@ type Props = {
   onSyncSheet: () => Promise<void>;
   onSignOut: () => Promise<void>;
   accessToken: string;
-  context: Context;
   notify: (text: string, error?: boolean) => void;
 };
 
@@ -287,8 +285,6 @@ export function SettingsDrawer(props: Props) {
           </AddForm>
         )}
       </Section>
-
-      <AgentSettings context={props.context} notify={props.notify} />
 
       <Section title="Export" hint={membership.googleSheet ? "The Google Sheet copy also updates a few seconds after every change." : "A read-only Google Sheet copy can be turned on; see the README."}>
         <div className="inline-actions">

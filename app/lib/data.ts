@@ -33,7 +33,7 @@ async function selectAll(db: SupabaseClient, table: string, householdId: string,
   }
 }
 
-export function toBonus(row: Row): Bonus | null {
+function toBonus(row: Row): Bonus | null {
   if (!row.bonus_amount) return null;
   return {
     amount: num(row.bonus_amount),
@@ -127,7 +127,7 @@ function check<T>(result: { data: T; error: { message: string; code?: string } |
 // ---------- credits ----------
 
 /** Replaces a card's usage of a credit for one period. `amountCents` null clears it. */
-export async function setCreditUse(context: Context, creditId: number, holdingId: number, periodKey: string, amountCents: number | null, options: { usedOn?: string | null; source?: "manual" | "agent" } = {}) {
+export async function setCreditUse(context: Context, creditId: number, holdingId: number, periodKey: string, amountCents: number | null) {
   const { db, householdId, email } = context;
   check(await db.rpc("cardfolio_set_credit_use", {
     p_household: householdId,
@@ -135,9 +135,9 @@ export async function setCreditUse(context: Context, creditId: number, holdingId
     p_holding: holdingId,
     p_period: periodKey,
     p_amount_cents: amountCents,
-    p_used_on: options.usedOn ?? isoDate(new Date()),
+    p_used_on: isoDate(new Date()),
     p_recorded_by: email,
-    p_source: options.source ?? "manual",
+    p_source: "manual",
   }), "update the credit");
 }
 
@@ -336,37 +336,4 @@ export async function addPerson(context: Context, draft: PersonDraft, sort: numb
 export async function savePerson(context: Context, id: number, draft: PersonDraft) {
   if (draft.code && !/^[A-Za-z]{1,4}$/.test(draft.code.trim())) throw new Error("Initials should be 1 to 4 letters, like HK.");
   check(await context.db.from("people").update({ name: draft.name.trim(), code: cleanCode(draft.code) }).eq("household_id", context.householdId).eq("id", id), "save the cardholder");
-}
-
-// ---------- agents ----------
-
-export type AgentKey = { id: string; name: string; prefix: string; createdAt: string; lastUsedAt: string | null; revokedAt: string | null };
-export type ChangeLogEntry = { id: number; actor: string; action: string; summary: string; source: string | null; createdAt: string };
-
-export async function listAgentKeys(context: Context): Promise<AgentKey[]> {
-  const rows = check(await context.db.from("agent_keys").select("id, name, key_prefix, created_at, last_used_at, revoked_at")
-    .eq("household_id", context.householdId).order("created_at", { ascending: false }), "load agent keys") as Row[];
-  return rows.map((row) => ({ id: String(row.id), name: String(row.name), prefix: String(row.key_prefix), createdAt: String(row.created_at), lastUsedAt: text(row.last_used_at), revokedAt: text(row.revoked_at) }));
-}
-
-/** Creates an agent key and returns it; only its SHA-256 hash is stored, so it can't be shown again. */
-export async function createAgentKey(context: Context, name: string) {
-  const bytes = crypto.getRandomValues(new Uint8Array(32));
-  const key = `cfk_${btoa(String.fromCharCode(...bytes)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "")}`;
-  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(key)));
-  const hash = [...digest].map((byte) => byte.toString(16).padStart(2, "0")).join("");
-  check(await context.db.from("agent_keys").insert({
-    household_id: context.householdId, name: name.trim(), key_hash: hash, key_prefix: key.slice(0, 10), created_by: context.email,
-  }), "create the agent key");
-  return key;
-}
-
-export async function revokeAgentKey(context: Context, id: string) {
-  check(await context.db.from("agent_keys").update({ revoked_at: new Date().toISOString() }).eq("household_id", context.householdId).eq("id", id), "revoke the agent key");
-}
-
-export async function recentChanges(context: Context, limit = 10): Promise<ChangeLogEntry[]> {
-  const rows = check(await context.db.from("change_log").select("id, actor, action, summary, source, created_at")
-    .eq("household_id", context.householdId).order("created_at", { ascending: false }).limit(limit), "load recent changes") as Row[];
-  return rows.map((row) => ({ id: num(row.id), actor: String(row.actor), action: String(row.action), summary: String(row.summary), source: text(row.source), createdAt: String(row.created_at) }));
 }

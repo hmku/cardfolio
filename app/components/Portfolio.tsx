@@ -354,7 +354,6 @@ export function Portfolio({ db, accessToken, onSignOut }: Props) {
       {panel?.kind === "settings" && (
         <SettingsDrawer
           accessToken={accessToken}
-          context={context}
           notify={settingsNotify}
           portfolio={portfolio}
           today={today}

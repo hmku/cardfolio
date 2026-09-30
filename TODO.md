@@ -43,13 +43,12 @@ done and move them to **Done** with the date.
 
 ## Agents
 
-- [ ] Daily email scan: a scheduled Claude session (Routine) with the Gmail connector and the
-      Cardfolio MCP server. It reads new issuer emails (approvals, product changes, closures,
-      bonus posted, statement credits) and records them with the email's message id as `source`.
-      Before writing its prompt, collect real examples of each issuer's wording from Gmail.
-- [ ] Let OAuth-only MCP clients (claude.ai custom connectors) connect: they can't send a
-      bearer key. Needs an OAuth authorization flow in front of `/api/mcp`.
-- [ ] Show agent changes on the card itself (the account drawer), with an undo.
+- [ ] (Parked) Agent access over MCP. Built and then removed on 2026-09-30 because clients
+      like ChatGPT and claude.ai connectors need an OAuth sign-in, not a pasted key; agents use
+      the web app for now. To bring it back, restore `app/api/mcp/`, `app/lib/agent/`,
+      `app/components/AgentSettings.tsx` and `docs/agents.md` from commit `d778d8b`, re-add the
+      `agent_keys` and `change_log` tables (and the `'agent'` credit-use source) from
+      `20260930000001_agent_api.sql` in a new migration, then add OAuth in front of `/api/mcp`.
 
 ## Ideas / later
 
@@ -74,6 +73,10 @@ done and move them to **Done** with the date.
 
 ## Done
 
+- 2026-09-30: Removed agent (MCP) access for now; see the parked item under Agents. Kept the
+  all-or-nothing `cardfolio_*` write functions the app uses. Also removed unused code: the
+  Tailwind build setup (never imported), `pushConfigured()`, and exports only used in their
+  own file.
 - 2026-09-30: Agents can update Cardfolio. `/api/mcp` is an MCP server with tools to read
   cards and card types and to add cards, approve/decline/close them, record upgrades and
   downgrades (and undo them), mark bonuses earned and record credit uses. Keys come from

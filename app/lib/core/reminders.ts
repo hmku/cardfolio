@@ -4,8 +4,8 @@ import { ruleMatches } from "./rules.ts";
 import { dueItems, type DueItem } from "./stats.ts";
 
 /** Days before a deadline on which a reminder goes out. */
-export const CREDIT_REMINDER_DAYS = [7, 2, 0];
-export const BONUS_REMINDER_DAYS = [30, 14, 3];
+const CREDIT_REMINDER_DAYS = [7, 2, 0];
+const BONUS_REMINDER_DAYS = [30, 14, 3];
 
 export type Reminder = { title: string; lines: string[]; body: string };
 

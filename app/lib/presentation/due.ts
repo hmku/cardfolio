@@ -2,7 +2,7 @@ import { bonusLabel, holdingName, shortName, type Account, type Portfolio } from
 import type { DueItem } from "../core/stats.ts";
 import { inDays, money, shortDate } from "./format.ts";
 
-/** How a to-do item reads in the app and to agents: a label, the text, and when it's due. */
+/** How a to-do item reads: a label, the text, and when it's due. */
 export function dueText(portfolio: Portfolio, item: DueItem) {
   const who = (account: Account) => {
     const holding = portfolio.current(account.id);

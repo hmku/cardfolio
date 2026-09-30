@@ -14,8 +14,10 @@ Cardfolio is a private household credit card tracker. Everything is on one page:
   or mark it not enrolled. The footer shows the current period's `used/tracked` count.
   Closed cards and earlier products are hidden behind "Show closed cards".
 
-Card types, credits, reminders, cardholders, sign-in access and exports live in
-**Settings**. Changes appear live for everyone signed in.
+Card types and their credits, review rules, notifications, cardholders, sign-in access and
+exports live in **Settings**. Card types with no open cards and no credits are tucked behind
+a "Show N card types" button. Fields save when you leave them. Changes appear live for
+everyone signed in.
 
 ## How the data is organized
 
@@ -28,7 +30,7 @@ Card types, credits, reminders, cardholders, sign-in access and exports live in
 | `credits` | Recurring credits on a card type: amount, cadence (monthly, quarterly, twice a year, calendar year, card year) and whether to remind. |
 | `credit_uses` | A credit used on a specific card in a specific period. Partial amounts add up. `source` is `manual`, `import` or (later) `plaid`. |
 | `credit_opt_outs` | Credits not tracked on a specific card ("not enrolled"). |
-| `action_rules` | Review reminders (annual fee window, NLL, Ink Cash, RedCard). |
+| `action_rules` | Review rules (annual fee window, NLL, Ink Cash, RedCard). |
 
 Rules that follow from this:
 
@@ -89,10 +91,10 @@ How the importer reads the sheet:
 
 ## Reminders
 
-Settings → Reminders turns on notifications for the device you're using (each phone or
+Settings → Notifications turns on notifications for the device you're using (each phone or
 browser is turned on separately). A daily job (`vercel.json`, 13:00 UTC ≈ 9am Eastern)
 notifies when a tracked credit is 7 days, 2 days or 0 days from the end of its period, when
-a welcome bonus deadline is 30, 14 or 3 days away, and on the first day a review reminder
+a welcome bonus deadline is 30, 14 or 3 days away, and on the first day a review rule
 matches. Mondays send a summary of everything due. On iPhone, add the site to the home
 screen and turn reminders on from there (iOS only allows notifications for home-screen apps).
 

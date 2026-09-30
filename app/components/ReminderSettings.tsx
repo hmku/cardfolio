@@ -96,11 +96,11 @@ export function ReminderSettings({ accessToken, notify }: { accessToken: string;
   }
 
   return (
-    <div className="fieldset">
-      <h3>Reminders</h3>
+    <section className="fieldset settings-section">
+      <h3>Notifications</h3>
       <p className="hint">
         A notification around 9am when a credit is ending (7 days out, 2 days out and on its last day),
-        when a bonus deadline is 30, 14 or 3 days away, and when a review reminder starts. Mondays bring a summary.
+        when a bonus deadline is 30, 14 or 3 days away, and when a review rule starts. Mondays bring a summary.
       </p>
       {status === "install" && <p className="hint">On iPhone, add Cardfolio to your home screen first (Share → Add to Home Screen), open it from there, then turn reminders on.</p>}
       {status === "unsupported" && <p className="hint">This browser can&apos;t show notifications. Try Chrome, Edge, Firefox or Safari on a Mac, or the home-screen app on iPhone.</p>}
@@ -116,6 +116,6 @@ export function ReminderSettings({ accessToken, notify }: { accessToken: string;
               </>}
         </div>
       )}
-    </div>
+    </section>
   );
 }

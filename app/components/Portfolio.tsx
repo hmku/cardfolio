@@ -113,18 +113,23 @@ export function Portfolio({ db, accessToken, onSignOut }: Props) {
     syncTimer.current = setTimeout(() => { syncSheet().catch((reason) => notify(reason.message, undefined, true)); }, 6000);
   }, [membership, notify, syncSheet]);
 
-  /** Runs a write, then reloads. Optional `optimistic` updates the page before the write finishes. */
-  const write = useCallback(async (action: (context: data.Context) => Promise<unknown>, options: { optimistic?: (value: PortfolioData) => PortfolioData; success?: string; undo?: () => void; rethrow?: boolean } = {}) => {
-    if (!context) return;
+  /**
+   * Runs a write, then reloads. Optional `optimistic` updates the page before the write finishes.
+   * Resolves to whether it saved (failures show a toast unless `rethrow` is set).
+   */
+  const write = useCallback(async (action: (context: data.Context) => Promise<unknown>, options: { optimistic?: (value: PortfolioData) => PortfolioData; success?: string; undo?: () => void; rethrow?: boolean } = {}): Promise<boolean> => {
+    if (!context) return false;
     if (options.optimistic) setRaw((value) => (value ? options.optimistic!(value) : value));
     try {
       await action(context);
       if (options.success) notify(options.success, options.undo);
       scheduleSync();
+      return true;
     } catch (reason) {
       const message = reason instanceof Error ? reason.message : "Couldn't save that change.";
       if (options.rethrow) throw reason;
       notify(message, undefined, true);
+      return false;
     } finally {
       await reload(context.householdId);
     }
@@ -347,18 +352,24 @@ export function Portfolio({ db, accessToken, onSignOut }: Props) {
           today={today}
           membership={membership}
           onClose={() => setPanel(null)}
-          onSaveProduct={(id, draft) => write((ctx) => data.saveProduct(ctx, id, draft))}
-          onSaveCredit={(id, draft) => write((ctx) => data.saveCredit(ctx, id, draft), { success: id === null ? "Credit added" : undefined })}
+          onSaveProduct={(id, draft) => write((ctx) => data.saveProduct(ctx, id, draft), { success: "Saved" })}
+          onSaveCredit={(id, draft) => write((ctx) => data.saveCredit(ctx, id, draft), { success: id === null ? "Credit added" : "Saved" })}
           onDeleteCredit={(id) => write((ctx) => data.deleteCredit(ctx, id), { success: "Credit deleted" })}
           onToggleRule={(id, enabled) => write((ctx) => data.setRuleEnabled(ctx, id, enabled))}
           onAddPerson={(name) => write((ctx) => data.addPerson(ctx, { name }, people.length), { success: `Added ${name.trim()}` })}
           onSavePerson={(id, name, code) => write((ctx) => data.savePerson(ctx, id, { name, code }), { success: "Saved" })}
           onInvite={async (email) => {
-            const response = await fetch("/api/session", { method: "POST", headers: { authorization: `Bearer ${accessToken}`, "content-type": "application/json" }, body: JSON.stringify({ action: "invite", email }) });
-            const payload = await response.json();
-            if (!response.ok) { notify(payload.error || "Couldn't send the invitation.", undefined, true); return; }
-            setMembership({ ...membership, ...payload });
-            notify(`Invited ${email}. They can sign in with that email now.`);
+            try {
+              const response = await fetch("/api/session", { method: "POST", headers: { authorization: `Bearer ${accessToken}`, "content-type": "application/json" }, body: JSON.stringify({ action: "invite", email }) });
+              const payload = await response.json().catch(() => ({}));
+              if (!response.ok) throw new Error(payload.error || "Couldn't send the invitation.");
+              setMembership({ ...membership, ...payload });
+              notify(`Invited ${email}. They can sign in with that email now.`);
+              return true;
+            } catch (reason) {
+              notify(reason instanceof Error ? reason.message : "Couldn't send the invitation.", undefined, true);
+              return false;
+            }
           }}
           onSyncSheet={() => syncSheet().then(() => notify("Google Sheet updated"), (reason) => notify(reason.message, undefined, true))}
           onSignOut={onSignOut}

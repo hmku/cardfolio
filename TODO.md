@@ -37,8 +37,6 @@ done and move them to **Done** with the date.
 
 - [ ] Make credit replacement, product changes/undo, and account edits transactional;
       add failure and concurrent-write tests before changing the browser data API.
-- [ ] Preserve Settings drafts when a save/invite fails and disable duplicate submissions;
-      give async handlers an explicit success/failure contract.
 - [ ] Prevent stale portfolio reloads from replacing newer data; clear pending realtime
       reload and sheet-sync timers on cleanup.
 
@@ -62,6 +60,15 @@ done and move them to **Done** with the date.
 
 ## Done
 
+- 2026-09-30: Cleaned up Settings. Card types with credits come first, and ones with no open
+  cards or credits hide behind "Show N card types". Each card type opens into its fields plus
+  a "Credits" list, with two-line credit rows and a $ prefix on amounts. The new-credit row has
+  its own Remind box. "Review reminders" is now "Review rules" and "Reminders" is now
+  "Notifications". Cardholder names can be edited. Blurring an unchanged field no longer
+  writes, zero amounts or blank names revert, and "Sure?" on Delete resets after 4 seconds.
+  Add credit, add cardholder and invite keep what you typed when the save fails and ignore
+  repeat presses (`write()` now resolves to whether it saved). This closes the Settings-drafts
+  review follow-up.
 - 2026-09-29: Released the code-organization review (`review/code-organization-ui-consistency`):
   one shared card-status module for Cards and Credits (`app/lib/presentation/`), shared card
   identity with last digits on desktop too, a separate to-do component, dialog focus/Escape

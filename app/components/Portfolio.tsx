@@ -59,6 +59,7 @@ export function Portfolio({ db, accessToken, onSignOut }: Props) {
   }, []);
 
   const notify = useCallback((text: string, undo?: () => void, error = false) => setToast({ id: Date.now(), text, undo, error }), []);
+  const settingsNotify = useCallback((text: string, error?: boolean) => notify(text, undefined, error), [notify]);
 
   const reload = useCallback(async (householdId: string) => {
     try {
@@ -236,20 +237,20 @@ export function Portfolio({ db, accessToken, onSignOut }: Props) {
     const problem = data.validateDraft(draft);
     if (problem) throw new Error(problem);
     await write(async (ctx) => {
+      if (!selectedAccount || !selectedCurrent) return data.createAccount(ctx, draft, newProduct);
       const productId = newProduct ? await data.saveProduct(ctx, null, newProduct) : draft.productId;
-      const final = { ...draft, productId };
-      if (selectedAccount && selectedCurrent) await data.updateAccount(ctx, selectedAccount, selectedCurrent, final, portfolio!.holdings);
-      else await data.createAccount(ctx, final, portfolio!.holdings);
+      await data.updateAccount(ctx, selectedAccount, selectedCurrent, { ...draft, productId }, portfolio!.holdings);
     }, { success: selectedAccount ? "Saved" : "Card added", rethrow: true });
     setPanel(null);
   }
 
   async function changeProduct(change: ProductChange) {
     if (!selectedAccount || !selectedCurrent) return;
-    await write(async (ctx) => {
-      const productId = change.productId === "new" ? await data.saveProduct(ctx, null, change.newProduct!) : change.productId;
-      await data.changeProduct(ctx, selectedAccount, selectedCurrent, { productId, date: change.date, annualFeeCents: change.annualFeeCents, last4: change.last4, direction: change.direction }, portfolio!.holdings);
-    }, { success: "Product change saved", rethrow: true });
+    await write((ctx) => data.changeProduct(ctx, selectedAccount.id, {
+      productId: change.productId === "new" ? null : change.productId,
+      newProduct: change.productId === "new" ? change.newProduct : null,
+      date: change.date, annualFeeCents: change.annualFeeCents, last4: change.last4, direction: change.direction,
+    }), { success: "Product change saved", rethrow: true });
     setDrawerVersion((value) => value + 1);
   }
 
@@ -337,7 +338,7 @@ export function Portfolio({ db, accessToken, onSignOut }: Props) {
             if (!selectedAccount || !selectedCurrent) return;
             const previous = portfolio.holdingsOf(selectedAccount.id).filter((holding) => holding.id !== selectedCurrent.id).pop();
             if (!previous) return;
-            await write((ctx) => data.undoProductChange(ctx, selectedCurrent, previous), { success: "Product change removed", rethrow: true });
+            await write((ctx) => data.undoProductChange(ctx, selectedAccount.id), { success: "Product change removed", rethrow: true });
             setDrawerVersion((value) => value + 1);
           }}
           onDelete={async () => {
@@ -353,7 +354,8 @@ export function Portfolio({ db, accessToken, onSignOut }: Props) {
       {panel?.kind === "settings" && (
         <SettingsDrawer
           accessToken={accessToken}
-          notify={(text, error) => notify(text, undefined, error)}
+          context={context}
+          notify={settingsNotify}
           portfolio={portfolio}
           today={today}
           membership={membership}

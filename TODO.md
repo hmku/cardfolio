@@ -35,10 +35,21 @@ done and move them to **Done** with the date.
 
 ## Review follow-ups
 
-- [ ] Make credit replacement, product changes/undo, and account edits transactional;
-      add failure and concurrent-write tests before changing the browser data API.
+- [ ] Make account edits (`updateAccount`, including moving a card to another cardholder)
+      transactional like the new `cardfolio_*` functions. New cards, product changes/undo and
+      credit uses already are.
 - [ ] Prevent stale portfolio reloads from replacing newer data; clear pending realtime
       reload and sheet-sync timers on cleanup.
+
+## Agents
+
+- [ ] Daily email scan: a scheduled Claude session (Routine) with the Gmail connector and the
+      Cardfolio MCP server. It reads new issuer emails (approvals, product changes, closures,
+      bonus posted, statement credits) and records them with the email's message id as `source`.
+      Before writing its prompt, collect real examples of each issuer's wording from Gmail.
+- [ ] Let OAuth-only MCP clients (claude.ai custom connectors) connect: they can't send a
+      bearer key. Needs an OAuth authorization flow in front of `/api/mcp`.
+- [ ] Show agent changes on the card itself (the account drawer), with an undo.
 
 ## Ideas / later
 
@@ -63,6 +74,14 @@ done and move them to **Done** with the date.
 
 ## Done
 
+- 2026-09-30: Agents can update Cardfolio. `/api/mcp` is an MCP server with tools to read
+  cards and card types and to add cards, approve/decline/close them, record upgrades and
+  downgrades (and undo them), mark bonuses earned and record credit uses. Keys come from
+  Settings → Agents (hash stored; revocable). Every agent write is in `change_log` and shown in
+  Settings, and a repeated `source` is skipped. New cards, product changes/undo and credit uses
+  now run as single Postgres transactions (`cardfolio_*` functions) for the app too. Tested
+  against a local Postgres + PostgREST with a copy of the data (agent flows and the app's own
+  credit toggle, add card, product change and undo). Docs: `docs/agents.md`.
 - 2026-09-30: Made Cardfolio set-up-able by others. README has a "Set up your own copy"
   guide (fork, Supabase, auth URLs/email, env, first cards, Vercel), the sheet import is
   marked optional, and owner-only notes are trimmed. An empty household shows a "Get started"

@@ -127,19 +127,17 @@ function check<T>(result: { data: T; error: { message: string; code?: string } |
 // ---------- credits ----------
 
 /** Replaces a card's usage of a credit for one period. `amountCents` null clears it. */
-export async function setCreditUse(context: Context, creditId: number, holdingId: number, periodKey: string, amountCents: number | null) {
+export async function setCreditUse(context: Context, creditId: number, holdingId: number, periodKey: string, amountCents: number | null, options: { usedOn?: string | null; source?: "manual" | "agent" } = {}) {
   const { db, householdId, email } = context;
-  check(await db.from("credit_uses").delete().eq("household_id", householdId).eq("credit_id", creditId).eq("account_product_id", holdingId).eq("period_key", periodKey), "update the credit");
-  if (amountCents === null) return;
-  check(await db.from("credit_uses").insert({
-    household_id: householdId,
-    credit_id: creditId,
-    account_product_id: holdingId,
-    period_key: periodKey,
-    amount_cents: amountCents,
-    used_on: isoDate(new Date()),
-    recorded_by: email,
-    source: "manual",
+  check(await db.rpc("cardfolio_set_credit_use", {
+    p_household: householdId,
+    p_credit: creditId,
+    p_holding: holdingId,
+    p_period: periodKey,
+    p_amount_cents: amountCents,
+    p_used_on: options.usedOn ?? isoDate(new Date()),
+    p_recorded_by: email,
+    p_source: options.source ?? "manual",
   }), "update the credit");
 }
 
@@ -175,15 +173,20 @@ export async function deleteCredit(context: Context, id: number) {
 
 export type ProductDraft = Pick<Product, "name" | "issuer" | "kind" | "annualFeeCents"> & { slug?: string; shortName?: string | null };
 
-export async function saveProduct(context: Context, id: number | null, draft: ProductDraft) {
-  const { db, householdId } = context;
-  const values = {
+function productValues(draft: ProductDraft) {
+  return {
     name: draft.name.trim(),
     issuer: draft.issuer.trim() || "Other",
     kind: draft.kind,
     annual_fee_cents: Math.round(draft.annualFeeCents),
     ...(draft.shortName !== undefined && { short_name: draft.shortName?.trim() || null }),
+    ...(draft.slug && { slug: draft.slug.trim().toLowerCase() }),
   };
+}
+
+export async function saveProduct(context: Context, id: number | null, draft: ProductDraft) {
+  const { db, householdId } = context;
+  const values = productValues({ ...draft, slug: undefined });
   if (id !== null) {
     check(await db.from("products").update(values).eq("household_id", householdId).eq("id", id), "save the card type");
     return id;
@@ -242,27 +245,19 @@ export function validateDraft(draft: AccountDraft) {
   return null;
 }
 
-/** Creates an account with its first product and returns the new account id. */
-export async function createAccount(context: Context, draft: AccountDraft, holdings: Holding[]) {
+/** Creates an account with its first product (optionally a new card type) and returns the new account id. */
+export async function createAccount(context: Context, draft: AccountDraft, newProduct: ProductDraft | null = null) {
   const { db, householdId } = context;
-  const approved = draft.status === "open" || draft.status === "closed";
-  const account = check(await db.from("accounts").insert({ household_id: householdId, ...accountValues(draft) }).select("id").single(), "add the card") as Row;
-  const holding = await db.from("account_products").insert({
-    household_id: householdId,
-    account_id: account.id,
-    person_id: draft.personId,
-    product_id: draft.productId,
-    number: approved ? draft.number ?? nextHoldingNumber(holdings, draft.personId, draft.productId) : null,
-    started_on: draft.approvedOn || draft.appliedOn || isoDate(new Date()),
-    change: "opened",
-    annual_fee_cents: draft.annualFeeCents,
-    last4: draft.last4,
-  });
-  if (holding.error) {
-    await db.from("accounts").delete().eq("household_id", householdId).eq("id", account.id);
-    check(holding, "add the card");
-  }
-  return num(account.id);
+  const id = check(await db.rpc("cardfolio_add_card", {
+    p_household: householdId,
+    p_account: accountValues(draft),
+    p_product: newProduct ? null : draft.productId,
+    p_new_product: newProduct ? productValues(newProduct) : null,
+    p_number: draft.number,
+    p_annual_fee_cents: draft.annualFeeCents,
+    p_last4: draft.last4,
+  }), "add the card");
+  return num(id);
 }
 
 /** Saves an account and corrects its current product (type, number, fee, last digits). */
@@ -304,33 +299,25 @@ export async function updateAccount(context: Context, account: Account, current:
   }
 }
 
-/** Records an upgrade or downgrade: the current product ends and a new one starts on `date`. */
-export async function changeProduct(context: Context, account: Account, current: Holding, change: { productId: number; date: string; annualFeeCents: number; last4: string | null; direction: Exclude<HoldingChange, "opened"> }, holdings: Holding[]) {
+/** Records an upgrade or downgrade: the current product ends and a new one (optionally a new card type) starts on `date`. */
+export async function changeProduct(context: Context, accountId: number, change: { productId: number | null; newProduct?: ProductDraft | null; date: string; annualFeeCents: number; last4: string | null; direction: Exclude<HoldingChange, "opened"> }) {
   const { db, householdId } = context;
-  if (change.date < current.startedOn) throw new Error("The change date must be after the current product started.");
-  check(await db.from("account_products").update({ ended_on: change.date }).eq("household_id", householdId).eq("id", current.id), "record the product change");
-  const inserted = await db.from("account_products").insert({
-    household_id: householdId,
-    account_id: account.id,
-    person_id: account.personId,
-    product_id: change.productId,
-    number: nextHoldingNumber(holdings, account.personId, change.productId),
-    started_on: change.date,
-    change: change.direction,
-    annual_fee_cents: change.annualFeeCents,
-    last4: change.last4 ?? current.last4,
-  });
-  if (inserted.error) {
-    await db.from("account_products").update({ ended_on: null }).eq("household_id", householdId).eq("id", current.id);
-    check(inserted, "record the product change");
-  }
+  const id = check(await db.rpc("cardfolio_change_product", {
+    p_household: householdId,
+    p_account: accountId,
+    p_product: change.newProduct ? null : change.productId,
+    p_new_product: change.newProduct ? productValues(change.newProduct) : null,
+    p_date: change.date,
+    p_direction: change.direction,
+    p_annual_fee_cents: change.annualFeeCents,
+    p_last4: change.last4,
+  }), "record the product change");
+  return num(id);
 }
 
 /** Removes the most recent product change, restoring the previous product. */
-export async function undoProductChange(context: Context, current: Holding, previous: Holding) {
-  const { db, householdId } = context;
-  check(await db.from("account_products").delete().eq("household_id", householdId).eq("id", current.id), "remove the product change");
-  check(await db.from("account_products").update({ ended_on: null }).eq("household_id", householdId).eq("id", previous.id), "remove the product change");
+export async function undoProductChange(context: Context, accountId: number) {
+  check(await context.db.rpc("cardfolio_undo_product_change", { p_household: context.householdId, p_account: accountId }), "remove the product change");
 }
 
 export async function deleteAccount(context: Context, accountId: number) {
@@ -349,4 +336,37 @@ export async function addPerson(context: Context, draft: PersonDraft, sort: numb
 export async function savePerson(context: Context, id: number, draft: PersonDraft) {
   if (draft.code && !/^[A-Za-z]{1,4}$/.test(draft.code.trim())) throw new Error("Initials should be 1 to 4 letters, like HK.");
   check(await context.db.from("people").update({ name: draft.name.trim(), code: cleanCode(draft.code) }).eq("household_id", context.householdId).eq("id", id), "save the cardholder");
+}
+
+// ---------- agents ----------
+
+export type AgentKey = { id: string; name: string; prefix: string; createdAt: string; lastUsedAt: string | null; revokedAt: string | null };
+export type ChangeLogEntry = { id: number; actor: string; action: string; summary: string; source: string | null; createdAt: string };
+
+export async function listAgentKeys(context: Context): Promise<AgentKey[]> {
+  const rows = check(await context.db.from("agent_keys").select("id, name, key_prefix, created_at, last_used_at, revoked_at")
+    .eq("household_id", context.householdId).order("created_at", { ascending: false }), "load agent keys") as Row[];
+  return rows.map((row) => ({ id: String(row.id), name: String(row.name), prefix: String(row.key_prefix), createdAt: String(row.created_at), lastUsedAt: text(row.last_used_at), revokedAt: text(row.revoked_at) }));
+}
+
+/** Creates an agent key and returns it; only its SHA-256 hash is stored, so it can't be shown again. */
+export async function createAgentKey(context: Context, name: string) {
+  const bytes = crypto.getRandomValues(new Uint8Array(32));
+  const key = `cfk_${btoa(String.fromCharCode(...bytes)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "")}`;
+  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(key)));
+  const hash = [...digest].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+  check(await context.db.from("agent_keys").insert({
+    household_id: context.householdId, name: name.trim(), key_hash: hash, key_prefix: key.slice(0, 10), created_by: context.email,
+  }), "create the agent key");
+  return key;
+}
+
+export async function revokeAgentKey(context: Context, id: string) {
+  check(await context.db.from("agent_keys").update({ revoked_at: new Date().toISOString() }).eq("household_id", context.householdId).eq("id", id), "revoke the agent key");
+}
+
+export async function recentChanges(context: Context, limit = 10): Promise<ChangeLogEntry[]> {
+  const rows = check(await context.db.from("change_log").select("id, actor, action, summary, source, created_at")
+    .eq("household_id", context.householdId).order("created_at", { ascending: false }).limit(limit), "load recent changes") as Row[];
+  return rows.map((row) => ({ id: num(row.id), actor: String(row.actor), action: String(row.action), summary: String(row.summary), source: text(row.source), createdAt: String(row.created_at) }));
 }

@@ -23,6 +23,12 @@ Update it in the same commit as the related change.
   plus the holder's initials and card number, like "biz plat HK7", matching 1Password)
   wherever space is tight: tables, tags, lists, toasts, notifications. Never write "#7".
   Keep full names (`holdingName(..., true)`) for headings, dropdowns and detail views.
+- Multi-step writes (new card, product change and undo, credit use) are Postgres functions
+  (`cardfolio_*`, see `supabase/migrations/20260930000001_agent_api.sql`) called from
+  `app/lib/data.ts`; both the browser and the agent tools use those data functions.
+- The MCP server for AI agents is `app/api/mcp/route.ts` with tools in `app/lib/agent/tools.ts`
+  (docs: `docs/agents.md`). When you change what the app can record, update the tools and their
+  descriptions too.
 - Before pushing, run `npm run check` (lint, type-check, tests, build).
 - Commit to `main`; Vercel deploys every push.
 
@@ -42,6 +48,12 @@ anything you change.
    connector and type the code. Pressing send again invalidates the earlier code.
 4. Live updates (Supabase realtime websockets) fail through the container proxy; that's
    expected there and not an app bug.
+
+## Updating the household's cards as an agent
+
+If you're asked to record a card event (new card, approval, upgrade/downgrade, closure, bonus,
+credit), use the Cardfolio MCP tools (`/api/mcp` with a key from Settings → Agents) rather than
+writing SQL: they apply numbering and history rules and log the change. See `docs/agents.md`.
 
 ## Always commit and push
 

@@ -31,6 +31,8 @@ everyone signed in.
 | `credit_uses` | A credit used on a specific card in a specific period. Partial amounts add up. `source` is `manual`, `import` or (later) `plaid`. |
 | `credit_opt_outs` | Credits not tracked on a specific card ("not enrolled"). |
 | `action_rules` | Review rules (annual fee window, NLL, Ink Cash, RedCard). |
+| `agent_keys` | Keys for AI agents (hash only). |
+| `change_log` | What agents changed and the email or message it came from. |
 
 Rules that follow from this:
 
@@ -134,6 +136,7 @@ Screen** to install it like an app.
 - [Reminders](#reminders): push notifications for ending credits, bonus deadlines and reviews.
 - [Google Sheet copy](#google-sheet-copy-optional): a read-only spreadsheet kept in sync.
 - [Importing a Google Sheet](#importing-a-google-sheet-optional): bulk-load an existing tracker.
+- [Agents (MCP)](#agents-mcp): let Claude or another AI agent update Cardfolio for you.
 
 The browser signs in with a Supabase magic link and then reads and writes the tables
 directly; row-level security limits every query to the signed-in member's household.
@@ -219,6 +222,14 @@ at a sheet with other tabs you edit by hand.
    - `CARDFOLIO_EXPORT_SPREADSHEET_ID`: the ID from the spreadsheet URL
 
 Settings also has CSV downloads of the same three tables.
+
+## Agents (MCP)
+
+Cardfolio is also an MCP server at `/api/mcp`, so an AI agent can read your cards and record
+new cards, approvals, product changes, closures, bonuses and credits, for example from issuer
+emails. Create a key in **Settings → Agents** and see [docs/agents.md](docs/agents.md) for how to
+connect Claude Code or another client, and what each tool does. Agent changes are listed under
+Settings → Agents.
 
 ## Commands
 

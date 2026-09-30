@@ -1,5 +1,5 @@
 import { creditIsDue, creditState, eligibleHoldings, type Period } from "./credits.ts";
-import { addMonths, DAY_MS, daysBetween, nextAnniversary, parseDate } from "./dates.ts";
+import { addMonths, DAY_MS, daysBetween, isoDate, nextAnniversary, parseDate } from "./dates.ts";
 import type { Account, ActionRule, Credit, Holding, Portfolio } from "./model.ts";
 import { accountAction } from "./rules.ts";
 
@@ -61,6 +61,10 @@ export function dueItems(portfolio: Portfolio, today: Date, include: (account: A
     for (const holding of eligibleHoldings(portfolio, credit, today)) {
       const account = portfolio.account(holding.accountId);
       if (!account || !include(account)) continue;
+      // A card that has since closed or changed product can't use the credit any more, even
+      // though it counted for part of this period.
+      const ended = portfolio.holdingEnd(holding);
+      if (ended && ended <= isoDate(today)) continue;
       const state = creditState(portfolio, credit, holding, today);
       if (state.kind === "off" || !creditIsDue(credit, state)) continue;
       const group = grouped.get(state.period.key) || { period: state.period, holdings: [], daysLeft: state.daysLeft };

@@ -130,6 +130,19 @@ test("due list collects credits, reviews, bonuses and pending applications", () 
     : item.account.personId === personId("Sophia")));
 });
 
+test("credit to-dos skip cards that changed product or closed earlier in the period", () => {
+  const hilton = portfolio.credits.find((item) => item.name === "Hilton")!;
+  const due = (value: Portfolio) => dueItems(value, today).find((item) => item.kind === "credit" && item.credit.id === hilton.id);
+  const before = due(portfolio);
+  assert.ok(before?.kind === "credit");
+  const downgraded = before.holdings[0];
+  // Downgraded on Jul 2: it was a biz plat for part of Q3 but can't use the Q3 credit now.
+  const after = due(indexPortfolio({ ...portfolio, holdings: portfolio.holdings.map((holding) => holding.id === downgraded.id ? { ...holding, endedOn: "2026-07-02" } : holding) }));
+  assert.ok(after?.kind === "credit");
+  assert.equal(after.holdings.length, before.holdings.length - 1);
+  assert.ok(!after.holdings.some((holding) => holding.id === downgraded.id));
+});
+
 test("bonus deadlines and fee dates come from the approval date", () => {
   const amexPlat = portfolio.accounts.find((account) => account.personId === personId("Harrison") && portfolio.current(account.id)?.productId === productId("amex plat"))!;
   assert.equal(isoDate(bonusStatus(amexPlat, today)!.deadline), "2027-03-20");

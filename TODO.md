@@ -60,6 +60,9 @@ done and move them to **Done** with the date.
 
 ## Done
 
+- 2026-09-30: Credit to-dos (and push reminders) no longer count cards that closed or changed
+  product earlier in the period. Biz plat SL3, downgraded to biz green on Jul 2, kept a
+  "Hilton $50 on biz plat: 1 card left" to-do even though the Credits tab hides that row.
 - 2026-09-30: Cleaned up Settings. Card types with credits come first, and ones with no open
   cards or credits hide behind "Show N card types". Each card type opens into its fields plus
   a "Credits" list, with two-line credit rows and a $ prefix on amounts. The new-credit row has

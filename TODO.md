@@ -42,6 +42,9 @@ done and move them to **Done** with the date.
 
 ## Ideas / later
 
+- [ ] Try the README's "Set up your own copy" guide from a fresh fork with a new Supabase
+      project and Vercel site, and fix anything that trips.
+
 - [ ] Plaid: connect card accounts, detect statement credits, track bonus spend and fee
       postings (`credit_uses.source = 'plaid'` is already in the schema). Needs a Plaid
       production account. Plaid can't report autopay settings directly, but payments on the
@@ -60,6 +63,14 @@ done and move them to **Done** with the date.
 
 ## Done
 
+- 2026-09-30: Made Cardfolio set-up-able by others. README has a "Set up your own copy"
+  guide (fork, Supabase, auth URLs/email, env, first cards, Vercel), the sheet import is
+  marked optional, and owner-only notes are trimmed. An empty household shows a "Get started"
+  panel (add a cardholder, add cards, add credits) instead of an empty table; "+ Add card"
+  opens Settings → Cardholders until there's a cardholder, and saving a card without one
+  explains why. `supabase/config.toml` no longer points at the old workers.dev URL. All
+  migrations were checked on an empty Postgres; the Supabase/Vercel steps themselves haven't
+  been run end to end from a fresh fork.
 - 2026-09-30: Credit to-dos (and push reminders) no longer count cards that closed or changed
   product earlier in the period. Biz plat SL3, downgraded to biz green on Jul 2, kept a
   "Hilton $50 on biz plat: 1 card left" to-do even though the Credits tab hides that row.

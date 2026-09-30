@@ -234,6 +234,7 @@ function accountValues(draft: AccountDraft) {
 }
 
 export function validateDraft(draft: AccountDraft) {
+  if (!draft.personId) return "Add a cardholder in Settings first, then add the card.";
   if (draft.status !== "pending" && draft.status !== "declined" && !draft.approvedOn) return "Enter the approval date, or set the status to Pending.";
   if (draft.status === "closed" && !draft.closedOn) return "Enter the date the card was closed.";
   if (draft.last4 && !/^\d{4,5}$/.test(draft.last4)) return "Last digits should be 4 or 5 numbers.";

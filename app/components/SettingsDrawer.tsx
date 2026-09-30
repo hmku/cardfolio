@@ -22,6 +22,8 @@ type Props = {
   portfolio: Portfolio;
   today: Date;
   membership: Membership;
+  /** Scroll to and focus a section when the drawer opens (the empty page's "Add a cardholder"). */
+  focus?: "people";
   onClose: () => void;
   onSaveProduct: (id: number, draft: ProductDraft) => Promise<boolean>;
   onSaveCredit: (id: number | null, draft: Partial<CreditDraft>) => Promise<boolean>;
@@ -192,9 +194,9 @@ function PersonRow({ person, onSave }: { person: Person; onSave: Props["onSavePe
   );
 }
 
-function Section({ title, hint, children }: { title: string; hint?: ReactNode; children: ReactNode }) {
+function Section({ title, hint, children, id }: { title: string; hint?: ReactNode; children: ReactNode; id?: string }) {
   return (
-    <section className="fieldset settings-section">
+    <section className="fieldset settings-section" id={id}>
       <h3>{title}</h3>
       {hint && <p className="hint">{hint}</p>}
       {children}
@@ -208,6 +210,14 @@ export function SettingsDrawer(props: Props) {
   const [person, setPerson] = useState("");
   const [syncing, setSyncing] = useState(false);
   const [showUnused, setShowUnused] = useState(false);
+  useEffect(() => {
+    if (props.focus !== "people") return;
+    const frame = requestAnimationFrame(() => {
+      document.getElementById("settings-people")?.scrollIntoView({ block: "start" });
+      document.querySelector<HTMLInputElement>("input[aria-label='New cardholder name']")?.focus();
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [props.focus]);
   const rules = portfolio.rules.length ? portfolio.rules : DEFAULT_ACTION_RULES;
   const openCount = new Map<number, number>();
   for (const account of portfolio.accounts) {
@@ -255,7 +265,7 @@ export function SettingsDrawer(props: Props) {
 
       <ReminderSettings accessToken={props.accessToken} notify={props.notify} />
 
-      <Section title="Cardholders" hint={<>Initials label each card, like your 1Password entries: biz plat HK7 is that person&apos;s 7th biz plat.</>}>
+      <Section id="settings-people" title="Cardholders" hint={<>Initials label each card, like your 1Password entries: biz plat HK7 is that person&apos;s 7th biz plat.</>}>
         <div className="settings-list">
           {portfolio.people.map((item) => <PersonRow key={item.id} person={item} onSave={props.onSavePerson} />)}
         </div>

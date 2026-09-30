@@ -13,13 +13,14 @@ import { DueList } from "./DueList";
 import { CardList } from "./CardList";
 import { CreditMenu, type CellTarget } from "./CreditCell";
 import { SettingsDrawer, type Membership } from "./SettingsDrawer";
+import { GettingStarted } from "./GettingStarted";
 import { CheckIcon, Dot, personTone, Toast, type ToastMessage } from "./ui";
 import { money, shortDate } from "../lib/presentation/format";
 
 type Props = { db: SupabaseClient; accessToken: string; onSignOut: () => Promise<void> };
 type View = "cards" | "credits";
 type Prefs = { view: View; collapsed: Record<string, boolean>; showClosed: boolean; creditsShowClosed: boolean };
-type Panel = { kind: "account"; id: number | null } | { kind: "settings" } | null;
+type Panel = { kind: "account"; id: number | null } | { kind: "settings"; focus?: "people" } | null;
 type Menu = { target: CellTarget; anchor: DOMRect } | null;
 
 const PREFS_KEY = "cardfolio-prefs-v3";
@@ -257,7 +258,7 @@ export function Portfolio({ db, accessToken, onSignOut }: Props) {
       <header className="top">
         <div className="brand"><h1>Cardfolio</h1><span>{today.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}</span></div>
         <button className="btn" type="button" onClick={() => setPanel({ kind: "settings" })}>Settings</button>
-        <button className="btn primary" type="button" onClick={() => setPanel({ kind: "account", id: null })}>+ Add card</button>
+        <button className="btn primary" type="button" onClick={() => setPanel(people.length ? { kind: "account", id: null } : { kind: "settings", focus: "people" })}>+ Add card</button>
       </header>
 
       {loadError && <div className="error-banner" role="alert"><span>{loadError}</span><button type="button" className="btn small" onClick={() => void reload(membership.householdId)}>Retry</button></div>}
@@ -285,16 +286,21 @@ export function Portfolio({ db, accessToken, onSignOut }: Props) {
         requestAnimationFrame(() => document.getElementById(groupId(product.slug))?.scrollIntoView({ behavior: "smooth", block: "start" }));
       }} />
 
-      <div className="toolbar" role="toolbar" aria-label="View options">
+      {portfolio.accounts.length > 0 && <div className="toolbar" role="toolbar" aria-label="View options">
         <div className="seg" aria-label="View">
           <button type="button" aria-pressed={prefs.view === "cards"} onClick={() => updatePrefs({ view: "cards" })}>Cards</button>
           <button type="button" aria-pressed={prefs.view === "credits"} onClick={() => updatePrefs({ view: "credits" })}>Credits</button>
         </div>
         <input className="search" type="search" placeholder="Search cards, notes, last digits" aria-label="Search cards, notes, or last digits" value={search} onChange={(event) => setSearch(event.target.value)} />
-      </div>
+      </div>}
 
       <main className="portfolio-views">
-        {prefs.view === "cards" ? (
+        {portfolio.accounts.length === 0 ? (
+          <GettingStarted hasPeople={people.length > 0} hasCredits={portfolio.credits.length > 0}
+            onAddPerson={() => setPanel({ kind: "settings", focus: "people" })}
+            onAddCard={() => setPanel({ kind: "account", id: null })}
+            onSettings={() => setPanel({ kind: "settings" })} />
+        ) : prefs.view === "cards" ? (
           <>
             <CardList portfolio={portfolio} accounts={cardList} today={today} onOpenAccount={groupProps.onOpenAccount} />
             {hiddenCount > 0 && (
@@ -351,6 +357,7 @@ export function Portfolio({ db, accessToken, onSignOut }: Props) {
           portfolio={portfolio}
           today={today}
           membership={membership}
+          focus={panel.focus}
           onClose={() => setPanel(null)}
           onSaveProduct={(id, draft) => write((ctx) => data.saveProduct(ctx, id, draft), { success: "Saved" })}
           onSaveCredit={(id, draft) => write((ctx) => data.saveCredit(ctx, id, draft), { success: id === null ? "Credit added" : "Saved" })}

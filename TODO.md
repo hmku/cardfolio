@@ -73,6 +73,10 @@ done and move them to **Done** with the date.
 
 ## Done
 
+- 2026-10-01: Phones can't zoom the app any more (like a native app): the viewport sets
+  `maximum-scale=1, user-scalable=no` (which also stops iOS zooming into focused fields),
+  `NoZoom` blocks iOS pinch gestures on touch screens, and `touch-action: manipulation` turns
+  off double-tap zoom. Desktop browser zoom still works.
 - 2026-09-30: Removed agent (MCP) access for now; see the parked item under Agents. Kept the
   all-or-nothing `cardfolio_*` write functions the app uses. Also removed unused code: the
   Tailwind build setup (never imported), `pushConfigured()`, and exports only used in their

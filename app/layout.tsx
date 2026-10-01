@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { IBM_Plex_Mono, IBM_Plex_Sans } from "next/font/google";
 import "./globals.css";
+import { NoZoom } from "./components/NoZoom";
 
 const plexSans = IBM_Plex_Sans({ variable: "--font-plex-sans", subsets: ["latin"], weight: ["400", "500", "600", "700"] });
 const plexMono = IBM_Plex_Mono({ variable: "--font-plex-mono", subsets: ["latin"], weight: ["400", "500"] });
@@ -15,6 +16,9 @@ export const metadata: Metadata = {
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
+  // Behave like an app on phones: no pinch zoom, and no zooming in when a field is focused.
+  maximumScale: 1,
+  userScalable: false,
   viewportFit: "cover",
   themeColor: [{ media: "(prefers-color-scheme: light)", color: "#eef1f4" }, { media: "(prefers-color-scheme: dark)", color: "#11161c" }],
 };
@@ -22,7 +26,7 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="en" className={`${plexSans.variable} ${plexMono.variable}`}>
-      <body>{children}</body>
+      <body><NoZoom />{children}</body>
     </html>
   );
 }

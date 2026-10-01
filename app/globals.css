@@ -47,7 +47,7 @@
   --shadow: 0 12px 40px rgba(0, 0, 0, .5); color-scheme: dark;
 }
 * { box-sizing: border-box; }
-html { background: var(--bg); }
+html { background: var(--bg); touch-action: manipulation; }
 body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--font-body); font-size: 14px; line-height: 1.45; }
 button, input, select { font: inherit; color: inherit; }
 button { cursor: pointer; }

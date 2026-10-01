@@ -73,6 +73,10 @@ done and move them to **Done** with the date.
 
 ## Done
 
+- 2026-10-01: The annual fee review skips the year a card is upgraded or downgraded around its
+  anniversary (during the review window or up to 60 days before it opens), since that's the
+  keep-or-close decision made. It still follows the account's approval anniversary and returns
+  the next year. Biz plat HK7 → biz green HK4 (Sep 30) no longer shows a review.
 - 2026-10-01: Phones can't zoom the app any more (like a native app): the viewport sets
   `maximum-scale=1, user-scalable=no` (which also stops iOS zooming into focused fields),
   `NoZoom` blocks iOS pinch gestures on touch screens, and `touch-action: manipulation` turns

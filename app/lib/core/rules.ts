@@ -1,4 +1,4 @@
-import { daysBetween, parseDate } from "./dates.ts";
+import { addDays, daysBetween, parseDate } from "./dates.ts";
 import type { Account, ActionRule, Portfolio } from "./model.ts";
 
 /** Mirrors the rules seeded in supabase/migrations; used when none are stored. */
@@ -23,7 +23,7 @@ export function describeRule(rule: ActionRule) {
   }
   if (condition.annualFeeMin !== undefined) parts.push(`annual fee at least $${condition.annualFeeMin}`);
   if (condition.anniversaryBeforeDays !== undefined || condition.anniversaryAfterDays !== undefined) {
-    parts.push(`${condition.anniversaryBeforeDays ?? 0} days before to ${condition.anniversaryAfterDays ?? 0} days after the anniversary`);
+    parts.push(`${condition.anniversaryBeforeDays ?? 0} days before to ${condition.anniversaryAfterDays ?? 0} days after the anniversary (skipped that year after an upgrade or downgrade)`);
   }
   if (condition.latestCardOnly) parts.push("most recent card of this type");
   return parts.join(" · ") || "Always";
@@ -34,6 +34,16 @@ function matchesCard(portfolio: Portfolio, account: Account, names: string[]) {
   if (!product) return false;
   const wanted = new Set(names.map((name) => name.trim().toLowerCase()));
   return [product.slug, product.name, product.shortName].some((name) => name && wanted.has(name.toLowerCase()));
+}
+
+/** How long before a review window opens a product change still counts as that year's decision. */
+const DECIDED_LEAD_DAYS = 60;
+
+function changedProductSince(portfolio: Portfolio, account: Account, from: Date, today: Date) {
+  return portfolio.holdingsOf(account.id).some((holding) => {
+    const started = parseDate(holding.startedOn);
+    return holding.change !== "opened" && started !== null && started >= from && started <= today;
+  });
 }
 
 export function ruleMatches(portfolio: Portfolio, rule: ActionRule, account: Account, today: Date) {
@@ -64,6 +74,9 @@ export function ruleMatches(portfolio: Portfolio, rule: ActionRule, account: Acc
     const before = Math.max(0, condition.anniversaryBeforeDays || 0);
     const after = Math.max(0, condition.anniversaryAfterDays || 0);
     if (!(dayOfYear <= after || dayOfYear >= 365 - before)) return false;
+    // A product change around this anniversary means this year's decision is made.
+    const anniversary = addDays(today, dayOfYear <= after ? -dayOfYear : 365 - dayOfYear);
+    if (changedProductSince(portfolio, account, addDays(anniversary, -before - DECIDED_LEAD_DAYS), today)) return false;
   }
 
   if (condition.latestCardOnly) {

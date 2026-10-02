@@ -212,6 +212,8 @@ button:disabled { opacity: .55; cursor: default; }
 .credit-list h4 { margin: 0; font-size: 12px; font-weight: 600; color: var(--muted); }
 .credit-edit { display: grid; grid-template-columns: 96px minmax(0, 1fr) auto 62px; gap: 6px; align-items: center; }
 .credit-edit .credit-name { grid-column: 1 / -1; }
+.credit-edit .credit-visibility { grid-column: 1 / -1; }
+.credit-edit input:disabled { opacity: .5; cursor: not-allowed; }
 .credit-edit input, .credit-edit select { border: 1px solid var(--line); border-radius: 7px; padding: 5px 7px; background: var(--surface); color: var(--ink); min-width: 0; width: 100%; }
 .credit-edit label.check { font-size: 13px; gap: 5px; }
 .credit-edit .btn { width: 100%; }

@@ -62,6 +62,8 @@ export type Credit = {
   amountCents: number;
   cadence: Cadence;
   remind: boolean;
+  /** Hide from Credits and disable reminders, retaining settings and uses. */
+  hidden?: boolean;
   startsOn: string | null;
   endsOn: string | null;
   sort: number;

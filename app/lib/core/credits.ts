@@ -83,7 +83,7 @@ export const DUE_WINDOW_DAYS = 31;
 
 /** Whether an unused credit on this card needs attention soon. */
 export function creditIsDue(credit: Credit, state: CreditState) {
-  return credit.remind && state.kind !== "off" && state.kind !== "used" && state.daysLeft <= DUE_WINDOW_DAYS;
+  return !credit.hidden && credit.remind && state.kind !== "off" && state.kind !== "used" && state.daysLeft <= DUE_WINDOW_DAYS;
 }
 
 export function creditSummary(portfolio: Portfolio, credit: Credit, holdings: Holding[], today: Date) {

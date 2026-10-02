@@ -56,7 +56,7 @@ const BONUS_WINDOW_DAYS = 60;
 export function dueItems(portfolio: Portfolio, today: Date, include: (account: Account) => boolean = () => true): DueItem[] {
   const items: Array<{ item: DueItem; sort: number }> = [];
   for (const credit of portfolio.credits) {
-    if (!credit.remind) continue;
+    if (!credit.remind || credit.hidden) continue;
     const grouped = new Map<string, { period: Period; holdings: Holding[]; daysLeft: number }>();
     for (const holding of eligibleHoldings(portfolio, credit, today)) {
       const account = portfolio.account(holding.accountId);

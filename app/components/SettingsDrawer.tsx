@@ -40,6 +40,27 @@ type Props = {
 
 const CADENCES = Object.entries(CADENCE_LABELS) as [Cadence, string][];
 
+/** One choice in Settings covers both the tracking mode and, for tracked credits, Remind. */
+type Tracking = "remind" | "quiet" | "auto" | "skip";
+const TRACKING: [Tracking, string, string][] = [
+  ["remind", "Track + remind", "Tick it each period; shows in To do when unused near the end"],
+  ["quiet", "Track quietly", "Tick it each period; never in To do"],
+  ["auto", "Always used", "A recurring charge: counted as used every period, no ticking"],
+  ["skip", "Not using", "Hidden from Credits and To do; settings and history kept"],
+];
+const trackingOf = (credit: Pick<Credit, "mode" | "remind">): Tracking => (credit.mode === "track" ? (credit.remind ? "remind" : "quiet") : credit.mode);
+// Remind is only changed for tracked credits, so switching back restores it.
+const trackingPatch = (value: Tracking): Partial<CreditDraft> =>
+  value === "remind" ? { mode: "track", remind: true } : value === "quiet" ? { mode: "track", remind: false } : { mode: value };
+
+function TrackingSelect({ label, value, onChange }: { label: string; value: Tracking; onChange: (value: Tracking) => void }) {
+  return (
+    <select aria-label={label} value={value} title={TRACKING.find(([key]) => key === value)?.[2]} onChange={(event) => onChange(event.target.value as Tracking)}>
+      {TRACKING.map(([key, text, hint]) => <option key={key} value={key} title={hint}>{text}</option>)}
+    </select>
+  );
+}
+
 function download(name: string, text: string) {
   const url = URL.createObjectURL(new Blob([text], { type: "text/csv;charset=utf-8" }));
   const link = document.createElement("a");
@@ -108,18 +129,13 @@ function CreditRow({ credit, onSave, onDelete }: { credit: Credit; onSave: Props
       <select aria-label={`How often ${credit.name} resets`} value={credit.cadence} onChange={(event) => void onSave(credit.id, { cadence: event.target.value as Cadence })}>
         {CADENCES.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
       </select>
-      <label className="check" title="Show in To do when it's unused near the end of a period">
-        <input type="checkbox" checked={!credit.hidden && credit.remind} disabled={Boolean(credit.hidden)} onChange={(event) => void onSave(credit.id, { remind: event.target.checked })} /> Remind
-      </label>
+      <TrackingSelect label={`How ${credit.name} is tracked`} value={trackingOf(credit)} onChange={(value) => void onSave(credit.id, trackingPatch(value))} />
       <DeleteButton label={credit.name} onDelete={() => void onDelete(credit.id)} />
-      <label className="check credit-visibility" title="Hide from Credits and turn off reminders; keep this credit and its history.">
-        <input type="checkbox" aria-label={`Hide ${credit.name} from Credits`} checked={Boolean(credit.hidden)} onChange={(event) => void onSave(credit.id, { hidden: event.target.checked })} /> Hide from Credits
-      </label>
     </div>
   );
 }
 
-const EMPTY_CREDIT = { name: "", amount: "", cadence: "calendar_year" as Cadence, remind: true };
+const EMPTY_CREDIT = { name: "", amount: "", cadence: "calendar_year" as Cadence, tracking: "remind" as Tracking };
 
 function ProductSettings({ portfolio, product, open, onSaveProduct, onSaveCredit, onDeleteCredit }: { portfolio: Portfolio; product: Product; open: number } & Pick<Props, "onSaveProduct" | "onSaveCredit" | "onDeleteCredit">) {
   const credits = portfolio.credits.filter((credit) => credit.productId === product.id).sort((left, right) => left.sort - right.sort);
@@ -135,9 +151,14 @@ function ProductSettings({ portfolio, product, open, onSaveProduct, onSaveCredit
     const changed = (Object.keys(saved) as (keyof ProductDraft)[]).some((key) => String(next[key] ?? "").trim() !== String(saved[key] ?? "").trim());
     if (changed) void onSaveProduct(product.id, next);
   };
-  const addCredit = () => onSaveCredit(null, { productId: product.id, name: newCredit.name, amountCents: toCents(newCredit.amount), cadence: newCredit.cadence, remind: newCredit.remind })
+  const addCredit = () => onSaveCredit(null, { productId: product.id, name: newCredit.name, amountCents: toCents(newCredit.amount), cadence: newCredit.cadence, remind: true, ...trackingPatch(newCredit.tracking) })
     .then((ok) => { if (ok) setNewCredit(EMPTY_CREDIT); return ok; });
-  const meta = [open ? `${open} open` : "none open", credits.length ? `${credits.length} credit${credits.length === 1 ? "" : "s"}` : ""].filter(Boolean).join(" · ");
+  const notUsing = credits.filter((credit) => credit.mode === "skip").length;
+  const meta = [
+    open ? `${open} open` : "none open",
+    credits.length ? `${credits.length} credit${credits.length === 1 ? "" : "s"}` : "",
+    notUsing ? `${notUsing} not using` : "",
+  ].filter(Boolean).join(" · ");
 
   return (
     <details className="product-card">
@@ -167,7 +188,7 @@ function ProductSettings({ portfolio, product, open, onSaveProduct, onSaveCredit
             <select aria-label="How often the new credit resets" value={newCredit.cadence} onChange={(event) => setNewCredit({ ...newCredit, cadence: event.target.value as Cadence })}>
               {CADENCES.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
             </select>
-            <label className="check"><input type="checkbox" checked={newCredit.remind} onChange={(event) => setNewCredit({ ...newCredit, remind: event.target.checked })} /> Remind</label>
+            <TrackingSelect label="How the new credit is tracked" value={newCredit.tracking} onChange={(tracking) => setNewCredit({ ...newCredit, tracking })} />
           </AddForm>
         </div>
       </div>

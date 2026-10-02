@@ -163,6 +163,10 @@ export function Portfolio({ db, accessToken, onSignOut }: Props) {
   function toggleCredit(target: CellTarget) {
     if (!portfolio) return;
     const state = creditState(portfolio, target.credit, target.holding, today);
+    if (state.kind === "used" && state.auto) {
+      notify(`${target.credit.name} is always used, so there's nothing to tick. Change it in Settings → Card types and credits.`);
+      return;
+    }
     if (state.kind === "used") setUse(target, null, "Cleared");
     else setUse(target, target.credit.amountCents, "Marked used:");
   }
@@ -317,6 +321,7 @@ export function Portfolio({ db, accessToken, onSignOut }: Props) {
               <span><span className="cell partial"><span className="num">$30</span></span>Partly used</span>
               <span><span className="cell" />Not used</span>
               <span><span className="cell off">–</span>Not enrolled</span>
+              {portfolio.credits.some((credit) => credit.mode === "auto") && <span><span className="cell used auto"><CheckIcon /></span>Always used</span>}
               <span>Tap a box to mark it used. Press and hold (or right-click) for a partial amount or to mark it not enrolled.</span>
             </div>
             <CardGroups {...groupProps} />

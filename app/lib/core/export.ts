@@ -45,6 +45,7 @@ export function exportTables(portfolio: Portfolio, today: Date): ExportTables {
 
   const credits: ExportTables["credits"] = [["card type", "credit", "amount", "frequency", "period", "used", "tracked cards", "left this period"]];
   for (const credit of portfolio.credits) {
+    if (credit.mode === "skip") continue;
     const holdings = eligibleHoldings(portfolio, credit, today);
     const summary = creditSummary(portfolio, credit, holdings, today);
     const period = periodFor(portfolio, credit, null, today);

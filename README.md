@@ -13,6 +13,10 @@ Cardfolio is a private household credit card tracker. Everything is on one page:
   Tap a box to mark a credit used; press and hold (or right-click) to log a partial amount
   or mark it not enrolled. The footer shows the current period's `used/tracked` count.
   Closed cards and earlier products are hidden behind "Show closed cards".
+  Each credit is set in Settings to **Track + remind**, **Track quietly** (never in To do),
+  **Always used** (a recurring charge: its column comes last with dashed checks and counts as
+  used every period without ticking) or **Not using** (hidden everywhere but Settings; history
+  kept, and switching back restores it).
 
 Card types and their credits, review rules, notifications, cardholders, sign-in access and
 exports live in **Settings**. Card types with no open cards and no credits are tucked behind
@@ -27,7 +31,7 @@ everyone signed in.
 | `products` | Card types, e.g. "Chase Sapphire Reserve", with issuer, kind (personal / business / other) and usual fee. `slug` is the sheet's short name (`csr`). |
 | `accounts` | One row per credit line: applied/approved dates, how it was opened, status, closing date, welcome bonus, notes. |
 | `account_products` | The products an account has been over time. An upgrade or downgrade ends one row and starts the next; the account itself stays open. Each row stores its **card number** (`CSR #5`: the 5th time that person held a CSR, counting product changes) and optional **last digits**. |
-| `credits` | Recurring credits on a card type: amount, cadence (monthly, quarterly, twice a year, calendar year, card year) and whether to remind. |
+| `credits` | Recurring credits on a card type: amount, cadence (monthly, quarterly, twice a year, calendar year, card year), `mode` (`track`, `auto` = always used, `skip` = not using) and whether to remind. |
 | `credit_uses` | A credit used on a specific card in a specific period. Partial amounts add up. `source` is `manual`, `import` or (later) `plaid`. |
 | `credit_opt_outs` | Credits not tracked on a specific card ("not enrolled"). |
 | `action_rules` | Review rules (annual fee window, NLL, Ink Cash, RedCard). |

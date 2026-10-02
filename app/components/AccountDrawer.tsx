@@ -88,7 +88,7 @@ export function AccountDrawer(props: Props) {
     : null;
 
   const credits = current && account?.status === "open"
-    ? portfolio.credits.filter((credit) => credit.productId === current.productId && eligibleHoldings(portfolio, credit, today).some((holding) => holding.id === current.id))
+    ? portfolio.credits.filter((credit) => credit.mode !== "skip" && credit.productId === current.productId && eligibleHoldings(portfolio, credit, today).some((holding) => holding.id === current.id))
     : [];
 
   async function run(action: () => Promise<void>) {
@@ -271,6 +271,7 @@ export function AccountDrawer(props: Props) {
             {credits.map((credit) => {
               const state = creditState(portfolio, credit, current, today);
               const status = state.kind === "off" ? "Not enrolled"
+                : state.kind === "used" && state.auto ? "Always used"
                 : state.kind === "used" ? `Used${state.uses.at(-1)?.recordedBy ? ` · marked by ${state.uses.at(-1)?.recordedBy}` : ""}`
                 : state.kind === "partial" ? `${money(state.usedCents)} of ${money(credit.amountCents)} used` : "Not used yet";
               return (

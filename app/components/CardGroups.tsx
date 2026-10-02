@@ -40,12 +40,15 @@ export const groupId = (key: string) => `g-${key.replace(/[^a-z0-9]+/gi, "-")}`;
 export function CardGroups(props: GroupProps) {
   const { portfolio, today, include, collapsed, onCollapse, showClosed, onShowClosed } = props;
   let closedRows = 0;
-  const visibleCredits = portfolio.credits.filter((credit) => !credit.hidden);
+  // "Not using" credits stay out of the grid; always-used ones come after the tracked ones.
+  const visibleCredits = portfolio.credits.filter((credit) => credit.mode !== "skip");
+  const notUsing = portfolio.credits.length - visibleCredits.length;
   const productsWithCredits = [...new Set(visibleCredits.map((credit) => credit.productId))];
 
   const groups = productsWithCredits.map((productId) => {
     const product = portfolio.product(productId)!;
-    const credits = visibleCredits.filter((credit) => credit.productId === productId).sort((left, right) => left.sort - right.sort);
+    const credits = visibleCredits.filter((credit) => credit.productId === productId)
+      .sort((left, right) => Number(left.mode === "auto") - Number(right.mode === "auto") || left.sort - right.sort);
     const eligible = new Map(credits.map((credit) => [credit.id, new Set(eligibleHoldings(portfolio, credit, today).map((holding) => holding.id))]));
     const rows = portfolio.holdings.filter((holding) => {
       if (holding.productId !== productId) return false;
@@ -68,7 +71,9 @@ export function CardGroups(props: GroupProps) {
 
   return (
     <>
-      {groups.length === 0 && <div className="empty">No visible credits match. Manage hidden credits in Settings → Card types and credits.</div>}
+      {groups.length === 0 && (
+        <div className="empty">No cards with credits match.{notUsing > 0 && " Credits marked “Not using” are in Settings → Card types and credits."}</div>
+      )}
       {groups.map(({ product, credits, eligible, rows }) => {
         const key = `product-${product.id}`;
         const isCollapsed = Boolean(collapsed[key]);
@@ -121,7 +126,7 @@ export function CardGroups(props: GroupProps) {
                         const holdings = rows.filter((holding) => eligible.get(credit.id)!.has(holding.id));
                         const summary = creditSummary(portfolio, credit, holdings, today);
                         const period = periodFor(portfolio, credit, null, today);
-                        const due = credit.remind && credit.cadence !== "card_year" && summary.used < summary.enrolled && daysBetween(today, period.end) <= DUE_WINDOW_DAYS;
+                        const due = credit.mode === "track" && credit.remind && credit.cadence !== "card_year" && summary.used < summary.enrolled && daysBetween(today, period.end) <= DUE_WINDOW_DAYS;
                         return <td key={credit.id} className={`credit num ${due ? "due-col" : ""}`}>{summary.used}/{summary.enrolled}</td>;
                       })}
                       <td className="status-cell" />
@@ -147,10 +152,12 @@ function CreditHeader({ portfolio, credit, rows, today }: { portfolio: Portfolio
   const daysLeft = daysBetween(today, period.end);
   const cardYear = credit.cadence === "card_year";
   const summary = creditSummary(portfolio, credit, rows, today);
-  const due = credit.remind && !cardYear && daysLeft <= DUE_WINDOW_DAYS && summary.used < summary.enrolled;
-  const meta = cardYear ? "per card year" : `${period.label} · ${daysLeft <= DUE_WINDOW_DAYS ? `ends ${inDays(daysLeft)}` : `ends ${shortDate(period.end)}`}`;
+  const auto = credit.mode === "auto";
+  const due = !auto && credit.remind && !cardYear && daysLeft <= DUE_WINDOW_DAYS && summary.used < summary.enrolled;
+  const meta = auto ? "Always used" : cardYear ? "per card year" : `${period.label} · ${daysLeft <= DUE_WINDOW_DAYS ? `ends ${inDays(daysLeft)}` : `ends ${shortDate(period.end)}`}`;
+  const title = auto ? "Always used: counted as used every period without ticking. Change it in Settings." : credit.remind ? undefined : "Tracked quietly: left out of To do";
   return (
-    <th className={`credit ${credit.remind ? "" : "muted"} ${due ? "due-col" : ""}`} title={credit.remind ? undefined : "Low priority: left out of To do"}>
+    <th className={`credit ${auto ? "auto-col" : credit.remind ? "" : "muted"} ${due ? "due-col" : ""}`} title={title}>
       <span className="cname">{credit.name}</span>
       <span className="cmeta num">{money(credit.amountCents)}</span>
       <span className="cmeta">{meta}</span>

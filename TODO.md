@@ -5,10 +5,6 @@ done and move them to **Done** with the date.
 
 ## Needs Harrison
 
-- [ ] Apply `supabase/migrations/20261002000001_credit_visibility.sql` before deploying
-      Hide from Credits. In Settings → Card types and credits, hiding a credit also turns
-      Remind off; unhiding leaves Remind off until explicitly re-enabled.
-
 - [ ] **Turn on reminders** on each device (Settings → Reminders → Turn on, then Send a test).
       On iPhone, add the site to the home screen first and turn it on from there. Sophia too.
 - [ ] **Card last digits from 1Password**: `brew install 1password-cli jq`, enable
@@ -77,10 +73,13 @@ done and move them to **Done** with the date.
 
 ## Done
 
-- [x] 2026-10-02: Added Hide from Credits in card-type settings. Hidden credits retain
-      settings, enrollment, usage and exports but do not appear in Credits or generate
-      to-dos or notifications. Hiding atomically disables reminders; database validation
-      prevents re-enabling them while hidden.
+- 2026-10-02: Credit tracking modes (from jjhuang22's "Hide from Credits" PR #2, extended).
+  Each credit in Settings is Track + remind, Track quietly, Always used (recurring charges like
+  digital entertainment: counted as used every period, shown last with dashed checks, tapping
+  explains instead of unticking; a partial amount recorded for a period still takes precedence)
+  or Not using (like Oura: hidden from Credits, the card drawer, To do, notifications and
+  exports, with history kept). Remind is kept while not tracked, so switching back restores it.
+  New `credits.mode` column (`20261002000001_credit_modes.sql`).
 
 - 2026-10-01: The annual fee review skips the year a card is upgraded or downgraded around its
   anniversary (during the review window or up to 60 days before it opens), since that's the

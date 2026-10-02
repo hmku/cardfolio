@@ -461,7 +461,7 @@ export function planToPortfolioData(plan: ImportPlan): import("./model.ts").Port
     products: plan.products.map((product, index) => ({ id: index + 1, ...product })),
     accounts,
     holdings,
-    credits: plan.credits.map((credit, index) => ({ id: index + 1, productId: productIds.get(credit.productSlug)!, name: credit.name, amountCents: credit.amountCents, cadence: credit.cadence, remind: credit.remind, startsOn: null, endsOn: null, sort: credit.sort })),
+    credits: plan.credits.map((credit, index) => ({ id: index + 1, productId: productIds.get(credit.productSlug)!, name: credit.name, amountCents: credit.amountCents, cadence: credit.cadence, remind: credit.remind, mode: "track", startsOn: null, endsOn: null, sort: credit.sort })),
     uses: plan.credits.flatMap((credit, index) => credit.used.map((use) => ({ id: ++useId, creditId: index + 1, holdingId: holdingIds.get(`${use.accountKey}:${use.holdingIndex}`)!, periodKey: use.periodKey, amountCents: credit.amountCents, usedOn: null, recordedBy: "sheet import", source: "import" as const }))),
     optOuts: plan.credits.flatMap((credit, index) => credit.optOuts.map((optOut) => ({ creditId: index + 1, holdingId: holdingIds.get(`${optOut.accountKey}:${optOut.holdingIndex}`)! }))),
     rules: [],

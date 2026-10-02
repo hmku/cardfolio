@@ -38,9 +38,9 @@ export function CreditCell({ credit, state, due, label, onToggle, onMenu }: Cell
     content = "–";
     description = "not enrolled";
   } else if (state.kind === "used") {
-    className += " used";
+    className += state.auto ? " used auto" : " used";
     content = <CheckIcon />;
-    description = "used";
+    description = state.auto ? "always used (counted automatically)" : "used";
   } else if (state.kind === "partial") {
     className += " partial";
     content = <span className="num">{money(state.usedCents)}</span>;

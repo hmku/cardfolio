@@ -8,6 +8,7 @@ import {
   type Bonus,
   type Cadence,
   type Credit,
+  type CreditMode,
   type Holding,
   type HoldingChange,
   type Kind,
@@ -88,7 +89,7 @@ export async function loadPortfolio(db: SupabaseClient, householdId: string): Pr
       amountCents: num(row.amount_cents),
       cadence: row.cadence as Cadence,
       remind: Boolean(row.remind),
-      hidden: Boolean(row.hidden),
+      mode: (["track", "auto", "skip"].includes(String(row.mode)) ? row.mode : "track") as CreditMode,
       startsOn: text(row.starts_on),
       endsOn: text(row.ends_on),
       sort: num(row.sort),
@@ -151,7 +152,7 @@ export async function setOptOut(context: Context, creditId: number, holdingId: n
   }
 }
 
-export type CreditDraft = Pick<Credit, "productId" | "name" | "amountCents" | "cadence" | "remind" | "hidden">;
+export type CreditDraft = Pick<Credit, "productId" | "name" | "amountCents" | "cadence" | "remind" | "mode">;
 
 export async function saveCredit(context: Context, id: number | null, draft: Partial<CreditDraft>) {
   const { db, householdId } = context;
@@ -160,9 +161,8 @@ export async function saveCredit(context: Context, id: number | null, draft: Par
     ...(draft.name !== undefined && { name: draft.name.trim() }),
     ...(draft.amountCents !== undefined && { amount_cents: Math.round(draft.amountCents) }),
     ...(draft.cadence !== undefined && { cadence: draft.cadence }),
-    ...(draft.hidden !== undefined && { hidden: draft.hidden }),
-    // Hide and disable reminders in the same write. Unhiding leaves reminders off.
-    ...(draft.hidden === true ? { remind: false } : draft.remind !== undefined ? { remind: draft.remind } : {}),
+    ...(draft.remind !== undefined && { remind: draft.remind }),
+    ...(draft.mode !== undefined && { mode: draft.mode }),
   };
   if (id === null) check(await db.from("credits").insert({ household_id: householdId, ...values }), "add the credit");
   else check(await db.from("credits").update(values).eq("household_id", householdId).eq("id", id), "save the credit");

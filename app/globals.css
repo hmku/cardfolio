@@ -138,6 +138,9 @@ tfoot td.credit.due-col { background: var(--due-bg); color: var(--due); font-wei
 .cell.used { background: var(--used-bg); border-color: var(--used); color: var(--used); }
 .cell.partial { background: var(--partial-bg); border-color: var(--partial); color: var(--partial); width: 46px; font-size: 11px; }
 .cell.off { border-style: dashed; color: var(--faint); background: transparent; }
+/* Always used: a faint, dashed check so it reads as automatic, not ticked by hand. */
+.cell.used.auto { background: transparent; border-style: dashed; opacity: .7; }
+th.credit.auto-col .cmeta:last-child { font-style: italic; }
 .cell.due { border-color: var(--due); box-shadow: 0 0 0 2px var(--due-bg); }
 .cell svg { width: 16px; height: 16px; }
 .legend { display: flex; gap: 14px; flex-wrap: wrap; color: var(--muted); font-size: 12px; align-items: center; padding: 0 2px; }
@@ -210,10 +213,8 @@ button:disabled { opacity: .55; cursor: default; }
 .product-body { display: grid; gap: 14px; padding: 4px 12px 14px; border-top: 1px solid var(--line-soft); padding-top: 12px; }
 .credit-list { display: grid; gap: 6px; }
 .credit-list h4 { margin: 0; font-size: 12px; font-weight: 600; color: var(--muted); }
-.credit-edit { display: grid; grid-template-columns: 96px minmax(0, 1fr) auto 62px; gap: 6px; align-items: center; }
+.credit-edit { display: grid; grid-template-columns: 96px minmax(0, 1fr) minmax(0, 1.25fr) 62px; gap: 6px; align-items: center; }
 .credit-edit .credit-name { grid-column: 1 / -1; }
-.credit-edit .credit-visibility { grid-column: 1 / -1; }
-.credit-edit input:disabled { opacity: .5; cursor: not-allowed; }
 .credit-edit input, .credit-edit select { border: 1px solid var(--line); border-radius: 7px; padding: 5px 7px; background: var(--surface); color: var(--ink); min-width: 0; width: 100%; }
 .credit-edit label.check { font-size: 13px; gap: 5px; }
 .credit-edit .btn { width: 100%; }

@@ -4,6 +4,7 @@ export type Kind = "personal" | "business" | "other";
 export type OpenedVia = "applied" | "referral" | "nll_offer" | "product_change" | "other";
 export type AccountStatus = "pending" | "open" | "closed" | "declined";
 export type HoldingChange = "opened" | "upgrade" | "downgrade";
+export type CreditMode = "track" | "auto" | "skip";
 export type Cadence = "monthly" | "quarterly" | "semiannual" | "calendar_year" | "card_year";
 export type BonusUnit = "points" | "cash" | "nights";
 export type UseSource = "manual" | "import" | "plaid";
@@ -62,8 +63,12 @@ export type Credit = {
   amountCents: number;
   cadence: Cadence;
   remind: boolean;
-  /** Hide from Credits and disable reminders, retaining settings and uses. */
-  hidden?: boolean;
+  /**
+   * How the credit is tracked. `track`: tick it each period (`remind` decides To do and
+   * notifications). `auto`: always used, like a recurring charge; every period counts as used
+   * without ticking. `skip`: not using it; hidden everywhere but Settings, history kept.
+   */
+  mode: CreditMode;
   startsOn: string | null;
   endsOn: string | null;
   sort: number;

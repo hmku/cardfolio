@@ -68,13 +68,15 @@ export function eligibleHoldings(portfolio: Portfolio, credit: Credit, today: Da
 
 export type CreditState =
   | { kind: "off" }
-  | { kind: "open" | "partial" | "used"; period: Period; usedCents: number; uses: CreditUse[]; daysLeft: number };
+  | { kind: "open" | "partial" | "used"; period: Period; usedCents: number; uses: CreditUse[]; daysLeft: number; auto?: boolean };
 
 export function creditState(portfolio: Portfolio, credit: Credit, holding: Holding, today: Date): CreditState {
-  if (portfolio.optedOut(credit.id, holding.id)) return { kind: "off" };
+  if (credit.mode === "skip" || portfolio.optedOut(credit.id, holding.id)) return { kind: "off" };
   const period = periodFor(portfolio, credit, holding, today);
   const uses = portfolio.usesFor(credit.id, holding.id, period.key);
   const usedCents = uses.reduce((total, use) => total + use.amountCents, 0);
+  // An always-used credit counts as used unless something was recorded for this period.
+  if (credit.mode === "auto" && !uses.length) return { kind: "used", period, usedCents: credit.amountCents, uses, daysLeft: daysBetween(today, period.end), auto: true };
   const kind = usedCents <= 0 ? "open" : usedCents >= credit.amountCents ? "used" : "partial";
   return { kind, period, usedCents, uses, daysLeft: daysBetween(today, period.end) };
 }
@@ -83,7 +85,7 @@ export const DUE_WINDOW_DAYS = 31;
 
 /** Whether an unused credit on this card needs attention soon. */
 export function creditIsDue(credit: Credit, state: CreditState) {
-  return !credit.hidden && credit.remind && state.kind !== "off" && state.kind !== "used" && state.daysLeft <= DUE_WINDOW_DAYS;
+  return credit.mode === "track" && credit.remind && state.kind !== "off" && state.kind !== "used" && state.daysLeft <= DUE_WINDOW_DAYS;
 }
 
 export function creditSummary(portfolio: Portfolio, credit: Credit, holdings: Holding[], today: Date) {

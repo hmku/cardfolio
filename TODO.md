@@ -9,8 +9,8 @@ done and move them to **Done** with the date.
       On iPhone, add the site to the home screen first and turn it on from there. Sophia too.
 - [ ] **Card last digits from 1Password**: `brew install 1password-cli jq`, enable
       1Password → Settings → Developer → "Integrate with 1Password CLI", run
-      `bash scripts/1password-last-digits.sh > card-last-digits.csv`, and paste the output to
-      Claude to match against accounts.
+      `bash scripts/1password-last-digits.sh`, and paste the output (just `title,last_digits`
+      lines like `"Biz Green (HK2)","12345"`) to Claude, who enters them on each card in the app.
 - [ ] **Check the imported data** in the app:
   - CSR #5 upgrade date is recorded as 2025-06-01 (the day is a guess).
   - Two accounts were assumed still open because the sheet had no row after a downgrade:
@@ -55,7 +55,22 @@ done and move them to **Done** with the date.
 - [ ] Try the README's "Set up your own copy" guide from a fresh fork with a new Supabase
       project and Vercel site, and fix anything that trips.
 
-- [ ] Plaid: connect card accounts, detect statement credits, track bonus spend and fee
+- [ ] Plaid (next big stage, after the last digits are in): Harrison and Sophia would both
+      connect their own bank logins. Research from 2026-10-07 (plaid.com was unreachable from
+      the agent's container, so check these on the Plaid Dashboard):
+  - Sign up as a new team for the free **Trial plan** (teams created after 2026-04-15; no
+    company or security questionnaire needed). Real data, includes Transactions and
+    Liabilities, but a lifetime cap of **10 Items** (one per bank login), and removing or
+    re-linking an Item doesn't free a slot. Link the most valuable logins first.
+  - Paid pay-as-you-go is billed per Item per month per product. Prices aren't public;
+    reported ~$0.30 per Item per month for Transactions (Liabilities unknown), so roughly
+    $5–8/month for 8–12 logins.
+  - Chase consent expires (6 or 12 months), and the login must then be re-linked.
+  - Plaid's account `mask` is up to 4 characters, so Amex's 5 digits won't match exactly;
+    match on the last 4.
+  - Cheap fallback: SimpleFIN Bridge ($15/year, up to 25 banks, daily transactions and
+    balances, but no due dates or statement balances).
+- [ ] Plaid details: connect card accounts, detect statement credits, track bonus spend and fee
       postings (`credit_uses.source = 'plaid'` is already in the schema). Needs a Plaid
       production account. Plaid can't report autopay settings directly, but payments on the
       due-date schedule (often labeled "AUTOPAY") show it; flag cards with a balance due and
@@ -73,6 +88,9 @@ done and move them to **Done** with the date.
 
 ## Done
 
+- 2026-10-07: The 1Password last-digits script prints only each card's title and last
+  digits (dropped vault, cardholder name, card type and expiry), so its output is safe to paste
+  to Claude.
 - 2026-10-02: Credit tracking modes (from jjhuang22's "Hide from Credits" PR #2, extended).
   Each credit in Settings is Track + remind, Track quietly, Always used (recurring charges like
   digital entertainment: counted as used every period, shown last with dashed checks, tapping

@@ -205,8 +205,9 @@ include `{{ .Token }}`, for example:
 
 ## Card last digits from 1Password (optional)
 
-`scripts/1password-last-digits.sh` uses the 1Password CLI to print each saved card's title,
-cardholder and last 4 digits (5 for Amex) as CSV. It never prints full numbers or CVVs.
+`scripts/1password-last-digits.sh` uses the 1Password CLI to print each saved card's title
+and last 4 digits (5 for Amex) as CSV. The trimming happens locally; it never prints full
+numbers, CVVs, expiry dates or cardholder names.
 
 ## Google Sheet copy (optional)
 

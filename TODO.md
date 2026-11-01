@@ -7,10 +7,22 @@ done and move them to **Done** with the date.
 
 - [ ] **Turn on reminders** on each device (Settings → Reminders → Turn on, then Send a test).
       On iPhone, add the site to the home screen first and turn it on from there. Sophia too.
-- [ ] **Card last digits from 1Password**: `brew install 1password-cli jq`, enable
-      1Password → Settings → Developer → "Integrate with 1Password CLI", run
-      `bash scripts/1password-last-digits.sh`, and paste the output (just `title,last_digits`
-      lines like `"Biz Green (HK2)","12345"`) to Claude, who enters them on each card in the app.
+- [ ] **Fill in the last digits 1Password didn't cover** (card drawer → Last digits):
+  - No 1Password entry: al biz HK3, biz gold SL1, biz green HK3 and HK4, biz plat SL3 and
+    SL4, cfu HK1–3, csr HK5, citi custom cash HK1, hh base HK1, redcard SL4, united explorer
+    HK1–2, united gateway HK2. Amex and Chase sometimes keep the number on a product change,
+    so these may share digits with the card before or after.
+  - Check: 1Password "United Gateway (HK1)" wasn't entered, since the account went
+    Explorer → Gateway → Explorer → Gateway; put it on whichever product had that number.
+  - Check: csr HK3 got the 1Password "CSR (HK3)" digits, though 1Password doesn't mark it closed; it may be the current
+    card (csr HK5).
+  - Check: biz green SL3 got "Biz Green (SL3) (downgraded)" and biz green SL4 got
+    1Password "Biz Green (SL3) (was biz plat SL4)"; rename that 1Password entry to SL4.
+  - Check: amex gold (SL1) got the digits from the untagged 1Password "Amex Gold".
+  - Not entered (no matching Cardfolio card): Amex Biz Gold Jacq, the Biz Green
+    employee/additional cards (G1-HK, G1-SL, G2-SL, G4-HK, P1-HK, P2-HK, P2-SL, P3-HK, P3-VC,
+    P4-VC, P6-HK), AA Aviator (SK1) and (SL1-HK), JetBlue Biz (SL1-HK), Amex Employee Cards,
+    Beniversal, Navia and Fidelity.
 - [ ] **Check the imported data** in the app:
   - CSR #5 upgrade date is recorded as 2025-06-01 (the day is a guess).
   - Two accounts were assumed still open because the sheet had no row after a downgrade:
@@ -88,6 +100,8 @@ done and move them to **Done** with the date.
 
 ## Done
 
+- 2026-11-01: Entered last digits from 1Password on 111 cards (direct title matches,
+  only where the card had none). Leftovers are under Needs Harrison.
 - 2026-10-07: The 1Password last-digits script prints only each card's title and last
   digits (dropped vault, cardholder name, card type and expiry), so its output is safe to paste
   to Claude.

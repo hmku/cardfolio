@@ -9,7 +9,7 @@ export async function GET(request: Request) {
     const context = await requireHousehold(request);
     const [items, accounts] = await Promise.all([
       context.db.from("plaid_items").select("id, institution_name, status, error_code, added_by_email, consent_expires_at, created_at").eq("household_id", context.householdId).order("created_at"),
-      context.db.from("plaid_accounts").select("id, item_id, name, official_name, mask, subtype, account_id, link_source").eq("household_id", context.householdId).order("name"),
+      context.db.from("plaid_accounts").select("id, item_id, name, official_name, mask, type, subtype, account_id, link_source").eq("household_id", context.householdId).order("name"),
     ]);
     if (items.error) throw items.error;
     if (accounts.error) throw accounts.error;
@@ -28,6 +28,8 @@ export async function GET(request: Request) {
           id: account.id,
           name: account.official_name || account.name,
           mask: account.mask,
+          type: account.type,
+          subtype: account.subtype,
           accountId: account.account_id,
           linkSource: account.link_source,
         })),

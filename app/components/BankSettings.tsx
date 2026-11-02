@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { holdingName, type Portfolio } from "../lib/core/model";
 
-type BankAccount = { id: number; name: string; mask: string | null; accountId: number | null; linkSource: "auto" | "manual" | null };
+type BankAccount = { id: number; name: string; mask: string | null; type: string | null; subtype: string | null; accountId: number | null; linkSource: "auto" | "manual" | null };
 type BankItem = { id: number; institutionName: string; status: "ok" | "reconnect"; errorCode: string | null; addedByEmail: string | null; consentExpiresAt: string | null; accounts: BankAccount[] };
 type Connections = { configured: boolean; sandbox: boolean; items: BankItem[] };
 
@@ -28,10 +28,15 @@ function loadPlaid(): Promise<PlaidGlobal> {
   });
 }
 
+function accountKind(account: Pick<BankAccount, "type" | "subtype">) {
+  const text = account.subtype || account.type || "account";
+  return text === "ira" || text === "hsa" ? text.toUpperCase() : text === "401k" ? "401(k)" : text[0].toUpperCase() + text.slice(1);
+}
+
 /** Settings → Bank connections: connect bank logins through Plaid and link their cards. */
 export function BankSettings({ portfolio, accessToken, notify }: { portfolio: Portfolio; accessToken: string; notify: (text: string, error?: boolean) => void }) {
   const [data, setData] = useState<Connections | null>(null);
-  const [busy, setBusy] = useState<number | "new" | null>(null);
+  const [busy, setBusy] = useState<number | "bank" | "investments" | null>(null);
   const [confirm, setConfirm] = useState<number | null>(null);
 
   const call = useCallback(async (path: string, method: string, body?: unknown) => {
@@ -53,11 +58,11 @@ export function BankSettings({ portfolio, accessToken, notify }: { portfolio: Po
     return () => clearTimeout(timer);
   }, [confirm]);
 
-  /** Opens Plaid Link: a new connection, or update mode for an existing item. */
-  async function openLink(item?: BankItem) {
-    setBusy(item?.id ?? "new");
+  /** Opens Plaid Link: a new bank or brokerage login, or update mode for an existing item. */
+  async function openLink(item?: BankItem, kind: "bank" | "investments" = "bank") {
+    setBusy(item?.id ?? kind);
     try {
-      const [plaid, { linkToken }] = await Promise.all([loadPlaid(), call("/api/plaid/link-token", "POST", item ? { itemId: item.id } : {})]);
+      const [plaid, { linkToken }] = await Promise.all([loadPlaid(), call("/api/plaid/link-token", "POST", item ? { itemId: item.id } : { kind })]);
       const handler = plaid.create({
         token: linkToken,
         onSuccess: (publicToken, metadata) => {
@@ -68,7 +73,7 @@ export function BankSettings({ portfolio, accessToken, notify }: { portfolio: Po
           finish
             .then((result: { found: number; linked: number }) => {
               const unmatched = result.found - result.linked;
-              notify(`${item ? "Reconnected" : "Connected"}: ${result.found} card${result.found === 1 ? "" : "s"} found${result.linked ? `, ${result.linked} matched by last digits` : ""}${unmatched > 0 && !item ? `. Pick the card for ${unmatched === 1 ? "the other one" : `the other ${unmatched}`} below.` : ""}`);
+              notify(`${item ? "Reconnected" : "Connected"}: ${result.found} account${result.found === 1 ? "" : "s"} found${result.linked ? `, ${result.linked} matched by last digits` : ""}${unmatched > 0 && !item ? `. Pick the card for ${unmatched === 1 ? "the other one" : `the other ${unmatched}`} below.` : ""}`);
               return reload();
             })
             .catch((reason) => notify(reason instanceof Error ? reason.message : "Couldn't connect that bank", true))
@@ -130,7 +135,7 @@ export function BankSettings({ portfolio, accessToken, notify }: { portfolio: Po
     <section className="fieldset settings-section">
       <h3>Bank connections</h3>
       <p className="hint">
-        Connect each bank login through Plaid, then check which card each account belongs to. Cards are matched by their last digits.
+        Connect each login through Plaid: banks and card issuers with &ldquo;Connect a bank or card&rdquo;, brokerages and retirement accounts with &ldquo;Connect investments&rdquo;. Cards are matched to Cardfolio by their last digits; check each one.
         {data?.sandbox && <> <strong>Test mode:</strong> Plaid&apos;s fake banks only (user_good / pass_good).</>}
         {data && !data.sandbox && <> Each new connection uses one of Plaid&apos;s 10 free slots, even after it&apos;s disconnected, so use Reconnect for a login that stops working.</>}
       </p>
@@ -151,6 +156,14 @@ export function BankSettings({ portfolio, accessToken, notify }: { portfolio: Po
           </div>
           {item.accounts.map((account) => {
             const taken = linkedElsewhere(account);
+            if (account.type !== "credit") {
+              return (
+                <div key={account.id} className="settings-row">
+                  <span className="grow">{account.name}{account.mask && <span className="last4 num"> ··{account.mask}</span>}</span>
+                  <span className="tag">{accountKind(account)}</span>
+                </div>
+              );
+            }
             return (
               <div key={account.id} className="settings-row">
                 <span className="grow">{account.name}{account.mask && <span className="last4 num"> ··{account.mask}</span>}{!account.accountId && <small>Not linked to a card</small>}</span>
@@ -161,12 +174,13 @@ export function BankSettings({ portfolio, accessToken, notify }: { portfolio: Po
               </div>
             );
           })}
-          {item.accounts.length === 0 && <div className="settings-row"><span className="grow"><small>No credit cards found in this login.</small></span></div>}
+          {item.accounts.length === 0 && <div className="settings-row"><span className="grow"><small>No accounts found in this login.</small></span></div>}
         </div>
       ))}
       {data?.configured && (
         <div className="inline-actions">
-          <button type="button" className="btn small primary" disabled={busy !== null} onClick={() => void openLink()}>{busy === "new" ? "Connecting…" : "Connect a bank"}</button>
+          <button type="button" className="btn small primary" disabled={busy !== null} onClick={() => void openLink(undefined, "bank")}>{busy === "bank" ? "Connecting…" : "Connect a bank or card"}</button>
+          <button type="button" className="btn small" disabled={busy !== null} onClick={() => void openLink(undefined, "investments")}>{busy === "investments" ? "Connecting…" : "Connect investments"}</button>
         </div>
       )}
     </section>

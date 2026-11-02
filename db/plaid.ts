@@ -76,18 +76,22 @@ export function decryptToken(stored: string) {
 
 export type PlaidAccount = { account_id: string; name: string; official_name: string | null; mask: string | null; type: string; subtype: string | null };
 
-/** A Link token for connecting a new bank login, or for re-entering one (update mode). */
-export async function createLinkToken(userId: string, accessToken?: string) {
+export type LinkKind = "bank" | "investments";
+
+/**
+ * A Link token for connecting a new login, or for re-entering one (update mode, accessToken).
+ * Products can't be added to a login later without reconnecting it, so each kind asks for
+ * everything it may need: banks and cards get transactions plus card due dates and
+ * balances (liabilities) where supported; brokerages get holdings (investments) plus cash
+ * transactions where supported. Transactions go back the full two years Plaid allows.
+ */
+export async function createLinkToken(userId: string, options: { accessToken?: string; kind?: LinkKind } = {}) {
   const base = { client_name: "Cardfolio", language: "en", country_codes: ["US"], user: { client_user_id: userId } };
-  const body = accessToken
-    ? { ...base, access_token: accessToken }
-    : {
-        ...base,
-        products: ["transactions"],
-        required_if_supported_products: ["liabilities"],
-        transactions: { days_requested: 730 },
-        account_filters: { credit: { account_subtypes: ["credit card"] } },
-      };
+  const body = options.accessToken
+    ? { ...base, access_token: options.accessToken }
+    : options.kind === "investments"
+      ? { ...base, products: ["investments"], optional_products: ["transactions"], transactions: { days_requested: 730 } }
+      : { ...base, products: ["transactions"], required_if_supported_products: ["liabilities"], transactions: { days_requested: 730 } };
   const { link_token } = await plaid<{ link_token: string }>("/link/token/create", body);
   return link_token;
 }
@@ -99,14 +103,14 @@ export async function exchangePublicToken(publicToken: string) {
 
 export async function getAccounts(accessToken: string) {
   const payload = await plaid<{ accounts: PlaidAccount[]; item: { institution_id?: string | null; consent_expiration_time?: string | null } }>("/accounts/get", { access_token: accessToken });
-  return { accounts: payload.accounts.filter((account) => account.type === "credit"), item: payload.item };
+  return { accounts: payload.accounts, item: payload.item };
 }
 
 export async function removeItem(accessToken: string) {
   await plaid("/item/remove", { access_token: accessToken });
 }
 
-/** Saves Plaid's accounts for an item and links new ones to cards by last digits. */
+/** Saves Plaid's accounts for an item and links new credit cards to Cardfolio cards by last digits. */
 export async function syncItemAccounts(context: HouseholdContext, itemId: number, accounts: PlaidAccount[]) {
   const { db, householdId } = context;
   const { data: existing, error: existingError } = await db.from("plaid_accounts").select("id, plaid_account_id").eq("item_id", itemId);
@@ -122,7 +126,7 @@ export async function syncItemAccounts(context: HouseholdContext, itemId: number
 
   // Accounts a person already linked or unlinked by hand (link_source set) are left alone.
   const [unlinked, open, current, linked] = await Promise.all([
-    db.from("plaid_accounts").select("id, mask").eq("item_id", itemId).is("account_id", null).is("link_source", null),
+    db.from("plaid_accounts").select("id, mask").eq("item_id", itemId).eq("type", "credit").is("account_id", null).is("link_source", null),
     db.from("accounts").select("id").eq("household_id", householdId).eq("status", "open"),
     db.from("account_products").select("account_id, last4").eq("household_id", householdId).is("ended_on", null),
     db.from("plaid_accounts").select("account_id").eq("household_id", householdId).not("account_id", "is", null),

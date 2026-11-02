@@ -4,6 +4,7 @@ import test from "node:test";
 import { creditPeriod, creditState, creditSummary, eligibleHoldings } from "../app/lib/core/credits.ts";
 import { addMonths, isoDate, parseDate } from "../app/lib/core/dates.ts";
 import { bonusLabel, holdingName, indexPortfolio, nextHoldingNumber, type Portfolio } from "../app/lib/core/model.ts";
+import { matchPlaidAccounts } from "../app/lib/core/plaid.ts";
 import { accountAction } from "../app/lib/core/rules.ts";
 import { parseOffer, planSheetImport, planToPortfolioData } from "../app/lib/core/sheet-import.ts";
 import { bonusStatus, dueItems, feeStatus, fiveTwentyFour, personStats } from "../app/lib/core/stats.ts";
@@ -164,4 +165,25 @@ test("daily reminders ping on set days and summarize on Mondays", async () => {
   assert.ok(on("2026-09-30")!.body.split("\n").length <= 5, "notification body stays short");
 
   assert.equal(isoDate(todayInTimeZone("America/New_York", new Date("2026-09-30T03:30:00Z"))), "2026-09-29");
+});
+
+test("Plaid accounts link to cards by last digits only when the match is unique", () => {
+  const cards = [
+    { accountId: 1, last4: "91006" },
+    { accountId: 2, last4: "61006" },
+    { accountId: 3, last4: "7145" },
+    { accountId: 4, last4: "21009" },
+    { accountId: 5, last4: null },
+  ];
+  const matches = matchPlaidAccounts([
+    { id: 10, mask: "1006" }, // two Amex cards end in 1006: left for a person
+    { id: 11, mask: "7145" },
+    { id: 12, mask: "1009" },
+    { id: 13, mask: "99" }, // too short to trust
+    { id: 14, mask: null },
+  ], cards);
+  assert.deepEqual([...matches], [[11, 3], [12, 4]]);
+  // Already-linked cards aren't offered again, and two Plaid accounts can't claim one card.
+  assert.deepEqual([...matchPlaidAccounts([{ id: 11, mask: "7145" }], cards, [3])], []);
+  assert.deepEqual([...matchPlaidAccounts([{ id: 20, mask: "7145" }, { id: 21, mask: "7145" }], cards)], []);
 });

@@ -6,6 +6,7 @@ import { exportTables, toCsv } from "../lib/core/export";
 import { personCode, shortName, type Cadence, type Credit, type Kind, type Person, type Portfolio, type Product } from "../lib/core/model";
 import { describeRule, DEFAULT_ACTION_RULES } from "../lib/core/rules";
 import type { CreditDraft, ProductDraft } from "../lib/data";
+import { BankSettings } from "./BankSettings";
 import { ReminderSettings } from "./ReminderSettings";
 import { Drawer } from "./ui";
 import { toCents, toDollarsInput } from "../lib/presentation/format";
@@ -288,6 +289,8 @@ export function SettingsDrawer(props: Props) {
       </Section>
 
       <ReminderSettings accessToken={props.accessToken} notify={props.notify} />
+
+      <BankSettings portfolio={portfolio} accessToken={props.accessToken} notify={props.notify} />
 
       <Section id="settings-people" title="Cardholders" hint={<>Initials label each card, like your 1Password entries: biz plat HK7 is that person&apos;s 7th biz plat.</>}>
         <div className="settings-list">

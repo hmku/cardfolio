@@ -35,6 +35,7 @@ everyone signed in.
 | `credit_uses` | A credit used on a specific card in a specific period. Partial amounts add up. `source` is `manual`, `import` or (later) `plaid`. |
 | `credit_opt_outs` | Credits not tracked on a specific card ("not enrolled"). |
 | `action_rules` | Review rules (annual fee window, NLL, Ink Cash, RedCard). |
+| `plaid_items`, `plaid_accounts` | Bank logins connected through Plaid (access token encrypted) and the cards found in each, linked to `accounts`. Server-only: browsers can't read them. |
 
 Rules that follow from this:
 
@@ -208,6 +209,23 @@ include `{{ .Token }}`, for example:
 `scripts/1password-last-digits.sh` uses the 1Password CLI to print each saved card's title
 and last 4 digits (5 for Amex) as CSV. The trimming happens locally; it never prints full
 numbers, CVVs, expiry dates or cardholder names.
+
+## Bank connections through Plaid (optional)
+
+Settings → Bank connections connects bank logins with Plaid Link and links each card Plaid
+finds to a Cardfolio card (automatically when exactly one open card ends in Plaid's last
+digits). For now it only lists the cards; transactions and due dates come later.
+
+1. Sign up at [dashboard.plaid.com](https://dashboard.plaid.com). A new team gets the free
+   Trial plan (real banks, 10 connections for good).
+2. From Developers → Keys, set these in Vercel:
+   - `PLAID_CLIENT_ID`
+   - `PLAID_SANDBOX_SECRET`: the Sandbox secret (Plaid's fake banks)
+   - `PLAID_SECRET`: the Production secret (real banks)
+   - `PLAID_ENV`: `sandbox` or `production`, which of the two to use
+   - `PLAID_TOKEN_KEY`: `openssl rand -base64 32`. Encrypts Plaid access tokens in the
+     database; changing it means reconnecting every bank.
+3. Redeploy. In Sandbox, connect "First Platypus Bank" with `user_good` / `pass_good`.
 
 ## Google Sheet copy (optional)
 

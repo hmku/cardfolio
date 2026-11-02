@@ -181,6 +181,8 @@ label.check { display: flex; gap: 8px; align-items: center; font-size: 14px; }
 .settings-row { display: flex; gap: 10px; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--line-soft); flex-wrap: wrap; }
 .settings-row .grow { flex: 1; min-width: 140px; }
 .settings-row small { display: block; color: var(--muted); }
+.bank-item { margin-bottom: 14px; }
+.bank-item select { max-width: 100%; min-width: 0; }
 
 /* Toast */
 .toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(18px + env(safe-area-inset-bottom, 0px)); z-index: 50; background: var(--primary); color: var(--primary-ink); padding: 10px 14px; border-radius: 9px; display: flex; gap: 14px; align-items: center; box-shadow: var(--shadow); max-width: calc(100% - 32px); }

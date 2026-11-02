@@ -80,8 +80,18 @@ done and move them to **Done** with the date.
 - [ ] Try the README's "Set up your own copy" guide from a fresh fork with a new Supabase
       project and Vercel site, and fix anything that trips.
 
-- [ ] Plaid (next big stage, after the last digits are in): Harrison and Sophia would both
-      connect their own bank logins. Research from 2026-10-07 (plaid.com was unreachable from
+- [ ] Plaid Phase 1 (connect banks, link cards) is built and in Sandbox (`PLAID_ENV=sandbox`).
+  - [ ] Claude: test it in Sandbox on production (First Platypus Bank, user_good / pass_good),
+        then disconnect the test bank.
+  - [ ] Harrison: when it works, set `PLAID_ENV=production` in Vercel, redeploy, and connect
+        the most valuable logins first (10 free Trial connections for good). Sophia connects
+        her own. Check each card's match in Settings → Bank connections.
+  - [ ] Check OAuth banks (Chase, Capital One, Citi…) on the iPhone home-screen app: Link may
+        need a `redirect_uri` registered in the Plaid dashboard for that.
+- [ ] Plaid Phase 2: `/transactions/sync` (cursor already in `plaid_items`), webhooks, card due
+      dates and statement balances from Liabilities. Phase 3: suggest credit uses, bonus spend
+      progress, annual fee postings.
+- [ ] Plaid background (Harrison and Sophia each connect their own bank logins). Research from 2026-10-07 (plaid.com was unreachable from
       the agent's container, so check these on the Plaid Dashboard):
   - Sign up as a new team for the free **Trial plan** (teams created after 2026-04-15; no
     company or security questionnaire needed). Real data, includes Transactions and

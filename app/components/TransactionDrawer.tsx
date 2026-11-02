@@ -8,7 +8,7 @@ import {
 } from "../lib/finance-data";
 import { transactionAmount } from "../lib/presentation/finance-format";
 import { fullDate } from "../lib/presentation/format";
-import { bankAccountFullLabel } from "../lib/presentation/transaction-view";
+import { bankAccountLabel } from "../lib/presentation/account-labels";
 import { CategoryPicker, categoryLabel } from "./CategoryPicker";
 import { Drawer, Tag } from "./ui";
 
@@ -85,7 +85,7 @@ export function TransactionDrawer({ context, portfolio, transaction, categories,
         <span className={`num txn-big${transaction.amountCents > 0 ? " in" : ""}`}>{transactionAmount(transaction.amountCents)}</span>
         <span className="txn-facts">
           {fullDate(transaction.date)}{transaction.authorizedDate && transaction.authorizedDate !== transaction.date ? ` (authorized ${fullDate(transaction.authorizedDate)})` : ""}
-          <br />{bankAccountFullLabel(account, portfolio)}
+          <br />{bankAccountLabel(account, portfolio, { full: true })}
         </span>
         <span className="inline-actions">
           {transaction.pending && <Tag tone="due">Pending</Tag>}

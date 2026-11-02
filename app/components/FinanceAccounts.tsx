@@ -2,20 +2,10 @@
 
 import type { Range } from "../lib/core/investments";
 import { RANGES } from "../lib/core/investments";
-import { holdingName, type Person, type Portfolio } from "../lib/core/model";
+import type { Person, Portfolio } from "../lib/core/model";
 import type { BankAccount } from "../lib/finance-data";
-import { accountLabel } from "../lib/presentation/finance-format";
 
-/** Shared pieces of the Accounts and Investments pages: account names, owners and the filter row. */
-
-/** "biz plat HK9" for a bank account linked to a Cardfolio card (full name with `full`), else "Checking ··1234". */
-export function bankAccountName(portfolio: Portfolio, account: BankAccount, full = false) {
-  if (account.cardAccountId !== null) {
-    const holding = portfolio.current(account.cardAccountId);
-    if (holding) return `${holdingName(portfolio, holding, full)}${account.mask ? ` ··${account.mask}` : ""}`;
-  }
-  return accountLabel(account);
-}
+/** Shared pieces of the Accounts and Investments pages: owners, account kinds and the filter row. */
 
 /** The account's owner: set on the bank account, else the linked card's cardholder. */
 export function bankAccountOwner(portfolio: Portfolio, account: BankAccount) {

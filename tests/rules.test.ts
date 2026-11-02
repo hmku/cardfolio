@@ -44,3 +44,14 @@ test("a downgrade to another fee card around the anniversary counts as this year
 test("a product change earlier in the year doesn't hide the review", () => {
   assert.equal(review(downgradedOn("2026-03-01"), new Date(2026, 9, 1, 12)), "Annual fee review");
 });
+
+test("the review window follows calendar anniversaries on older cards (leap days don't shift it)", () => {
+  const old: Account = { ...account, appliedOn: "2018-10-15", approvedOn: "2018-10-15" };
+  const value = indexPortfolio({ ...portfolio([]), accounts: [old], holdings: [{ ...plat, startedOn: "2018-10-15" }] });
+  const at = (month: number, day: number) => accountAction(value, old, new Date(2026, month - 1, day, 12))?.name ?? null;
+  assert.equal(at(10, 15), "Annual fee review", "on the anniversary");
+  assert.equal(at(9, 26), "Annual fee review", "19 days before");
+  assert.equal(at(9, 25), null, "20 days before");
+  assert.equal(at(12, 13), "Annual fee review", "59 days after");
+  assert.equal(at(12, 14), null, "60 days after");
+});

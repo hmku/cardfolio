@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { indexPortfolio, type Account, type Holding } from "../app/lib/core/model.ts";
+import { formatMoney, indexPortfolio, type Account, type Holding } from "../app/lib/core/model.ts";
 import { cardStatus } from "../app/lib/presentation/card-status.ts";
 
 const today = new Date(2026, 8, 29, 12);
@@ -77,4 +77,14 @@ test("fee cards kept past their first year get the light kept tone, below everyt
   assert.equal(cardStatus(fixture(young), young, holding, today).tone, null, "not before the first fee");
   const pending = { ...value, status: "pending" as const };
   assert.equal(cardStatus(fixture(pending), pending, holding, today).tone, "info");
+});
+
+test("formatMoney shows whole dollars or two decimals, with the sign before the $", () => {
+  assert.equal(formatMoney(69500), "$695");
+  assert.equal(formatMoney(1250), "$12.50");
+  assert.equal(formatMoney(123450), "$1,234.50");
+  assert.equal(formatMoney(150050), "$1,500.50");
+  assert.equal(formatMoney(-1234), "−$12.34");
+  assert.equal(formatMoney(-50000), "−$500");
+  assert.equal(formatMoney(0), "$0");
 });

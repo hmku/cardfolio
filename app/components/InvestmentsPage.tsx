@@ -10,9 +10,10 @@ import {
   loadBalanceSnapshots, loadBankAccounts, loadHoldings, loadInvestmentTransactions, loadManualAccounts, loadSecurities, MANUAL_ACCOUNT_KINDS,
   type InvestmentTransaction,
 } from "../lib/finance-data";
+import { bankAccountLabel } from "../lib/presentation/account-labels";
 import { moneyExact, moneyWhole, transactionAmount } from "../lib/presentation/finance-format";
 import { shortDate } from "../lib/presentation/format";
-import { bankAccountName, bankAccountOwner, OwnerButtons, RangeButtons, type OwnerFilter } from "./FinanceAccounts";
+import { bankAccountOwner, OwnerButtons, RangeButtons, type OwnerFilter } from "./FinanceAccounts";
 import { BarList, Change, LineChart, longDate, percent, signedMoney, signedPercent } from "./FinanceChart";
 import { FinanceEmpty, FinanceSection, useFinanceLoad, type FinancePageProps } from "./FinanceShared";
 
@@ -51,7 +52,7 @@ export function InvestmentsPage({ context, portfolio, notify, onOpenSettings }: 
     const withHoldings = new Set(data.holdings.map((holding) => holding.plaidAccountId));
     return [
       ...data.bank.filter((account) => account.type === "investment" || withHoldings.has(account.id))
-        .map((account) => ({ key: `p${account.id}`, name: bankAccountName(portfolio, account), ownerId: bankAccountOwner(portfolio, account), plaidAccountId: account.id, manualAccountId: null })),
+        .map((account) => ({ key: `p${account.id}`, name: bankAccountLabel(account, portfolio), ownerId: bankAccountOwner(portfolio, account), plaidAccountId: account.id, manualAccountId: null })),
       ...data.manual.filter((account) => !account.archived && !account.liability && INVESTMENT_MANUAL_KINDS.has(account.kind))
         .map((account) => ({ key: `m${account.id}`, name: account.name, ownerId: account.personId, plaidAccountId: null, manualAccountId: account.id })),
     ];
@@ -70,7 +71,7 @@ export function InvestmentsPage({ context, portfolio, notify, onOpenSettings }: 
     const manual = data.manual.filter((account) => chosen.has(`m${account.id}`)).map((account) => ({ id: account.id, name: account.name, kind: account.kind, balanceCents: account.balanceCents }));
     // A connected investment account with a balance but no holdings counts as one position.
     const bare = data.bank.filter((account) => chosen.has(`p${account.id}`) && !withHoldings.has(account.id) && (account.currentCents ?? account.availableCents) !== null)
-      .map((account) => ({ plaidAccountId: account.id, name: bankAccountName(portfolio, account), balanceCents: (account.currentCents ?? account.availableCents)! }));
+      .map((account) => ({ plaidAccountId: account.id, name: bankAccountLabel(account, portfolio), balanceCents: (account.currentCents ?? account.availableCents)! }));
     const positions = aggregatePositions(holdings, manual, bare);
     const series = balanceSeries(data.snapshots, (snapshot) => chosen.has(snapshot.plaidAccountId !== null ? `p${snapshot.plaidAccountId}` : `m${snapshot.manualAccountId}`));
     const points = seriesFrom(series, rangeStart(today, range));

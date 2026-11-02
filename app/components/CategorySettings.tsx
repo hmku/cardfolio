@@ -7,7 +7,7 @@ import {
   applyRuleToExisting, deleteCategory, deleteCategoryRule, saveCategory, saveCategoryRule,
   type BankAccount, type Category, type CategoryRule, type FinanceContext,
 } from "../lib/finance-data";
-import { bankAccountShortLabel } from "../lib/presentation/transaction-view";
+import { bankAccountLabel } from "../lib/presentation/account-labels";
 import { CategoryPicker, categoryLabel, KIND_LABELS } from "./CategoryPicker";
 import { Drawer } from "./ui";
 
@@ -115,7 +115,7 @@ export function CategorySettings({ context, portfolio, categories, rules, accoun
   };
 
   const describe = (rule: CategoryRule) => {
-    const account = rule.plaidAccountId === null ? "" : ` on ${bankAccountShortLabel(accountById.get(rule.plaidAccountId), portfolio) || "one account"}`;
+    const account = rule.plaidAccountId === null ? "" : ` on ${bankAccountLabel(accountById.get(rule.plaidAccountId), portfolio) || "one account"}`;
     return `${FIELD_LABELS[rule.matchField]} contains “${rule.matchText}”${account}`;
   };
 
@@ -180,7 +180,7 @@ export function CategorySettings({ context, portfolio, categories, rules, accoun
             <label className="f full">On account
               <select value={ruleAccount ?? ""} onChange={(event) => setRuleAccount(event.target.value ? Number(event.target.value) : null)}>
                 <option value="">Any account</option>
-                {accounts.map((account) => <option key={account.id} value={account.id}>{bankAccountShortLabel(account, portfolio)}</option>)}
+                {accounts.map((account) => <option key={account.id} value={account.id}>{bankAccountLabel(account, portfolio)}</option>)}
               </select>
             </label>
             <div className="full"><CategoryPicker categories={categories} value={ruleCategory} onChange={setRuleCategory} label="Rule category" placeholder="Choose a category" /></div>

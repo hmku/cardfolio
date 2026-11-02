@@ -64,7 +64,13 @@ done and move them to **Done** with the date.
       transactional like the new `cardfolio_*` functions. New cards, product changes/undo and
       credit uses already are.
 - [ ] Prevent stale portfolio reloads from replacing newer data; clear pending realtime
-      reload and sheet-sync timers on cleanup.
+      reload and sheet-sync timers on cleanup (the realtime effect's cleanup in
+      `app/components/Portfolio.tsx` still doesn't clear `reloadTimer` on unmount).
+- [ ] Plaid syncs of one login can still overlap (the first sync after connecting vs. a
+      webhook, "Sync now" vs. the cron): give `syncItem` a per-item lease (a new
+      `plaid_items.sync_started_at` claimed with `update … where sync_started_at is null or
+      sync_started_at < now() - interval '5 minutes' returning id`, cleared in `finally`). The
+      legacy transactions webhooks that doubled every update are ignored since 2026-11-02.
 
 ## Agents
 
@@ -80,19 +86,14 @@ done and move them to **Done** with the date.
 - [ ] Try the README's "Set up your own copy" guide from a fresh fork with a new Supabase
       project and Vercel site, and fix anything that trips.
 
-- [ ] Plaid Phase 1 (connect banks, link cards) is built and in Sandbox (`PLAID_ENV=sandbox`).
-  - [ ] Harrison: when it works, set `PLAID_ENV=production` in Vercel, redeploy, and connect
-        the most valuable logins first (10 free Trial connections for good). Sophia connects
-        her own. Check each card's match in Settings → Bank connections.
+- [ ] Connect real logins (Production uses real banks since 2026-11-02).
+  - [ ] Harrison: connect the most valuable logins first (10 free Trial connections for good).
+        Sophia connects her own. Check each card's match in Settings → Bank connections.
   - [ ] Check OAuth banks (Chase, Capital One, Citi…) on the iPhone home-screen app: Link may
         need a `redirect_uri` registered in the Plaid dashboard for that.
 - [ ] **Finance backbone follow-ups** (built 2026-11-02 on branch `claude/gracious-mccarthy-z3tj8l`):
-  - [ ] Apply `supabase/migrations/20261102000002_finance.sql` to the Supabase project
-        **before** deploying this code: the existing connect flow now writes balance
-        columns that only exist after it.
-  - [ ] Set `PLAID_WEBHOOK_URL=https://cardfolio.harrisonku.com/api/plaid/webhook` in Vercel
-        (Production) and redeploy; existing logins switch to it on their next sync. Check in
-        Plaid's dashboard (Developers → Webhooks/Logs) that deliveries return 200.
+  - [ ] Check in Plaid's dashboard (Developers → Webhooks/Logs) that webhook deliveries to
+        `/api/plaid/webhook` return 200 once real logins are connected.
   - [ ] Check the second cron (`/api/cron/sync`, 10:00 UTC) shows in Vercel → Settings → Cron
         Jobs and that `maxDuration = 300` is allowed on the plan (Hobby with Fluid compute allows
         300s; otherwise lower it in `app/api/cron/sync/route.ts` and `app/api/plaid/sync/route.ts`).
@@ -110,12 +111,6 @@ done and move them to **Done** with the date.
         reads wrong (e.g. store an archived date).
   - [ ] Idea: backfill investment value history from investment transactions and prices
         (Plaid gives 24 months of transactions but no past balances).
-  - [ ] Try a Sandbox sync end to end ("Sync now" with First Platypus Bank; Sandbox
-        `user_transactions_dynamic` gives changing transactions) and look at the tabs.
-  - [x] Pages to build on `app/lib/finance-data.ts`: Transactions (search, filters,
-        categorize, bulk edit, rules incl. `applyRuleToExisting`), Cash flow (by month and
-        category), Settings for categories and rules, Investments and Accounts (all built
-        2026-11-02, see Done).
   - [ ] Disconnecting a login deletes its accounts, transactions, holdings and snapshots
         (cascade). Consider keeping history (soft-delete the item) before connecting real banks.
   - [ ] Guesses to check with real data: default category mapping (Plaid PFC v2 codes in
@@ -123,7 +118,7 @@ done and move them to **Done** with the date.
   - [ ] Supabase security advisor will flag the `plaid_item_status` view (it filters by
         `is_cardfolio_member` itself rather than using security_invoker); that's intended.
 - [ ] **Transactions and Cash flow follow-ups** (pages built 2026-11-02; Transactions and Cash
-      flow are done in the "Pages to build" item above):
+      flow are in Done):
   - [ ] Look at both tabs with real (or Sandbox) transactions, on a phone and on desktop, in
         light and dark mode. They were only built against tests and type checks: check the date
         groups, the row layout at phone width, the bulk bar, the month chart's tooltip and bars,
@@ -173,11 +168,6 @@ done and move them to **Done** with the date.
     match on the last 4.
   - Cheap fallback: SimpleFIN Bridge ($15/year, up to 25 banks, daily transactions and
     balances, but no due dates or statement balances).
-- [ ] Plaid details: connect card accounts, detect statement credits, track bonus spend and fee
-      postings (`credit_uses.source = 'plaid'` is already in the schema). Needs a Plaid
-      production account. Plaid can't report autopay settings directly, but payments on the
-      due-date schedule (often labeled "AUTOPAY") show it; flag cards with a balance due and
-      no payment by the due date. It has no opening dates or product-change history.
 - [ ] Credit history view: past periods per card (e.g. last year's Dell credit on every Biz Plat).
 - [ ] Native mobile app (Expo) reusing `app/lib/core`, only if the home-screen web app
       feels limiting.
@@ -201,6 +191,15 @@ done and move them to **Done** with the date.
 
 ## Done
 
+- 2026-11-02: Cleared finished Plaid items from the open list: the finance migration is
+  applied, `PLAID_WEBHOOK_URL` is set, the Sandbox sync was tried end to end, the finance
+  pages are built, and the old "Plaid details" idea shipped as the card features from Plaid.
+- 2026-11-02: Core fixes from review: money reads "$12.50" / "−$12.34" (not "$12.5" /
+  "$-12.34"); Plaid's legacy transactions webhooks are ignored (each update used to start two
+  syncs); an ITEM error that isn't a login problem (an outage) no longer clears "reconnect";
+  a card stops being "overdue" once the minimum is paid; a credit posted on a product-change
+  day matches the new product; the annual fee review window uses calendar anniversaries; one
+  bank account label everywhere (`app/lib/presentation/account-labels.ts`).
 - 2026-11-02: Card matching uses card type + cardholder + last digits. Connecting asks whose login
   it is (`plaid_items.person_id`, migration `20261102000004_plaid_item_person.sql`); only that
   person's open cards are candidates (inferred from the clear matches when not set), several
@@ -261,11 +260,11 @@ done and move them to **Done** with the date.
   `transactions` (cents, positive = money in), `categories` (default set seeded from Plaid's
   categories), `category_rules`, `securities`, `holdings`, `investment_transactions`,
   `manual_accounts` and daily `balance_snapshots`; checked on an empty Postgres (PGlite) with
-  RLS tests, not yet applied to Supabase. Sync (`db/plaid-sync.ts`) runs after connecting,
+  RLS tests (applied to Supabase 2026-11-02). Sync (`db/plaid-sync.ts`) runs after connecting,
   on "Sync now" in Settings → Bank connections, on verified Plaid webhooks and daily
   (`/api/cron/sync`). New tabs Transactions, Cash flow, Investments and Accounts with
-  placeholder lists; the to-do list and search stay on Cards and Credits. Not run against
-  Plaid yet.
+  placeholder lists; the to-do list and search stay on Cards and Credits. (Run against Plaid
+  Sandbox later the same day; see the Sandbox test entry above.)
 - 2026-11-02: Two connect buttons in Settings → Bank connections: "Connect a bank or card"
   (transactions plus card due dates/balances) and "Connect investments" (holdings plus cash
   transactions); every account in a login is kept, only cards are matched. Tested both in

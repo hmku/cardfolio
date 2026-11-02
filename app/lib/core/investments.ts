@@ -90,7 +90,7 @@ export function periodChange(series: SeriesPoint[], endCents = series.at(-1)?.va
   return { startDate: start.date, startCents: start.valueCents, endCents, changeCents, percent: start.valueCents === 0 ? null : changeCents / Math.abs(start.valueCents) };
 }
 
-/** Accounts' daily contributions summed per day, carrying each account forward (like netWorthSeries). */
+/** Accounts' daily contributions summed per day, carrying each account's last known balance forward. */
 export function balanceSeries(snapshots: { date: string; plaidAccountId: number | null; manualAccountId: number | null; balanceCents: number }[], include?: (snapshot: { plaidAccountId: number | null; manualAccountId: number | null }) => boolean): SeriesPoint[] {
   const sorted = snapshots.filter((snapshot) => !include || include(snapshot)).sort((left, right) => left.date.localeCompare(right.date));
   const latest = new Map<string, number>();

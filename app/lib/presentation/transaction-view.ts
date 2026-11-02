@@ -1,7 +1,6 @@
-/** Transactions page helpers: the filter state (shared with Cash flow), account labels and date groups. */
+/** Transactions page helpers: the filter state (shared with Cash flow) and date groups. */
 import { datePresetRange, type DatePreset } from "../core/finance.ts";
-import { holdingName, type Portfolio } from "../core/model.ts";
-import type { BankAccount, TransactionQuery } from "../finance-data.ts";
+import type { TransactionQuery } from "../finance-data.ts";
 
 /** The Transactions tab's filters. Portfolio keeps them so Cash flow can open the tab filtered. */
 export type TransactionFilters = {
@@ -48,31 +47,6 @@ export function filtersToQuery(filters: TransactionFilters, today: string): Tran
 /** How many filters (other than search) differ from the defaults: for the "Filters (3)" button. */
 export function activeFilterCount(filters: TransactionFilters) {
   return [filters.accountIds.length > 0, filters.category !== null, filters.datePreset !== "all", filters.direction !== "all", filters.showExcluded, filters.unreviewedOnly].filter(Boolean).length;
-}
-
-/**
- * A bank account's short label for lists: the linked Cardfolio card's short name ("biz plat HK9"),
- * else the institution and last digits ("Chase ··1234"), else Plaid's account name.
- */
-export function bankAccountShortLabel(account: BankAccount | undefined, portfolio: Portfolio) {
-  if (!account) return "";
-  if (account.cardAccountId !== null) {
-    const holding = portfolio.current(account.cardAccountId);
-    if (holding) return holdingName(portfolio, holding);
-  }
-  const base = account.institutionName || account.name;
-  return account.mask ? `${base} ··${account.mask}` : base;
-}
-
-/** The full label for dropdowns and the detail drawer: "Chase Sapphire Reserve HK5 (Chase ··1234)". */
-export function bankAccountFullLabel(account: BankAccount | undefined, portfolio: Portfolio) {
-  if (!account) return "Unknown account";
-  const bank = `${account.institutionName ? `${account.institutionName} ` : ""}${account.name}${account.mask ? ` ··${account.mask}` : ""}`;
-  if (account.cardAccountId !== null) {
-    const holding = portfolio.current(account.cardAccountId);
-    if (holding) return `${holdingName(portfolio, holding, true)} (${bank})`;
-  }
-  return bank;
 }
 
 /** Consecutive runs of items sharing a date (the list is already newest first). */

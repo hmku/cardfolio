@@ -7,9 +7,10 @@ import {
   loadBankAccounts, loadCategories, loadCategoryRules, loadTransactions, updateTransactions,
   type Transaction, type TransactionPatch,
 } from "../lib/finance-data";
+import { bankAccountLabel } from "../lib/presentation/account-labels";
 import { transactionAmount } from "../lib/presentation/finance-format";
 import {
-  activeFilterCount, bankAccountShortLabel, DATE_PRESETS, DEFAULT_TRANSACTION_FILTERS, filtersToQuery, groupByDate, type TransactionFilters,
+  activeFilterCount, DATE_PRESETS, DEFAULT_TRANSACTION_FILTERS, filtersToQuery, groupByDate, type TransactionFilters,
 } from "../lib/presentation/transaction-view";
 import { CategoryPicker, categoryLabel } from "./CategoryPicker";
 import { CategorySettings } from "./CategorySettings";
@@ -144,7 +145,7 @@ export function TransactionsPage({ context, portfolio, notify, onOpenSettings, t
   });
 
   const accountsSorted = useMemo(() => (setup?.accounts || [])
-    .map((account) => ({ account, label: bankAccountShortLabel(account, portfolio) }))
+    .map((account) => ({ account, label: bankAccountLabel(account, portfolio) }))
     .sort((left, right) => left.label.localeCompare(right.label)), [setup, portfolio]);
   const noAccounts = setup && setup.accounts.length === 0;
   const filtered = filters.search.trim() !== "" || filterCount > 0;
@@ -231,7 +232,7 @@ export function TransactionsPage({ context, portfolio, notify, onOpenSettings, t
               <ul>
                 {group.items.map((transaction) => {
                   const category = transaction.categoryId === null ? null : categoryById.get(transaction.categoryId);
-                  const account = bankAccountShortLabel(accountById.get(transaction.plaidAccountId), portfolio);
+                  const account = bankAccountLabel(accountById.get(transaction.plaidAccountId), portfolio);
                   const name = transaction.merchantName || transaction.name;
                   return (
                     <li key={transaction.id} className={`txn-row${transaction.excluded ? " dim" : ""}${selected.has(transaction.id) ? " selected" : ""}`}>

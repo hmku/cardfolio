@@ -262,20 +262,6 @@ export function snapshotRows(input: {
   return rows;
 }
 
-/** Net worth per day from snapshots, carrying each account's last known balance forward. */
-export function netWorthSeries(snapshots: { date: string; plaidAccountId: number | null; manualAccountId: number | null; balanceCents: number }[]) {
-  const sorted = [...snapshots].sort((left, right) => left.date.localeCompare(right.date));
-  const latest = new Map<string, number>();
-  const series: { date: string; netWorthCents: number }[] = [];
-  for (const snapshot of sorted) {
-    latest.set(snapshot.plaidAccountId !== null ? `p${snapshot.plaidAccountId}` : `m${snapshot.manualAccountId}`, snapshot.balanceCents);
-    const total = [...latest.values()].reduce((sum, value) => sum + value, 0);
-    if (series.length && series[series.length - 1].date === snapshot.date) series[series.length - 1].netWorthCents = total;
-    else series.push({ date: snapshot.date, netWorthCents: total });
-  }
-  return series;
-}
-
 // ---------- cash flow ----------
 
 export type CashFlowTransaction = { date: string; amountCents: number; categoryId: number | null; excluded: boolean };
@@ -290,13 +276,11 @@ export function cashFlowByMonth(transactions: CashFlowTransaction[], categories:
   const kinds = new Map(categories.map((category) => [category.id, category.kind]));
   const months = new Map<string, CashFlowMonth>();
   for (const transaction of transactions) {
-    if (transaction.excluded) continue;
-    const kind = transaction.categoryId === null ? null : kinds.get(transaction.categoryId) ?? null;
-    if (kind === "transfer") continue;
+    const side = cashFlowSide(transaction, kinds);
+    if (!side) continue;
     const month = transaction.date.slice(0, 7);
     const row = months.get(month) ?? { month, incomeCents: 0, expenseCents: 0, netCents: 0 };
-    const asIncome = kind === "income" || (kind === null && transaction.amountCents > 0);
-    if (asIncome) row.incomeCents += transaction.amountCents;
+    if (side === "income") row.incomeCents += transaction.amountCents;
     else row.expenseCents -= transaction.amountCents;
     row.netCents = row.incomeCents - row.expenseCents;
     months.set(month, row);
@@ -352,16 +336,19 @@ export type WebhookAction =
 export function webhookAction(payload: { webhook_type?: string; webhook_code?: string; error?: { error_code?: string } | null }): WebhookAction {
   const type = payload.webhook_type || "";
   const code = payload.webhook_code || "";
-  if (type === "TRANSACTIONS" && ["SYNC_UPDATES_AVAILABLE", "DEFAULT_UPDATE", "HISTORICAL_UPDATE", "INITIAL_UPDATE", "TRANSACTIONS_REMOVED"].includes(code)) {
-    return { kind: "sync", products: ["transactions"] };
-  }
+  // Items on /transactions/sync also get the legacy INITIAL_UPDATE / HISTORICAL_UPDATE / DEFAULT_UPDATE /
+  // TRANSACTIONS_REMOVED codes next to SYNC_UPDATES_AVAILABLE; Plaid says to ignore them, and acting on
+  // both would start two overlapping syncs of the same item.
+  if (type === "TRANSACTIONS" && code === "SYNC_UPDATES_AVAILABLE") return { kind: "sync", products: ["transactions"] };
   if (type === "HOLDINGS" && code === "DEFAULT_UPDATE") return { kind: "sync", products: ["holdings"] };
   if (type === "INVESTMENTS_TRANSACTIONS" && ["DEFAULT_UPDATE", "HISTORICAL_UPDATE"].includes(code)) return { kind: "sync", products: ["investment_transactions"] };
   if (type === "LIABILITIES" && code === "DEFAULT_UPDATE") return { kind: "sync", products: ["liabilities"] };
   if (type === "ITEM") {
     if (code === "ERROR") {
       const errorCode = payload.error?.error_code || "ITEM_ERROR";
-      return { kind: "status", status: RECONNECT_ERRORS.has(errorCode) ? "reconnect" : "ok", errorCode };
+      // Only a reconnect error changes the status; other errors (an institution outage) must not clear
+      // an earlier "reconnect" flag. LOGIN_REPAIRED or a successful sync does that.
+      return RECONNECT_ERRORS.has(errorCode) ? { kind: "status", status: "reconnect", errorCode } : { kind: "ignore" };
     }
     if (code === "PENDING_EXPIRATION" || code === "PENDING_DISCONNECT" || code === "USER_PERMISSION_REVOKED") return { kind: "status", status: "reconnect", errorCode: code };
     if (code === "LOGIN_REPAIRED") return { kind: "status", status: "ok", errorCode: null };

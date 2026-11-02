@@ -20,7 +20,3 @@ export function transactionAmount(cents: number) {
   return cents > 0 ? `+${exact.format(cents / 100)}` : exact.format(Math.abs(cents) / 100);
 }
 
-/** "Chase Sapphire ··1234". */
-export function accountLabel(account: { name: string; officialName?: string | null; mask: string | null }) {
-  return `${account.name}${account.mask ? ` ··${account.mask}` : ""}`;
-}

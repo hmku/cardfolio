@@ -6,7 +6,7 @@ import { creditPeriod, creditState, creditSummary, eligibleHoldings } from "../a
 import { addMonths, isoDate, parseDate } from "../app/lib/core/dates.ts";
 import { bonusLabel, holdingName, indexPortfolio, nextHoldingNumber, type Portfolio } from "../app/lib/core/model.ts";
 import {
-  cashFlowByMonth, categorize, defaultCategoryFor, matchRule, monthsBefore, netWorthCents, netWorthSeries, planTransactionWrites,
+  cashFlowByMonth, categorize, defaultCategoryFor, matchRule, monthsBefore, netWorthCents, planTransactionWrites,
   plaidAmountToCents, snapshotRows, webhookAction, type CategoryLike, type PlaidTransaction, type RuleLike,
 } from "../app/lib/core/finance.ts";
 import {
@@ -16,7 +16,8 @@ import {
 import { cardNameScore, matchPlaidAccounts } from "../app/lib/core/plaid.ts";
 import { verifyPlaidWebhook } from "../db/plaid-webhook.ts";
 import { cashFlowBreakdown, datePresetRange, fillMonths, monthBounds, recentMonths } from "../app/lib/core/finance.ts";
-import { bankAccountShortLabel, DEFAULT_TRANSACTION_FILTERS, filtersToQuery, groupByDate } from "../app/lib/presentation/transaction-view.ts";
+import { bankAccountLabel } from "../app/lib/presentation/account-labels.ts";
+import { DEFAULT_TRANSACTION_FILTERS, filtersToQuery, groupByDate } from "../app/lib/presentation/transaction-view.ts";
 import { accountAction } from "../app/lib/core/rules.ts";
 import { parseOffer, planSheetImport, planToPortfolioData } from "../app/lib/core/sheet-import.ts";
 import { bonusStatus, dueItems, feeStatus, fiveTwentyFour, personStats } from "../app/lib/core/stats.ts";
@@ -342,12 +343,12 @@ test("snapshots and net worth carry balances forward", () => {
     ],
   });
   assert.deepEqual(rows.map((row) => [row.plaid_account_id, row.manual_account_id, row.balance_cents]), [[1, null, -50000], [2, null, 300000], [null, 1, 10000000], [null, 2, -500000]]);
-  const series = netWorthSeries([
+  const series = balanceSeries([
     { date: "2026-11-01", plaidAccountId: 1, manualAccountId: null, balanceCents: -100 },
     { date: "2026-11-01", plaidAccountId: null, manualAccountId: 1, balanceCents: 1000 },
     { date: "2026-11-02", plaidAccountId: 1, manualAccountId: null, balanceCents: -300 },
   ]);
-  assert.deepEqual(series, [{ date: "2026-11-01", netWorthCents: 900 }, { date: "2026-11-02", netWorthCents: 700 }]);
+  assert.deepEqual(series, [{ date: "2026-11-01", valueCents: 900 }, { date: "2026-11-02", valueCents: 700 }]);
 });
 
 test("cash flow skips transfers and excluded transactions; refunds reduce spending", () => {
@@ -370,6 +371,12 @@ test("cash flow skips transfers and excluded transactions; refunds reduce spendi
 
 test("Plaid webhooks map to syncs or login status", () => {
   assert.deepEqual(webhookAction({ webhook_type: "TRANSACTIONS", webhook_code: "SYNC_UPDATES_AVAILABLE" }), { kind: "sync", products: ["transactions"] });
+  // Legacy transactions webhooks arrive next to SYNC_UPDATES_AVAILABLE; acting on both would start two syncs.
+  for (const code of ["DEFAULT_UPDATE", "HISTORICAL_UPDATE", "INITIAL_UPDATE", "TRANSACTIONS_REMOVED"]) {
+    assert.deepEqual(webhookAction({ webhook_type: "TRANSACTIONS", webhook_code: code }), { kind: "ignore" });
+  }
+  // An outage must not clear an earlier "reconnect" flag.
+  assert.deepEqual(webhookAction({ webhook_type: "ITEM", webhook_code: "ERROR", error: { error_code: "INSTITUTION_DOWN" } }), { kind: "ignore" });
   assert.deepEqual(webhookAction({ webhook_type: "HOLDINGS", webhook_code: "DEFAULT_UPDATE" }), { kind: "sync", products: ["holdings"] });
   assert.deepEqual(webhookAction({ webhook_type: "INVESTMENTS_TRANSACTIONS", webhook_code: "HISTORICAL_UPDATE" }), { kind: "sync", products: ["investment_transactions"] });
   assert.deepEqual(webhookAction({ webhook_type: "ITEM", webhook_code: "ERROR", error: { error_code: "ITEM_LOGIN_REQUIRED" } }), { kind: "status", status: "reconnect", errorCode: "ITEM_LOGIN_REQUIRED" });
@@ -454,8 +461,15 @@ test("transaction filters become a query; linked cards show their short name", (
     cardAccountId: holding.accountId, personId: null, currentCents: null, availableCents: null, limitCents: null, currency: null, balancesUpdatedAt: null,
     statement: { lastStatementCents: null, lastStatementDate: null, minimumPaymentCents: null, nextDueDate: null, lastPaymentCents: null, lastPaymentDate: null, overdue: null, updatedAt: null },
   };
-  assert.equal(bankAccountShortLabel(bank, portfolio), holdingName(portfolio, portfolio.current(holding.accountId)!));
-  assert.equal(bankAccountShortLabel({ ...bank, cardAccountId: null, institutionName: "Chase", mask: "1234" }, portfolio), "Chase ··1234");
+  const current = portfolio.current(holding.accountId)!;
+  assert.equal(bankAccountLabel(bank, portfolio), holdingName(portfolio, current));
+  assert.equal(bankAccountLabel(bank, portfolio, { full: true }), `${holdingName(portfolio, current, true)} ··1001`);
+  const checking = { ...bank, cardAccountId: null, institutionName: "Chase", name: "Plaid Checking", mask: "1234" };
+  assert.equal(bankAccountLabel(checking, portfolio), "Plaid Checking ··1234");
+  assert.equal(bankAccountLabel(checking, portfolio, { full: true }), "Chase Plaid Checking ··1234");
+  assert.equal(bankAccountLabel({ ...checking, name: "Chase Total Checking", mask: null }, portfolio, { full: true }), "Chase Total Checking", "no doubled institution");
+  assert.equal(bankAccountLabel({ ...checking, cardAccountId: 99999 }, portfolio), "Plaid Checking ··1234", "linked to a missing card");
+  assert.equal(bankAccountLabel(undefined, portfolio, { full: true }), "Unknown account");
 
   assert.deepEqual(groupByDate([{ date: "2026-11-02", id: 1 }, { date: "2026-11-02", id: 2 }, { date: "2026-11-01", id: 3 }]).map((group) => [group.date, group.items.length]), [["2026-11-02", 2], ["2026-11-01", 1]]);
 });

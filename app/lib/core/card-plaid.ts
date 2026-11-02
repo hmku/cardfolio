@@ -109,7 +109,8 @@ export function paymentStatus(card: LinkedCard, transactions: CardTransaction[],
   const remainingCents = statementCents && statementCents > 0 ? Math.max(0, statementCents - paidCents) : 0;
   const due = parseDate(card.dueDate);
   const daysLeft = due ? daysBetween(today, due) : null;
-  const overdue = card.overdue === true;
+  // Plaid's is_overdue only clears on the next liabilities refresh; once the minimum is paid, stop calling it overdue.
+  const overdue = card.overdue === true && paidCents < Math.max(card.minimumCents ?? 0, PAYMENT_TOLERANCE_CENTS);
   const needsPayment = !overdue && remainingCents >= PAYMENT_TOLERANCE_CENTS && daysLeft !== null && daysLeft <= PAYMENT_WINDOW_DAYS && daysLeft >= -3;
   return {
     balanceCents: card.currentCents, limitCents: card.limitCents, statementCents, statementDate,
@@ -311,7 +312,8 @@ export function creditSuggestions(portfolio: Portfolio, data: CardPlaidData, tod
     if (!card) continue;
     const date = parseDate(transaction.date);
     if (!date) continue;
-    const holding = portfolio.holdingsOf(card.accountId).find((item) => {
+    // Newest match: on a product-change day the old holding ends and the new one starts on that date.
+    const holding = portfolio.holdingsOf(card.accountId).findLast((item) => {
       const end = portfolio.holdingEnd(item);
       return item.startedOn <= transaction.date && (!end || end >= transaction.date);
     });

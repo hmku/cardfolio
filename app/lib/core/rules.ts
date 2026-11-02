@@ -1,4 +1,4 @@
-import { addDays, daysBetween, parseDate } from "./dates.ts";
+import { addDays, daysBetween, lastAnniversary, nextAnniversary, parseDate } from "./dates.ts";
 import type { Account, ActionRule, Portfolio } from "./model.ts";
 
 /** Mirrors the rules seeded in supabase/migrations; used when none are stored. */
@@ -70,12 +70,16 @@ export function ruleMatches(portfolio: Portfolio, rule: ActionRule, account: Acc
   if (condition.annualFeeMin !== undefined && holding.annualFeeCents < condition.annualFeeMin * 100) return false;
 
   if (condition.anniversaryBeforeDays !== undefined || condition.anniversaryAfterDays !== undefined) {
-    const dayOfYear = ((Number(approvalAge) % 365) + 365) % 365;
+    // Calendar anniversaries (like feeStatus), so leap days don't shift the window on older cards.
+    const last = lastAnniversary(approved!, today);
+    const next = nextAnniversary(approved!, today);
+    const sinceLast = daysBetween(last, today);
+    const untilNext = daysBetween(today, next);
     const before = Math.max(0, condition.anniversaryBeforeDays || 0);
     const after = Math.max(0, condition.anniversaryAfterDays || 0);
-    if (!(dayOfYear <= after || dayOfYear >= 365 - before)) return false;
+    if (!(sinceLast <= after || untilNext <= before)) return false;
     // A product change around this anniversary means this year's decision is made.
-    const anniversary = addDays(today, dayOfYear <= after ? -dayOfYear : 365 - dayOfYear);
+    const anniversary = sinceLast <= after ? last : next;
     if (changedProductSince(portfolio, account, addDays(anniversary, -before - DECIDED_LEAD_DAYS), today)) return false;
   }
 

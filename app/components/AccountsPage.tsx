@@ -12,9 +12,10 @@ import {
   deleteManualAccount, isDebt, loadBalanceSnapshots, loadBankAccounts, loadBankLogins, loadManualAccounts, MANUAL_ACCOUNT_KINDS,
   saveManualAccount, setBankAccountOwner, type BalanceSnapshot, type BankAccount, type BankLogin, type ManualAccount, type ManualAccountKind,
 } from "../lib/finance-data";
+import { bankAccountLabel } from "../lib/presentation/account-labels";
 import { moneyExact, moneyWhole } from "../lib/presentation/finance-format";
 import { fullDate, shortDate, toCents, toDollarsInput } from "../lib/presentation/format";
-import { bankAccountKind, bankAccountName, bankAccountOwner, OwnerButtons, OwnerSelect, RangeButtons, syncedAt, type OwnerFilter } from "./FinanceAccounts";
+import { bankAccountKind, bankAccountOwner, OwnerButtons, OwnerSelect, RangeButtons, syncedAt, type OwnerFilter } from "./FinanceAccounts";
 import { Change, LineChart, longDate } from "./FinanceChart";
 import { FinanceEmpty, FinanceSection, useFinanceLoad, type FinancePageProps } from "./FinanceShared";
 import { Drawer, Tag } from "./ui";
@@ -40,7 +41,7 @@ function toRows(portfolio: Portfolio, bank: BankAccount[], manual: ManualAccount
   return [
     ...bank.map((account) => {
       const balance = account.currentCents ?? account.availableCents;
-      return { key: `p${account.id}`, group: plaidAccountGroup(account.type, account.subtype), name: bankAccountName(portfolio, account), ownerId: bankAccountOwner(portfolio, account), balanceCents: balance === null ? null : netWorthCents(account.type, balance), plaid: account };
+      return { key: `p${account.id}`, group: plaidAccountGroup(account.type, account.subtype), name: bankAccountLabel(account, portfolio), ownerId: bankAccountOwner(portfolio, account), balanceCents: balance === null ? null : netWorthCents(account.type, balance), plaid: account };
     }),
     ...manual.map((account) => ({ key: `m${account.id}`, group: manualAccountGroup(account.kind), name: account.name, ownerId: account.personId, balanceCents: account.liability ? -account.balanceCents || 0 : account.balanceCents, manual: account })),
   ];
@@ -86,7 +87,7 @@ export function AccountsPage({ context, portfolio, notify, onOpenSettings, onSho
   const saveOwner = async (account: BankAccount, personId: number | null) => {
     try {
       await setBankAccountOwner(context, account.id, personId);
-      notify(`Owner saved for ${bankAccountName(portfolio, account)}`);
+      notify(`Owner saved for ${bankAccountLabel(account, portfolio)}`);
       await reload();
     } catch (reason) { notify(reason instanceof Error ? reason.message : "Couldn't save the owner", true); }
   };
@@ -243,7 +244,7 @@ function BankAccountDrawer({ row, account, login, portfolio, history, onOwner, o
   const statement = account.statement;
   const linkedOwner = account.personId === null && row.ownerId !== null ? portfolio.person(row.ownerId)?.name : null;
   return (
-    <Drawer title={bankAccountName(portfolio, account, true)} onClose={onClose} footer={onShowTransactions && <button type="button" className="btn primary" onClick={onShowTransactions}>Show transactions</button>}>
+    <Drawer title={bankAccountLabel(account, portfolio, { full: true })} onClose={onClose} footer={onShowTransactions && <button type="button" className="btn primary" onClick={onShowTransactions}>Show transactions</button>}>
       <div className="drawer-balance">
         <span className="stat-label">{debt ? "Balance owed" : "Balance"}</span>
         <span className="stat-value">{balance === null ? "—" : moneyExact(balance)}</span>

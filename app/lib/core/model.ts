@@ -204,9 +204,11 @@ export function centsToDollars(cents: number) {
   return Math.round(cents) / 100;
 }
 
+/** "$695", "$12.50", "−$12.34": whole dollars when there are no cents, otherwise two decimals. */
 export function formatMoney(cents: number) {
-  const dollars = centsToDollars(cents);
-  return `$${dollars.toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: dollars % 1 ? 2 : 0 })}`;
+  const digits = Math.round(cents) % 100 ? 2 : 0;
+  const text = (Math.abs(cents) / 100).toLocaleString("en-US", { minimumFractionDigits: digits, maximumFractionDigits: digits });
+  return cents < 0 ? `−$${text}` : `$${text}`;
 }
 
 export function bonusLabel(bonus: Bonus) {

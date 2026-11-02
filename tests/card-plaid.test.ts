@@ -187,6 +187,30 @@ test("payment status: statement due soon, paid, overdue", () => {
   const status = cardStatus(portfolio, bizPlat, holdings[1], today, summarizeCardPlaid(portfolio, data, today).byAccount.get(2));
   assert.equal(status.tone, "alert");
   assert.ok(status.tags.some((tag) => tag.text === "Payment overdue · $40 minimum"));
+
+  // Plaid's is_overdue lags: once at least the minimum is paid after the statement, it's no longer overdue.
+  const paidLate: CardPlaidData = { ...data, transactions: [tx(11, "2026-10-30", 4000, "AUTOPAY PAYMENT - THANK YOU")] };
+  assert.equal(paymentStatus(paidLate.cards[1], paidLate.transactions, today).overdue, false);
+  assert.deepEqual(paymentsDue(portfolio, paidLate, today).map((item) => item.account.id), [1]);
+  const underMinimum = paymentStatus(card(11, 2, { overdue: true }), [tx(11, "2026-10-30", 3000, "AUTOPAY PAYMENT - THANK YOU")], today);
+  assert.equal(underMinimum.overdue, true, "less than the minimum is still overdue");
+});
+
+test("a credit posted on a product-change day matches the new product", () => {
+  const dining = credit(3, "Dining", 1000, "monthly");
+  const base = fixture();
+  const portfolio = indexPortfolio({
+    ...base,
+    credits: [...credits, dining],
+    holdings: [
+      { ...holdings[0], endedOn: "2026-11-01" },
+      { id: 14, accountId: 1, personId: 1, productId: 3, number: 2, startedOn: "2026-11-01", endedOn: null, change: "downgrade", annualFeeCents: 32500, last4: "51001" },
+      holdings[1], holdings[2],
+    ],
+  });
+  const data: CardPlaidData = { cards: [card(10, 1)], transactions: [tx(10, "2026-11-01", 1000, "AMEX DINING CREDIT")] };
+  const found = creditSuggestions(portfolio, data, today);
+  assert.deepEqual(found.map((item) => [item.credit.id, item.holding.id]), [[dining.id, 14]]);
 });
 
 test("bonus spend counts posted purchases in the window and flags missing history", () => {

@@ -582,7 +582,7 @@ export type BalanceSnapshot = {
   balanceCents: number;
 };
 
-/** Daily balances from `from` (YYYY-MM-DD) on, oldest first. Feed to netWorthSeries() in core/finance. */
+/** Daily balances from `from` (YYYY-MM-DD) on, oldest first. Feed to balanceSeries() in core/investments. */
 export async function loadBalanceSnapshots(context: FinanceContext, from?: string): Promise<BalanceSnapshot[]> {
   const rows = await pageAll((start, end) => {
     let request = context.db.from("balance_snapshots").select("date, plaid_account_id, manual_account_id, balance_cents").eq("household_id", context.householdId);

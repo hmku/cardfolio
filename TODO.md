@@ -96,15 +96,26 @@ done and move them to **Done** with the date.
   - [ ] Check the second cron (`/api/cron/sync`, 10:00 UTC) shows in Vercel → Settings → Cron
         Jobs and that `maxDuration = 300` is allowed on the plan (Hobby with Fluid compute allows
         300s; otherwise lower it in `app/api/cron/sync/route.ts` and `app/api/plaid/sync/route.ts`).
-  - [ ] Add the manual account "Edgar Street Capital" (kind private investment) with its
-        current value and owner once the Accounts page can edit manual accounts.
+  - [ ] Add the manual account "Edgar Street Capital": Accounts tab → "+ Add a manual
+        account", kind Private investment, Asset, current value, owner. It then shows on
+        Investments as one position. Update the value there whenever a statement arrives
+        (each save adds a point to the history).
+  - [ ] Investments/Accounts guesses to check with real data: Plaid investment accounts'
+        cash shows up as a cash holding (otherwise the Investments total misses uninvested
+        cash; an account with no holdings at all is counted at its balance); which Plaid
+        subtypes count as Retirement (`RETIREMENT_SUBTYPES` in `app/lib/core/investments.ts`,
+        HSAs included); activity type grouping (`activityKind`).
+  - [ ] Net worth history ignores archived manual accounts entirely (also before they were
+        archived); a closed Plaid account carries its last balance forward. Revisit if that
+        reads wrong (e.g. store an archived date).
+  - [ ] Idea: backfill investment value history from investment transactions and prices
+        (Plaid gives 24 months of transactions but no past balances).
   - [ ] Try a Sandbox sync end to end ("Sync now" with First Platypus Bank; Sandbox
         `user_transactions_dynamic` gives changing transactions) and look at the tabs.
-  - [ ] Pages to build on `app/lib/finance-data.ts`: Transactions (search, filters,
+  - [x] Pages to build on `app/lib/finance-data.ts`: Transactions (search, filters,
         categorize, bulk edit, rules incl. `applyRuleToExisting`), Cash flow (by month and
-        category), Investments (holdings by account, investment transactions), Accounts
-        (balances, card statements and due dates, manual accounts, net worth chart from
-        `balance_snapshots` + `netWorthSeries`). Settings for categories and rules.
+        category), Settings for categories and rules, Investments and Accounts (all built
+        2026-11-02, see Done).
   - [ ] Disconnecting a login deletes its accounts, transactions, holdings and snapshots
         (cascade). Consider keeping history (soft-delete the item) before connecting real banks.
   - [ ] Guesses to check with real data: default category mapping (Plaid PFC v2 codes in
@@ -179,6 +190,17 @@ done and move them to **Done** with the date.
       via RPC (they only reveal the caller's own membership); consider revoking `anon`.
 
 ## Done
+
+- 2026-11-02: Accounts and Investments pages. Accounts: net worth, assets and debts with a
+  net worth chart (1M–All, change over the period) from `balance_snapshots`; accounts grouped
+  Cash / Credit cards (short card name, statement balance, due date) / Investments /
+  Retirement / Loans / Other with totals; owner filter and inline owner picker; account
+  drawer with balance history, details and "Show transactions"; manual accounts
+  add/edit/archive/delete. Investments: value, cost basis and unrealized gain, value chart,
+  allocation by type and by account, holdings by security with per-account rows, sorting,
+  account and owner filters, recent activity with type filter. Pure logic in
+  `app/lib/core/investments.ts` (tested); hand-rolled SVG charts in
+  `app/components/FinanceChart.tsx`. Checked with fake data only, not against real Plaid data.
 
 - 2026-11-02: Transactions and Cash flow tabs. **Transactions**: search (debounced, merchant,
   description and notes), date presets (this month, last month, last 90 days, this year,

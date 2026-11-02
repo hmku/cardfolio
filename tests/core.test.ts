@@ -9,6 +9,10 @@ import {
   cashFlowByMonth, categorize, defaultCategoryFor, matchRule, monthsBefore, netWorthCents, netWorthSeries, planTransactionWrites,
   plaidAmountToCents, snapshotRows, webhookAction, type CategoryLike, type PlaidTransaction, type RuleLike,
 } from "../app/lib/core/finance.ts";
+import {
+  activityKind, aggregatePositions, allocationByAccount, allocationByClass, balanceSeries, manualAccountGroup, periodChange, plaidAccountGroup,
+  rangeStart, seriesFrom, sortPositions, summarizePositions, type HoldingInput,
+} from "../app/lib/core/investments.ts";
 import { matchPlaidAccounts } from "../app/lib/core/plaid.ts";
 import { verifyPlaidWebhook } from "../db/plaid-webhook.ts";
 import { cashFlowBreakdown, datePresetRange, fillMonths, monthBounds, recentMonths } from "../app/lib/core/finance.ts";
@@ -411,4 +415,90 @@ test("transaction filters become a query; linked cards show their short name", (
   assert.equal(bankAccountShortLabel({ ...bank, cardAccountId: null, institutionName: "Chase", mask: "1234" }, portfolio), "Chase ··1234");
 
   assert.deepEqual(groupByDate([{ date: "2026-11-02", id: 1 }, { date: "2026-11-02", id: 2 }, { date: "2026-11-01", id: 3 }]).map((group) => [group.date, group.items.length]), [["2026-11-02", 2], ["2026-11-01", 1]]);
+});
+
+test("accounts group by type: retirement subtypes, debts and manual kinds", () => {
+  assert.equal(plaidAccountGroup("depository", "checking"), "cash");
+  assert.equal(plaidAccountGroup("credit", "credit card"), "credit");
+  assert.equal(plaidAccountGroup("investment", "401k"), "retirement");
+  assert.equal(plaidAccountGroup("investment", "Roth"), "retirement");
+  assert.equal(plaidAccountGroup("investment", "brokerage"), "investment");
+  assert.equal(plaidAccountGroup("loan", "mortgage"), "loan");
+  assert.equal(plaidAccountGroup(null, null), "other");
+  assert.equal(manualAccountGroup("private_investment"), "investment");
+  assert.equal(manualAccountGroup("real_estate"), "other");
+  assert.equal(manualAccountGroup("loan"), "loan");
+});
+
+test("net worth over a range carries the earlier balance to the range start", () => {
+  assert.equal(rangeStart("2026-11-02", "3M"), "2026-08-02");
+  assert.equal(rangeStart("2026-03-31", "1M"), "2026-02-28");
+  assert.equal(rangeStart("2026-11-02", "all"), null);
+  const series = balanceSeries([
+    { date: "2026-07-01", plaidAccountId: 1, manualAccountId: null, balanceCents: 1000 },
+    { date: "2026-07-01", plaidAccountId: null, manualAccountId: 9, balanceCents: 5000 },
+    { date: "2026-09-01", plaidAccountId: 1, manualAccountId: null, balanceCents: 2000 },
+    { date: "2026-10-01", plaidAccountId: 2, manualAccountId: null, balanceCents: -500 },
+  ], (snapshot) => snapshot.manualAccountId !== 9);
+  assert.deepEqual(series, [{ date: "2026-07-01", valueCents: 1000 }, { date: "2026-09-01", valueCents: 2000 }, { date: "2026-10-01", valueCents: 1500 }]);
+  const sliced = seriesFrom(series, "2026-08-02");
+  assert.deepEqual(sliced, [{ date: "2026-08-02", valueCents: 1000 }, { date: "2026-09-01", valueCents: 2000 }, { date: "2026-10-01", valueCents: 1500 }]);
+  assert.deepEqual(periodChange(sliced), { startDate: "2026-08-02", startCents: 1000, endCents: 1500, changeCents: 500, percent: 0.5 });
+  assert.deepEqual(seriesFrom(series, "2026-06-01"), series, "history starts inside the range");
+  assert.equal(periodChange([]), null);
+  assert.equal(periodChange([{ date: "2026-10-01", valueCents: 0 }], 100)!.percent, null);
+});
+
+test("positions aggregate by security across accounts with gains, allocation and sorting", () => {
+  const security = (id: number, ticker: string, type: string) => ({ id, name: `${ticker} fund`, tickerSymbol: ticker, type, isCashEquivalent: false, closePrice: 10 });
+  const holding = (plaidAccountId: number, sec: ReturnType<typeof security>, quantity: number, valueCents: number | null, costBasisCents: number | null): HoldingInput =>
+    ({ plaidAccountId, security: sec, quantity, costBasisCents, institutionPrice: null, institutionValueCents: valueCents });
+  const vti = security(1, "VTI", "etf"), aapl = security(2, "AAPL", "equity"), cash = { ...security(3, "USD", "cash"), isCashEquivalent: true };
+  const positions = aggregatePositions([
+    holding(10, vti, 10, 300000, 200000),
+    holding(11, vti, 5, 150000, 100000),
+    holding(10, aapl, 2, null, 50000), // no institution value: 2 × close $10
+    holding(11, cash, 1000, 100000, null),
+  ], [{ id: 7, name: "Edgar Street Capital", kind: "private_investment", balanceCents: 448000 }], [{ plaidAccountId: 12, name: "HSA", balanceCents: 0 }]);
+  const vtiPosition = positions.find((position) => position.key === "s1")!;
+  assert.equal(vtiPosition.quantity, 15);
+  assert.equal(vtiPosition.valueCents, 450000);
+  assert.equal(vtiPosition.costBasisCents, 300000);
+  assert.equal(vtiPosition.gainCents, 150000);
+  assert.equal(vtiPosition.gainPercent, 0.5);
+  assert.equal(vtiPosition.price, 300);
+  assert.deepEqual(vtiPosition.accounts.map((account) => [account.plaidAccountId, account.valueCents, account.gainCents]), [[10, 300000, 100000], [11, 150000, 50000]]);
+  const apple = positions.find((position) => position.key === "s2")!;
+  assert.equal(apple.valueCents, 2000);
+  assert.equal(apple.gainCents, -48000);
+  assert.deepEqual(positions.map((position) => position.key), ["s1", "m7", "s3", "s2", "a12"], "largest first");
+  assert.equal(positions[1].assetClass, "private");
+  const total = 450000 + 2000 + 100000 + 448000;
+  assert.equal(positions.reduce((sum, position) => sum + position.share, 0).toFixed(6), "1.000000");
+
+  const summary = summarizePositions(positions);
+  assert.equal(summary.valueCents, total);
+  assert.equal(summary.costBasisCents, 350000);
+  assert.equal(summary.gainCents, 102000);
+  assert.equal(summary.withoutCostBasis, 3, "cash, Edgar Street and the HSA have no cost basis");
+  assert.equal(summary.valueWithoutCostBasisCents, 548000);
+
+  assert.deepEqual(allocationByClass(positions).map((slice) => [slice.key, slice.valueCents]), [["etf", 450000], ["private", 448000], ["cash", 100000], ["equity", 2000]]);
+  assert.deepEqual(allocationByAccount(positions).map((slice) => [slice.key, slice.valueCents]), [["m7", 448000], ["p10", 302000], ["p11", 250000]]);
+  assert.deepEqual(sortPositions(positions, "gain").map((position) => position.key).slice(0, 2), ["s1", "s2"]);
+  assert.deepEqual(sortPositions(positions, "gainPercent").map((position) => position.key).slice(0, 2), ["s1", "s2"]);
+});
+
+test("investment activity types group Plaid's type and subtype", () => {
+  assert.equal(activityKind("buy", "buy"), "buy");
+  assert.equal(activityKind("buy", "dividend reinvestment"), "buy");
+  assert.equal(activityKind("sell", "sell"), "sell");
+  assert.equal(activityKind("cash", "qualified dividend"), "income");
+  assert.equal(activityKind("cash", "interest"), "income");
+  assert.equal(activityKind("cash", "contribution"), "contribution");
+  assert.equal(activityKind("cash", "withdrawal"), "withdrawal");
+  assert.equal(activityKind("fee", "account fee"), "fee");
+  assert.equal(activityKind("cash", "tax withheld"), "fee");
+  assert.equal(activityKind("transfer", "transfer"), "transfer");
+  assert.equal(activityKind(null, null), "other");
 });

@@ -1,0 +1,77 @@
+"use client";
+
+import type { Range } from "../lib/core/investments";
+import { RANGES } from "../lib/core/investments";
+import { holdingName, type Person, type Portfolio } from "../lib/core/model";
+import type { BankAccount } from "../lib/finance-data";
+import { accountLabel } from "../lib/presentation/finance-format";
+
+/** Shared pieces of the Accounts and Investments pages: account names, owners and the filter row. */
+
+/** "biz plat HK9" for a bank account linked to a Cardfolio card (full name with `full`), else "Checking ··1234". */
+export function bankAccountName(portfolio: Portfolio, account: BankAccount, full = false) {
+  if (account.cardAccountId !== null) {
+    const holding = portfolio.current(account.cardAccountId);
+    if (holding) return `${holdingName(portfolio, holding, full)}${account.mask ? ` ··${account.mask}` : ""}`;
+  }
+  return accountLabel(account);
+}
+
+/** The account's owner: set on the bank account, else the linked card's cardholder. */
+export function bankAccountOwner(portfolio: Portfolio, account: BankAccount) {
+  if (account.personId !== null) return account.personId;
+  return account.cardAccountId !== null ? portfolio.account(account.cardAccountId)?.personId ?? null : null;
+}
+
+const KIND_LABELS: Record<string, string> = {
+  ira: "IRA", hsa: "HSA", cd: "CD", "401k": "401(k)", "403b": "403(b)", "457b": "457(b)", "529": "529", roth: "Roth IRA", "roth 401k": "Roth 401(k)",
+  "sep ira": "SEP IRA", "simple ira": "SIMPLE IRA", auto: "Auto loan", student: "Student loan", "credit card": "Credit card", "money market": "Money market",
+};
+
+/** Plaid's subtype in words: "Checking", "401(k)", "Credit card". */
+export function bankAccountKind(account: Pick<BankAccount, "type" | "subtype">) {
+  const text = account.subtype || account.type || "account";
+  return KIND_LABELS[text] || text[0].toUpperCase() + text.slice(1);
+}
+
+/** Everyone (null) or one person's id. */
+export type OwnerFilter = number | null;
+
+export function OwnerButtons({ people, value, onChange }: { people: Person[]; value: OwnerFilter; onChange: (value: OwnerFilter) => void }) {
+  if (people.length < 2) return null;
+  return (
+    <div className="seg" role="group" aria-label="Whose accounts">
+      <button type="button" aria-pressed={value === null} onClick={() => onChange(null)}>Everyone</button>
+      {people.map((person) => (
+        <button key={person.id} type="button" aria-pressed={value === person.id} onClick={() => onChange(person.id)}>{person.name.split(/\s+/)[0]}</button>
+      ))}
+    </div>
+  );
+}
+
+export function RangeButtons({ value, onChange }: { value: Range; onChange: (value: Range) => void }) {
+  return (
+    <div className="seg" role="group" aria-label="Time range">
+      {RANGES.map((range) => (
+        <button key={range.value} type="button" aria-pressed={value === range.value} onClick={() => onChange(range.value)}>{range.label}</button>
+      ))}
+    </div>
+  );
+}
+
+/** A compact owner picker (No owner = shared). Saves on change. */
+export function OwnerSelect({ people, value, onChange, label, className }: { people: Person[]; value: number | null; onChange: (value: number | null) => void; label: string; className?: string }) {
+  return (
+    <select className={className} aria-label={label} value={value ?? ""} onChange={(event) => onChange(event.target.value ? Number(event.target.value) : null)}>
+      <option value="">Shared</option>
+      {people.map((person) => <option key={person.id} value={person.id}>{person.name}</option>)}
+    </select>
+  );
+}
+
+/** A sync time like "Nov 2, 9:14 AM", or "never". */
+export function syncedAt(value: string | null) {
+  if (!value) return "never";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+}

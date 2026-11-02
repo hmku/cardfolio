@@ -28,6 +28,16 @@ Credits, Transactions, Cash flow, Investments and Accounts. The card tabs:
   a monthly income vs spending chart, and spending and income by category plus top
   merchants. Tap a category or merchant to see its transactions. Transfers (like card
   payments) and excluded transactions never count.
+- **Investments**: total value, cost basis and unrealized gain; value over time (history
+  starts when an account is connected); allocation by type and by account; holdings
+  combined across accounts by security (tap one held in several accounts to see each);
+  recent buys, sells, dividends, contributions and fees. Filter by account or owner.
+  Manual investments (e.g. Edgar Street Capital) count as one position each.
+- **Accounts**: net worth, assets and debts with a net worth chart (1M to All) and accounts
+  grouped as Cash, Credit cards, Investments, Retirement, Loans and Other. Filter by owner
+  and set an account's owner inline. Tap an account for its balance history and details.
+  "+ Add a manual account" covers what Plaid can't see (private investments, a house, a car,
+  a loan); saving a new balance adds a point to the history.
 
 Card types and their credits, review rules, notifications, cardholders, sign-in access and
 exports live in **Settings**. Card types with no open cards and no credits are tucked behind

@@ -4,6 +4,7 @@ import type { Range } from "../lib/core/investments";
 import { RANGES } from "../lib/core/investments";
 import type { Person, Portfolio } from "../lib/core/model";
 import type { BankAccount } from "../lib/finance-data";
+import { splitMask } from "../lib/presentation/account-labels";
 
 export { bankAccountKind } from "../lib/presentation/account-labels";
 
@@ -13,6 +14,17 @@ export { bankAccountKind } from "../lib/presentation/account-labels";
 export function bankAccountOwner(portfolio: Portfolio, account: BankAccount) {
   if (account.personId !== null) return account.personId;
   return account.cardAccountId !== null ? portfolio.account(account.cardAccountId)?.personId ?? null : null;
+}
+
+/** The balance a bank account counts with: the current balance, else the available one (null when neither is reported). */
+export function bankBalanceCents(account: Pick<BankAccount, "currentCents" | "availableCents">) {
+  return account.currentCents ?? account.availableCents;
+}
+
+/** An account label with its last digits ("··1234") kept together, so they never wrap apart from each other. */
+export function AccountName({ label }: { label: string }) {
+  const { name, mask } = splitMask(label);
+  return mask ? <>{name} <span className="acct-mask">{mask}</span></> : <>{label}</>;
 }
 
 /** Everyone (null) or one person's id. */
@@ -48,11 +60,4 @@ export function OwnerSelect({ people, value, onChange, label, className }: { peo
       {people.map((person) => <option key={person.id} value={person.id}>{person.name}</option>)}
     </select>
   );
-}
-
-/** A sync time like "Nov 2, 9:14 AM", or "never". */
-export function syncedAt(value: string | null) {
-  if (!value) return "never";
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? value : date.toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 }

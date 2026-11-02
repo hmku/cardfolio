@@ -552,6 +552,40 @@ export function fillMonths(rows: CashFlowMonth[], months: string[]): CashFlowMon
   return months.map((month) => byMonth.get(month) ?? { month, incomeCents: 0, expenseCents: 0, netCents: 0 });
 }
 
+/**
+ * How many months a "last `count` months" window ending `today` really covers: the full months before
+ * this one plus the elapsed part of this one (Nov 2 of a 30-day month: 11 + 2/30). For per-month averages.
+ */
+export function elapsedMonths(today: string, count: number) {
+  const day = Number(today.slice(8, 10));
+  const days = Number(monthBounds(today.slice(0, 7)).to.slice(8, 10));
+  return count - 1 + day / days;
+}
+
+/**
+ * The index of the last month a chart window of `size` months shows, given the window it showed before
+ * (`previousEnd`) and the month now picked (`index`, in a list of `total`): the window stays put while the
+ * month is inside it and moves just far enough to show it otherwise.
+ */
+export function chartWindowEnd(previousEnd: number, index: number, size: number, total: number) {
+  const last = total - 1;
+  const end = Math.min(Math.max(previousEnd, Math.min(size - 1, last)), last);
+  if (index < 0) return end;
+  if (index > end) return Math.min(index, last);
+  if (index < end - size + 1) return Math.min(Math.max(index + size - 1, 0), last);
+  return end;
+}
+
+/**
+ * A PostgREST filter for keyset paging over transactions sorted newest first (date, then id):
+ * rows strictly after `cursor`, the last row already loaded. Unlike an offset, it doesn't skip or
+ * repeat rows when edits or a sync change which rows match between pages.
+ */
+export function transactionsBefore(cursor: { date: string; id: number }) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(cursor.date) || !Number.isInteger(cursor.id)) throw new Error("Bad transaction cursor");
+  return `or(date.lt.${cursor.date},and(date.eq.${cursor.date},id.lt.${cursor.id}))`;
+}
+
 export type DatePreset = "all" | "this-month" | "last-month" | "90-days" | "this-year" | "custom";
 
 /** The inclusive YYYY-MM-DD range of a date preset on `today` (YYYY-MM-DD); open for "all" and "custom". */

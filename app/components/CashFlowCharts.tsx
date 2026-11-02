@@ -1,10 +1,9 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { CashFlowMonth } from "../lib/core/finance";
-import { moneyWhole } from "../lib/presentation/finance-format";
+import { moneyCompact, moneyWhole, percent } from "../lib/presentation/finance-format";
 import { monthYear } from "../lib/presentation/format";
-import { moneyCompact } from "./FinanceChart";
 
 /**
  * Hand-rolled SVG charts for the Cash flow tab: the monthly income/spending chart, the
@@ -14,7 +13,6 @@ import { moneyCompact } from "./FinanceChart";
 
 const shortMonth = new Intl.DateTimeFormat("en-US", { month: "short", timeZone: "UTC" });
 const monthName = (month: string) => shortMonth.format(new Date(`${month}-15T00:00:00Z`));
-export const percent = (share: number) => `${Math.round(share * 100)}%`;
 
 function useWidth<T extends HTMLElement>() {
   const ref = useRef<T>(null);
@@ -54,6 +52,7 @@ function barPath(x: number, width: number, y0: number, y1: number) {
 export function MonthChart({ months, selected, onSelect }: { months: CashFlowMonth[]; selected: string | null; onSelect: (month: string) => void }) {
   const [wrap, width] = useWidth<HTMLDivElement>();
   const [active, setActive] = useState<number | null>(null);
+  const tooltip = useRef<HTMLDivElement>(null);
   const narrow = width < 520;
   const height = narrow ? 210 : 250;
   const pad = { top: 10, right: 2, bottom: 24, left: narrow ? 40 : 48 };
@@ -74,6 +73,16 @@ export function MonthChart({ months, selected, onSelect }: { months: CashFlowMon
   const letters = band < 30;
   const shown = active === null ? null : months[active];
   const net = months.map((month, index) => `${index ? "L" : "M"}${center(index).toFixed(1)},${y(month.netCents).toFixed(1)}`).join("");
+  // Beside the hovered month (right of it in the first half, left in the second), kept inside the plot.
+  const tipLeft = active === null ? 0 : active >= months.length / 2 ? center(active) - band / 2 - 4 : center(active) + band / 2 + 4;
+  const flip = active !== null && active >= months.length / 2;
+  useLayoutEffect(() => {
+    const tip = tooltip.current;
+    if (!tip) return;
+    const tipWidth = tip.offsetWidth;
+    const left = flip ? tipLeft - tipWidth : tipLeft;
+    tip.style.left = `${Math.max(0, Math.min(left, width - tipWidth))}px`;
+  }, [tipLeft, flip, width, active]);
 
   return (
     <figure className="cf-chart">
@@ -131,7 +140,7 @@ export function MonthChart({ months, selected, onSelect }: { months: CashFlowMon
           ))}
         </div>
         {shown && active !== null && (
-          <div className={`cf-tooltip${active >= months.length / 2 ? " left" : ""}`} style={{ left: active >= months.length / 2 ? center(active) - band / 2 - 4 : center(active) + band / 2 + 4 }} role="status">
+          <div className="cf-tooltip" ref={tooltip} aria-hidden="true">
             <strong>{monthYear(`${shown.month}-01`)}</strong>
             <span><i className="cf-key income" /><b className="num">{moneyWhole(shown.incomeCents)}</b> income</span>
             <span><i className="cf-key spend" /><b className="num">{moneyWhole(shown.expenseCents)}</b> spending</span>

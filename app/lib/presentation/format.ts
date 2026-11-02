@@ -14,6 +14,13 @@ export const shortDate = (value: DateLike) => { const date = toDate(value); retu
 export const monthYear = (value: DateLike) => { const date = toDate(value); return date ? monthYearFormat.format(date) : "—"; };
 export const fullDate = (value: DateLike) => { const date = toDate(value); return date ? fullFormat.format(date) : "—"; };
 
+/** A sync or update time like "Nov 2, 9:14 AM", or "never". */
+export function syncedAt(value: string | null) {
+  if (!value) return "never";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+}
+
 export function inDays(days: number) {
   if (days === 0) return "today";
   if (days === 1) return "tomorrow";

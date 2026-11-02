@@ -5,6 +5,7 @@ import { errorText, type ApiCall } from "../lib/api";
 import { holdingName, type Portfolio } from "../lib/core/model";
 import { bankAccountKind } from "../lib/presentation/account-labels";
 import { ConfirmButton } from "./ui";
+import { fullDate, syncedAt } from "../lib/presentation/format";
 
 type BankAccount = { id: number; name: string; mask: string | null; type: string | null; subtype: string | null; accountId: number | null; linkSource: "auto" | "manual" | null };
 type BankItem = { id: number; institutionName: string; status: "ok" | "reconnect"; errorCode: string | null; addedByEmail: string | null; personId: number | null; consentExpiresAt: string | null; lastSyncedAt: string | null; accounts: BankAccount[] };
@@ -175,7 +176,7 @@ export function BankSettings({ portfolio, api, notify, onChanged }: { portfolio:
           <div className="settings-row">
             <span className="grow">
               {item.institutionName}
-              <small>{item.addedByEmail ? `Added by ${item.addedByEmail}` : ""}{item.consentExpiresAt ? ` · access ends ${new Date(item.consentExpiresAt).toLocaleDateString()}` : ""}{item.lastSyncedAt ? ` · synced ${new Date(item.lastSyncedAt).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}` : ""}</small>
+              <small>{item.addedByEmail ? `Added by ${item.addedByEmail}` : ""}{item.consentExpiresAt ? ` · access ends ${fullDate(new Date(item.consentExpiresAt))}` : ""}{item.lastSyncedAt ? ` · synced ${syncedAt(item.lastSyncedAt)}` : ""}</small>
             </span>
             <select aria-label={`Whose login is ${item.institutionName}`} value={item.personId ?? ""} disabled={busy !== null} onChange={(event) => void setItemOwner(item, event.target.value)}>
               <option value="">Whose login?</option>

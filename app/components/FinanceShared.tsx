@@ -57,6 +57,11 @@ export function FinanceSection({ title, actions, error, onRetry, children }: { t
   );
 }
 
+/** The loading hint for a page's first load; nothing once that load failed (the error banner says why). */
+export function FinanceLoading({ error }: { error?: string }) {
+  return error ? null : <p className="hint" role="status">Loading…</p>;
+}
+
 /** Shown when there's nothing to list yet. */
 export function FinanceEmpty({ children, onOpenSettings }: { children: ReactNode; onOpenSettings?: () => void }) {
   return (

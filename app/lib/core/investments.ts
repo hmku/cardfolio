@@ -80,7 +80,35 @@ export function seriesFrom(series: SeriesPoint[], from: string | null): SeriesPo
   return inside;
 }
 
-export type PeriodChange = { startDate: string; startCents: number; endCents: number; changeCents: number; percent: number | null };
+const SNAPSHOT_LEAD_DAYS = 14;
+
+/**
+ * The first snapshot date (YYYY-MM-DD) to load for a range: a couple of weeks before the range starts,
+ * so each account's balance carried into the range is known (the sync writes one a day), or null for all history.
+ */
+export function snapshotLoadStart(today: string, range: Range): string | null {
+  const start = rangeStart(today, range);
+  if (!start) return null;
+  const [year, month, day] = start.split("-").map(Number);
+  return new Date(Date.UTC(year, month - 1, day - SNAPSHOT_LEAD_DAYS)).toISOString().slice(0, 10);
+}
+
+/**
+ * A copy of `series` that ends on `today` at the live total (replacing a point already dated today),
+ * so a chart and its headline agree. An empty series stays empty.
+ */
+export function withLiveEnd(series: SeriesPoint[], today: string, valueCents: number): SeriesPoint[] {
+  if (!series.length) return [];
+  const kept = series[series.length - 1].date >= today ? series.slice(0, -1) : series;
+  return [...kept, { date: today, valueCents }];
+}
+
+/** The key of a balance snapshot's account: "p12" for a Plaid account, "m3" for a manual one. */
+export function snapshotKey(snapshot: { plaidAccountId: number | null; manualAccountId: number | null }) {
+  return snapshot.plaidAccountId !== null ? `p${snapshot.plaidAccountId}` : `m${snapshot.manualAccountId}`;
+}
+
+export type PeriodChange ={ startDate: string; startCents: number; endCents: number; changeCents: number; percent: number | null };
 
 /** Change from the first to the last point of a (sliced) series; null with fewer than one point. */
 export function periodChange(series: SeriesPoint[], endCents = series.at(-1)?.valueCents): PeriodChange | null {
@@ -96,7 +124,7 @@ export function balanceSeries(snapshots: { date: string; plaidAccountId: number 
   const latest = new Map<string, number>();
   const series: SeriesPoint[] = [];
   for (const snapshot of sorted) {
-    latest.set(snapshot.plaidAccountId !== null ? `p${snapshot.plaidAccountId}` : `m${snapshot.manualAccountId}`, snapshot.balanceCents);
+    latest.set(snapshotKey(snapshot), snapshot.balanceCents);
     let total = 0;
     for (const value of latest.values()) total += value;
     if (series.length && series[series.length - 1].date === snapshot.date) series[series.length - 1].valueCents = total;

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import type { Portfolio } from "../lib/core/model";
 import {
   applyRuleToExisting, saveCategoryRule, updateTransaction,
@@ -32,7 +32,11 @@ const plaidCode = (code: string | null) => (code ? code.toLowerCase().replace(/_
 /** One transaction: category, notes, exclude and reviewed, plus "Always categorize … as …". */
 export function TransactionDrawer({ context, portfolio, transaction, categories, rules, account, notify, onUpdated, onRulesChanged, onClose }: Props) {
   const [notes, setNotes] = useState(transaction.notes || "");
-  const [saving, setSaving] = useState(false);
+  // Saves run one after another, so a slower earlier save can't overwrite a later one. Only the
+  // checkbox and category saves disable the checkboxes; a notes save (on blur) doesn't block them.
+  const queue = useRef<Promise<void>>(Promise.resolve());
+  const [blocking, setBlocking] = useState(0);
+  const sentNotes = useRef(transaction.notes || null);
   const [onlyThisAccount, setOnlyThisAccount] = useState(false);
   const [newRule, setNewRule] = useState<CategoryRule | null>(null);
   const merchant = transaction.merchantName || transaction.name;
@@ -41,16 +45,29 @@ export function TransactionDrawer({ context, portfolio, transaction, categories,
   const existingRule = rules.find((rule) => rule.matchText.trim().toLowerCase() === merchant.trim().toLowerCase() && rule.matchField === field
     && (rule.plaidAccountId === null || rule.plaidAccountId === transaction.plaidAccountId));
 
-  async function save(patch: TransactionPatch) {
-    setSaving(true);
-    try {
-      onUpdated(await updateTransaction(context, transaction.id, patch));
-    } catch (reason) {
-      notify(reason instanceof Error ? reason.message : "Couldn't save the transaction.", true);
-    } finally {
-      setSaving(false);
-    }
+  function save(patch: TransactionPatch, { block = true } = {}) {
+    if (block) setBlocking((count) => count + 1);
+    queue.current = queue.current.then(async () => {
+      try {
+        onUpdated(await updateTransaction(context, transaction.id, patch));
+      } catch (reason) {
+        notify(reason instanceof Error ? reason.message : "Couldn't save the transaction.", true);
+      } finally {
+        if (block) setBlocking((count) => count - 1);
+      }
+    });
   }
+
+  /** Saves the note if it changed since it was last saved (on blur, and when the drawer closes). */
+  function saveNotes() {
+    const next = notes.trim() || null;
+    if (next === sentNotes.current) return;
+    sentNotes.current = next;
+    save({ notes }, { block: false });
+  }
+
+  // Escape and the scrim close the drawer without blurring the textarea, so save a pending note here too.
+  const close = () => { saveNotes(); onClose(); };
 
   async function createRule() {
     if (transaction.categoryId === null) return;
@@ -80,7 +97,7 @@ export function TransactionDrawer({ context, portfolio, transaction, categories,
   const ruleCategory = existingRule ? categories.find((item) => item.id === existingRule.categoryId) : undefined;
 
   return (
-    <Drawer title={merchant} onClose={onClose}>
+    <Drawer title={merchant} onClose={close}>
       <div className="txn-summary">
         <span className={`num txn-big${transaction.amountCents > 0 ? " in" : ""}`}>{transactionAmount(transaction.amountCents)}</span>
         <span className="txn-facts">
@@ -97,7 +114,7 @@ export function TransactionDrawer({ context, portfolio, transaction, categories,
 
       <section className="fieldset">
         <h3>Category</h3>
-        <CategoryPicker categories={categories} value={transaction.categoryId} allowNone label="Category" onChange={(id) => { if (id !== transaction.categoryId) void save({ categoryId: id }); }} />
+        <CategoryPicker categories={categories} value={transaction.categoryId} allowNone label="Category" onChange={(id) => { if (id !== transaction.categoryId) save({ categoryId: id }); }} />
         <p className="hint">
           {transaction.categorySource ? `${categoryLabel(category)} · ${SOURCE_LABELS[transaction.categorySource]}` : "Not categorized yet"}
           {transaction.plaidCategoryDetailed ? ` · Plaid: ${plaidCode(transaction.plaidCategoryDetailed)}` : ""}
@@ -136,13 +153,13 @@ export function TransactionDrawer({ context, portfolio, transaction, categories,
         <h3>Notes</h3>
         <label className="f">
           <textarea aria-label="Notes" rows={3} value={notes} placeholder="Add a note (searchable)" onChange={(event) => setNotes(event.target.value)}
-            onBlur={() => { if ((notes.trim() || null) !== (transaction.notes || null)) void save({ notes }); }} />
+            onBlur={saveNotes} />
         </label>
       </section>
 
       <section className="fieldset">
-        <label className="check"><input type="checkbox" checked={transaction.excluded} disabled={saving} onChange={(event) => void save({ excluded: event.target.checked })} /> Exclude from cash flow</label>
-        <label className="check"><input type="checkbox" checked={transaction.reviewed} disabled={saving} onChange={(event) => void save({ reviewed: event.target.checked })} /> Reviewed</label>
+        <label className="check"><input type="checkbox" checked={transaction.excluded} disabled={blocking > 0} onChange={(event) => save({ excluded: event.target.checked })} /> Exclude from cash flow</label>
+        <label className="check"><input type="checkbox" checked={transaction.reviewed} disabled={blocking > 0} onChange={(event) => save({ reviewed: event.target.checked })} /> Reviewed</label>
       </section>
     </Drawer>
   );

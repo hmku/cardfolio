@@ -4,21 +4,21 @@ import { useCallback, useMemo, useState, type FormEvent, type ReactNode } from "
 import { daysBetween, isoDate, parseDate } from "../lib/core/dates";
 import { netWorthCents } from "../lib/core/finance";
 import {
-  ACCOUNT_GROUPS, balanceSeries, manualAccountGroup, periodChange, plaidAccountGroup, rangeStart, seriesFrom,
+  ACCOUNT_GROUPS, balanceSeries, manualAccountGroup, periodChange, plaidAccountGroup, rangeStart, seriesFrom, snapshotKey, snapshotLoadStart, withLiveEnd,
   type AccountGroup, type Range, type SeriesPoint,
 } from "../lib/core/investments";
 import type { Portfolio } from "../lib/core/model";
 import {
   deleteManualAccount, isDebt, loadBalanceSnapshots, loadBankAccounts, loadBankLogins, loadManualAccounts, MANUAL_ACCOUNT_KINDS,
-  saveManualAccount, setBankAccountOwner, type BalanceSnapshot, type BankAccount, type BankLogin, type ManualAccount, type ManualAccountKind,
+  saveManualAccount, setBankAccountOwner, type BankAccount, type BankLogin, type FinanceContext, type ManualAccount, type ManualAccountKind,
 } from "../lib/finance-data";
 import { bankAccountLabel } from "../lib/presentation/account-labels";
 import { moneyExact, moneyWhole } from "../lib/presentation/finance-format";
-import { fullDate, shortDate, toCents, toDollarsInput } from "../lib/presentation/format";
-import { bankAccountKind, bankAccountOwner, OwnerButtons, OwnerSelect, RangeButtons, syncedAt, type OwnerFilter } from "./FinanceAccounts";
-import { Change, LineChart, longDate } from "./FinanceChart";
-import { FinanceEmpty, FinanceSection, useFinanceLoad, type FinancePageProps } from "./FinanceShared";
-import { Drawer, Tag } from "./ui";
+import { fullDate, shortDate, syncedAt, toCents, toDollarsInput } from "../lib/presentation/format";
+import { AccountName, bankAccountKind, bankAccountOwner, bankBalanceCents, OwnerButtons, OwnerSelect, RangeButtons, type OwnerFilter } from "./FinanceAccounts";
+import { Change, LineChart } from "./FinanceChart";
+import { FinanceEmpty, FinanceLoading, FinanceSection, useFinanceLoad, type FinancePageProps } from "./FinanceShared";
+import { ConfirmButton, Drawer, Tag } from "./ui";
 
 /** One row on the Accounts page: a Plaid account or a manual one. */
 type Row = {
@@ -35,12 +35,11 @@ type Row = {
 type Selected = { kind: "plaid"; id: number } | { kind: "manual"; id: number | null } | null;
 
 const kindLabel = (kind: string) => MANUAL_ACCOUNT_KINDS.find((item) => item.value === kind)?.label ?? kind;
-const snapshotKey = (snapshot: Pick<BalanceSnapshot, "plaidAccountId" | "manualAccountId">) => (snapshot.plaidAccountId !== null ? `p${snapshot.plaidAccountId}` : `m${snapshot.manualAccountId}`);
 
 function toRows(portfolio: Portfolio, bank: BankAccount[], manual: ManualAccount[]): Row[] {
   return [
     ...bank.map((account) => {
-      const balance = account.currentCents ?? account.availableCents;
+      const balance = bankBalanceCents(account);
       return { key: `p${account.id}`, group: plaidAccountGroup(account.type, account.subtype), name: bankAccountLabel(account, portfolio), ownerId: bankAccountOwner(portfolio, account), balanceCents: balance === null ? null : netWorthCents(account.type, balance), plaid: account };
     }),
     ...manual.map((account) => ({ key: `m${account.id}`, group: manualAccountGroup(account.kind), name: account.name, ownerId: account.personId, balanceCents: account.liability ? -account.balanceCents || 0 : account.balanceCents, manual: account })),
@@ -49,16 +48,21 @@ function toRows(portfolio: Portfolio, bank: BankAccount[], manual: ManualAccount
 
 /** Accounts tab: net worth with its history, every account grouped by type, and manual accounts. */
 export function AccountsPage({ context, portfolio, notify, onOpenSettings, onShowTransactions }: FinancePageProps) {
-  const load = useCallback(async () => {
-    const [bank, logins, manual, snapshots] = await Promise.all([loadBankAccounts(context), loadBankLogins(context), loadManualAccounts(context), loadBalanceSnapshots(context)]);
-    return { bank, logins, manual, snapshots };
-  }, [context]);
-  const { data, error, reload } = useFinanceLoad(load);
-  const [owner, setOwner] = useState<OwnerFilter>(null);
+  const today = isoDate(new Date());
   const [range, setRange] = useState<Range>("3M");
+  const load = useCallback(async () => {
+    const [bank, logins, manual] = await Promise.all([loadBankAccounts(context), loadBankLogins(context), loadManualAccounts(context)]);
+    return { bank, logins, manual };
+  }, [context]);
+  const { data, error: accountsError, reload: reloadAccounts } = useFinanceLoad(load);
+  // Only the history the chosen range needs (there's a row per account per day); the old range shows until it arrives.
+  const loadHistory = useCallback(() => loadBalanceSnapshots(context, snapshotLoadStart(today, range)), [context, today, range]);
+  const { data: snapshots, error: historyError, reload: reloadHistory } = useFinanceLoad(loadHistory);
+  const error = accountsError || historyError;
+  const reload = useCallback(async () => { await Promise.all([reloadAccounts(), reloadHistory()]); }, [reloadAccounts, reloadHistory]);
+  const [owner, setOwner] = useState<OwnerFilter>(null);
   const [selected, setSelected] = useState<Selected>(null);
   const [showArchived, setShowArchived] = useState(false);
-  const today = isoDate(new Date());
   const people = portfolio.people;
 
   const rows = useMemo(() => (data ? toRows(portfolio, data.bank, data.manual) : []), [data, portfolio]);
@@ -70,16 +74,17 @@ export function AccountsPage({ context, portfolio, notify, onOpenSettings, onSho
   const net = assets - debts;
 
   const chart = useMemo(() => {
-    if (!data) return { points: [] as SeriesPoint[], full: [] as SeriesPoint[] };
+    if (!snapshots) return { points: [] as SeriesPoint[], firstDate: null };
     // Archived manual accounts are left out of the history too (they'd otherwise carry forward forever).
     const keys = new Set(active.map((row) => row.key));
-    const full = balanceSeries(data.snapshots, (snapshot) => keys.has(snapshotKey(snapshot)));
-    const points = seriesFrom(full, rangeStart(today, range));
+    const start = rangeStart(today, range);
+    const loaded = balanceSeries(snapshots, (snapshot) => keys.has(snapshotKey(snapshot)));
     // End on today's live balances so the chart and the headline agree.
-    if (points.length && points[points.length - 1].date < today) points.push({ date: today, valueCents: net });
-    else if (points.length) points[points.length - 1] = { date: today, valueCents: net };
-    return { points, full };
-  }, [data, active, range, today, net]);
+    const points = withLiveEnd(seriesFrom(loaded, start), today, net);
+    // When the history is shorter than the range, say where it starts.
+    const firstDate = loaded.length && (!start || loaded[0].date > start) ? loaded[0].date : null;
+    return { points, firstDate };
+  }, [snapshots, active, range, today, net]);
   const change = periodChange(chart.points);
 
   const selectedRow = selected?.kind === "plaid" ? rows.find((row) => row.key === `p${selected.id}`) : selected?.kind === "manual" && selected.id !== null ? rows.find((row) => row.key === `m${selected.id}`) : undefined;
@@ -102,7 +107,7 @@ export function AccountsPage({ context, portfolio, notify, onOpenSettings, onSho
       error={error}
       onRetry={() => void reload()}
     >
-      {!data ? <p className="hint">Loading…</p> : rows.length === 0 ? (
+      {!data ? <FinanceLoading error={error} /> : rows.length === 0 ? (
         <FinanceEmpty onOpenSettings={onOpenSettings}>No accounts yet. Connect a bank, card or brokerage in Settings, or add one Plaid can&rsquo;t see (a private investment, a house, a loan) with &ldquo;Add a manual account&rdquo;.</FinanceEmpty>
       ) : (
         <>
@@ -116,13 +121,13 @@ export function AccountsPage({ context, portfolio, notify, onOpenSettings, onSho
               <div className="stat hero">
                 <span className="stat-label">Net worth</span>
                 <span className="stat-value">{moneyWhole(net)}</span>
-                {change && chart.points.length > 1 && <span className="stat-delta"><Change cents={change.changeCents} percent={change.percent} /> since {longDate(change.startDate)}</span>}
+                {change && chart.points.length > 1 && <span className="stat-delta"><Change cents={change.changeCents} percent={change.percent} /> since {fullDate(change.startDate)}</span>}
               </div>
               <div className="stat"><span className="stat-label">Assets</span><span className="stat-value">{moneyWhole(assets)}</span></div>
               <div className="stat"><span className="stat-label">Debts</span><span className="stat-value">{moneyWhole(debts)}</span></div>
             </div>
             <LineChart points={chart.points} label="Net worth" emptyText="Net worth history starts the day an account is connected or a manual balance is saved; a point is added every day." />
-            {chart.full.length > 0 && <p className="hint">History from {longDate(chart.full[0].date)}, when the first account was connected. Archived accounts are left out.</p>}
+            {chart.firstDate && <p className="hint">History from {fullDate(chart.firstDate)}, when the first account was connected. Archived accounts are left out.</p>}
           </div>
 
           {groups.map((group) => {
@@ -165,7 +170,7 @@ export function AccountsPage({ context, portfolio, notify, onOpenSettings, onSho
           account={selectedRow.plaid}
           login={data.logins.find((login) => login.id === selectedRow.plaid!.itemId)}
           portfolio={portfolio}
-          history={accountHistory(data.snapshots, selectedRow.key, isDebt(selectedRow.plaid))}
+          context={context}
           onOwner={(personId) => void saveOwner(selectedRow.plaid!, personId)}
           onShowTransactions={() => { setSelected(null); onShowTransactions({ accountIds: [selectedRow.plaid!.id] }); }}
           onClose={() => setSelected(null)}
@@ -177,7 +182,7 @@ export function AccountsPage({ context, portfolio, notify, onOpenSettings, onSho
           account={selectedRow?.manual ?? null}
           people={people}
           defaultOwner={owner}
-          history={selectedRow ? accountHistory(data.snapshots, selectedRow.key, Boolean(selectedRow.manual?.liability)) : []}
+          context={context}
           onSave={async (draft) => {
             const saved = await saveManualAccount(context, selected.id, draft, today);
             notify(selected.id === null ? `Added ${saved.name}` : `Saved ${saved.name}`);
@@ -197,9 +202,16 @@ export function AccountsPage({ context, portfolio, notify, onOpenSettings, onSho
   );
 }
 
-/** One account's own balance per day; debts as the positive amount owed. */
-function accountHistory(snapshots: BalanceSnapshot[], key: string, debt: boolean): SeriesPoint[] {
-  return snapshots.filter((snapshot) => snapshotKey(snapshot) === key).map((snapshot) => ({ date: snapshot.date, valueCents: debt ? -snapshot.balanceCents || 0 : snapshot.balanceCents }));
+/** One account's own balance per day (all of its history); debts as the positive amount owed. Empty until loaded. */
+function useAccountHistory(context: FinanceContext, account: { plaidAccountId: number } | { manualAccountId: number } | null, debt: boolean): SeriesPoint[] {
+  const plaidAccountId = account && "plaidAccountId" in account ? account.plaidAccountId : null;
+  const manualAccountId = account && "manualAccountId" in account ? account.manualAccountId : null;
+  const load = useCallback(async () => {
+    if (plaidAccountId === null && manualAccountId === null) return [];
+    return loadBalanceSnapshots(context, null, plaidAccountId !== null ? { plaidAccountId } : { manualAccountId: manualAccountId! });
+  }, [context, plaidAccountId, manualAccountId]);
+  const { data } = useFinanceLoad(load);
+  return useMemo(() => (data || []).map((snapshot) => ({ date: snapshot.date, valueCents: debt ? -snapshot.balanceCents || 0 : snapshot.balanceCents })), [data, debt]);
 }
 
 function rowDetail(row: Row, people: Portfolio["people"]) {
@@ -215,7 +227,7 @@ function AccountRowItem({ row, people, today, dim, onOpen, onOwner }: { row: Row
   return (
     <li className={`finance-row account-row${dim ? " dim" : ""}`}>
       <button type="button" className="account-open grow" onClick={onOpen}>
-        <span className="account-name">{row.name}</span>
+        <span className="account-name"><AccountName label={row.name} /></span>
         <small>
           {rowDetail(row, people)}
           {statement && statement.lastStatementCents !== null && <> · statement {moneyWhole(statement.lastStatementCents)}</>}
@@ -235,12 +247,13 @@ function Fact({ label, children }: { label: string; children: ReactNode }) {
   return <div className="fact"><dt>{label}</dt><dd>{children}</dd></div>;
 }
 
-function BankAccountDrawer({ row, account, login, portfolio, history, onOwner, onShowTransactions, onClose }: {
-  row: Row; account: BankAccount; login: BankLogin | undefined; portfolio: Portfolio; history: SeriesPoint[];
+function BankAccountDrawer({ row, account, login, portfolio, context, onOwner, onShowTransactions, onClose }: {
+  row: Row; account: BankAccount; login: BankLogin | undefined; portfolio: Portfolio; context: FinanceContext;
   onOwner: (personId: number | null) => void; onShowTransactions?: () => void; onClose: () => void;
 }) {
   const debt = isDebt(account);
-  const balance = account.currentCents ?? account.availableCents;
+  const history = useAccountHistory(context, { plaidAccountId: account.id }, debt);
+  const balance = bankBalanceCents(account);
   const statement = account.statement;
   const linkedOwner = account.personId === null && row.ownerId !== null ? portfolio.person(row.ownerId)?.name : null;
   return (
@@ -279,8 +292,8 @@ function BankAccountDrawer({ row, account, login, portfolio, history, onOwner, o
 
 type ManualDraft = { name: string; kind: ManualAccountKind; liability: boolean; balance: string; personId: number | null; notes: string };
 
-function ManualAccountDrawer({ account, people, defaultOwner, history, onSave, onDelete, onClose }: {
-  account: ManualAccount | null; people: Portfolio["people"]; defaultOwner: number | null; history: SeriesPoint[];
+function ManualAccountDrawer({ account, people, defaultOwner, context, onSave, onDelete, onClose }: {
+  account: ManualAccount | null; people: Portfolio["people"]; defaultOwner: number | null; context: FinanceContext;
   onSave: (draft: Partial<ManualAccount>) => Promise<void>; onDelete: () => Promise<void>; onClose: () => void;
 }) {
   const [draft, setDraft] = useState<ManualDraft>(() => account
@@ -288,7 +301,7 @@ function ManualAccountDrawer({ account, people, defaultOwner, history, onSave, o
     : { name: "", kind: "private_investment", liability: false, balance: "", personId: defaultOwner, notes: "" });
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState("");
-  const [confirmDelete, setConfirmDelete] = useState(false);
+  const history = useAccountHistory(context, account ? { manualAccountId: account.id } : null, Boolean(account?.liability));
   const update = (patch: Partial<ManualDraft>) => setDraft((current) => ({ ...current, ...patch }));
 
   const run = async (action: () => Promise<void>) => {
@@ -311,7 +324,7 @@ function ManualAccountDrawer({ account, people, defaultOwner, history, onSave, o
       title={account ? account.name : "Add a manual account"}
       onClose={onClose}
       footer={<>
-        {account && <button type="button" className="btn danger" disabled={busy} onClick={() => (confirmDelete ? void run(onDelete) : setConfirmDelete(true))}>{confirmDelete ? "Tap again to delete" : "Delete"}</button>}
+        {account && <ConfirmButton className="btn danger" disabled={busy} label={`Delete ${account.name}`} onConfirm={() => void run(onDelete)} />}
         {account && <button type="button" className="btn" disabled={busy} onClick={() => void run(() => onSave({ archived: !account.archived }))}>{account.archived ? "Unarchive" : "Archive"}</button>}
         <button type="submit" form="manual-account-form" className="btn primary" disabled={busy}>{busy ? "Saving…" : account ? "Save" : "Add account"}</button>
       </>}

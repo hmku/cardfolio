@@ -1,61 +1,32 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
 import type { SeriesPoint } from "../lib/core/investments";
-import { moneyWhole } from "../lib/presentation/finance-format";
+import { moneyCompact, moneyWhole, niceTicks, percent, signedMoney, signedPercent, timeAxisLabels } from "../lib/presentation/finance-format";
+import { fullDate } from "../lib/presentation/format";
+import { AccountName } from "./FinanceAccounts";
 
 /**
  * Hand-rolled SVG charts for the Accounts and Investments pages (no chart library).
  * Colors come from the --chart-* tokens in globals.css, so light and dark both work.
  */
 
-const compact = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", notation: "compact", maximumFractionDigits: 1 });
-
-/** "$1.2M", "$350K", "−$4K": for axis ticks. */
-export function moneyCompact(cents: number) {
-  const text = compact.format(Math.abs(cents) / 100);
-  return cents < 0 ? `−${text}` : text;
-}
-
 const DAY = 86_400_000;
 const toTime = (date: string) => Date.parse(`${date}T00:00:00Z`);
-const monthDay = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
-const monthYear = new Intl.DateTimeFormat("en-US", { month: "short", year: "numeric", timeZone: "UTC" });
-const fullDate = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
 
-/** "Oct 3, 2026". */
-export function longDate(date: string) {
-  return fullDate.format(new Date(toTime(date)));
-}
-
-/** Round tick values covering [min, max]: 1, 2, 2.5 or 5 × a power of ten. */
-function niceTicks(min: number, max: number, count = 4) {
-  if (min === max) {
-    const pad = Math.max(Math.abs(min) * 0.05, 10_000);
-    min -= pad;
-    max += pad;
-  }
-  const raw = (max - min) / count;
-  const power = 10 ** Math.floor(Math.log10(raw));
-  const step = [1, 2, 2.5, 5, 10].map((factor) => factor * power).find((candidate) => candidate >= raw) ?? raw;
-  const start = Math.floor(min / step) * step;
-  const ticks: number[] = [];
-  for (let value = start; value <= max + step * 0.001; value += step) ticks.push(Math.round(value));
-  if (ticks[ticks.length - 1] < max) ticks.push(ticks[ticks.length - 1] + step);
-  return ticks;
-}
-
+/** The element's width, tracked from whenever it mounts (a callback ref: the plot appears only once there are points). */
 function useWidth<T extends HTMLElement>() {
-  const ref = useRef<T>(null);
   const [width, setWidth] = useState(0);
-  useEffect(() => {
-    const element = ref.current;
+  const observer = useRef<ResizeObserver | null>(null);
+  const ref = useCallback((element: T | null) => {
+    observer.current?.disconnect();
+    observer.current = null;
     if (!element) return;
     setWidth(element.clientWidth);
-    const observer = new ResizeObserver(([entry]) => setWidth(Math.round(entry.contentRect.width)));
-    observer.observe(element);
-    return () => observer.disconnect();
+    observer.current = new ResizeObserver(([entry]) => setWidth(Math.round(entry.contentRect.width)));
+    observer.current.observe(element);
   }, []);
+  useEffect(() => () => observer.current?.disconnect(), []);
   return [ref, width] as const;
 }
 
@@ -83,13 +54,12 @@ export function LineChart({ points, label, height = 190, emptyText }: { points: 
     const line = coords.map(([px, py], index) => `${index ? "L" : "M"}${px.toFixed(1)},${py.toFixed(1)}`).join("");
     const bottom = PAD.top + plotHeight;
     const area = `${line}L${coords[coords.length - 1][0].toFixed(1)},${bottom}L${coords[0][0].toFixed(1)},${bottom}Z`;
-    const spanDays = (t1 - t0) / DAY;
-    const format = spanDays > 300 ? monthYear : monthDay;
     const labelCount = plotWidth < 260 ? 2 : plotWidth < 480 ? 3 : 5;
-    const xLabels = Array.from({ length: labelCount }, (_, index) => {
-      const time = t0 + ((t1 - t0) * index) / (labelCount - 1);
-      return { px: PAD.left + (plotWidth * index) / (labelCount - 1), text: format.format(new Date(time)), anchor: index === 0 ? "start" : index === labelCount - 1 ? "end" : "middle" };
-    });
+    const xLabels = timeAxisLabels(points.map((point) => point.date), labelCount).map((tick) => ({
+      px: PAD.left + plotWidth * tick.fraction,
+      text: tick.text,
+      anchor: tick.fraction === 0 ? "start" : tick.fraction === 1 ? "end" : "middle",
+    }));
     return { ticks, y, coords, line, area, xLabels };
   }, [points, plotWidth, plotHeight]);
 
@@ -97,7 +67,7 @@ export function LineChart({ points, label, height = 190, emptyText }: { points: 
     return (
       <div className="fchart-empty">
         <p>{emptyText || "Not enough history to draw a chart yet."}</p>
-        {points.length === 1 && <p className="hint">One balance so far: {moneyWhole(points[0].valueCents)} on {longDate(points[0].date)}. A point is added every day.</p>}
+        {points.length === 1 && <p className="hint">One balance so far: {moneyWhole(points[0].valueCents)} on {fullDate(points[0].date)}. A point is added every day.</p>}
       </div>
     );
   }
@@ -133,7 +103,7 @@ export function LineChart({ points, label, height = 190, emptyText }: { points: 
             width={width}
             height={height}
             role="img"
-            aria-label={`${label}: ${moneyWhole(points[0].valueCents)} on ${longDate(points[0].date)} to ${moneyWhole(points[points.length - 1].valueCents)} on ${longDate(points[points.length - 1].date)}. Use the arrow keys to read each day.`}
+            aria-label={`${label}: ${moneyWhole(points[0].valueCents)} on ${fullDate(points[0].date)} to ${moneyWhole(points[points.length - 1].valueCents)} on ${fullDate(points[points.length - 1].date)}. Use the arrow keys to read each day.`}
             tabIndex={0}
             onPointerMove={onMove}
             onPointerDown={onMove}
@@ -164,7 +134,7 @@ export function LineChart({ points, label, height = 190, emptyText }: { points: 
         {point && coord && (
           <div className="fchart-tip" style={{ left: Math.min(Math.max(coord[0], 70), width - 70), top: 0 }} aria-live="polite">
             <strong className="num">{moneyWhole(point.valueCents)}</strong>
-            <span>{longDate(point.date)}</span>
+            <span>{fullDate(point.date)}</span>
           </div>
         )}
       </div>
@@ -175,7 +145,7 @@ export function LineChart({ points, label, height = 190, emptyText }: { points: 
             <thead><tr><th>Date</th><th className="r">Balance</th></tr></thead>
             <tbody>
               {[...points].reverse().map((row) => (
-                <tr key={row.date}><td>{longDate(row.date)}</td><td className="num r">{moneyWhole(row.valueCents)}</td></tr>
+                <tr key={row.date}><td>{fullDate(row.date)}</td><td className="num r">{moneyWhole(row.valueCents)}</td></tr>
               ))}
             </tbody>
           </table>
@@ -192,7 +162,7 @@ export function BarList({ items, label }: { items: { key: string; label: string;
     <ul className="barlist" aria-label={label}>
       {items.map((item) => (
         <li key={item.key}>
-          <span className="barlist-label">{item.label}{item.sub && <small>{item.sub}</small>}</span>
+          <span className="barlist-label"><AccountName label={item.label} />{item.sub && <small>{item.sub}</small>}</span>
           <span className="barlist-track" aria-hidden="true">
             <span className="barlist-bar" style={{ width: `${max > 0 ? Math.max((Math.max(item.share, 0) / max) * 100, 1) : 0}%` }} />
           </span>
@@ -201,23 +171,6 @@ export function BarList({ items, label }: { items: { key: string; label: string;
       ))}
     </ul>
   );
-}
-
-/** "12.3%" (one decimal under 10%, whole above). */
-export function percent(share: number) {
-  const value = share * 100;
-  return `${Math.abs(value) < 10 ? value.toFixed(1) : value.toFixed(0)}%`;
-}
-
-/** "+$1,234 (+5.2%)" style signed money for gains and changes. */
-export function signedMoney(cents: number) {
-  return cents > 0 ? `+${moneyWhole(cents)}` : moneyWhole(cents);
-}
-
-export function signedPercent(value: number | null) {
-  if (value === null || !Number.isFinite(value)) return "";
-  const text = `${(Math.abs(value) * 100).toFixed(Math.abs(value) < 0.1 ? 1 : 0)}%`;
-  return value > 0 ? `+${text}` : value < 0 ? `−${text}` : text;
 }
 
 /** A gain or change with its sign (never color alone): green up, red down. */

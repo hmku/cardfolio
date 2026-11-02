@@ -14,7 +14,7 @@ import {
 } from "../lib/presentation/transaction-view";
 import { CategoryPicker, categoryLabel } from "./CategoryPicker";
 import { CategorySettings } from "./CategorySettings";
-import { FinanceEmpty, FinanceSection, useFinanceLoad, type FinancePageProps } from "./FinanceShared";
+import { FinanceEmpty, FinanceLoading, FinanceSection, useFinanceLoad, type FinancePageProps } from "./FinanceShared";
 import { TransactionDrawer } from "./TransactionDrawer";
 import { Tag } from "./ui";
 
@@ -75,13 +75,19 @@ export function TransactionsPage({ context, portfolio, notify, onOpenSettings, t
     return () => clearTimeout(timer);
   }, [searchText, filters.search, setFilters]);
 
-  const fetchPage = useCallback(async (offset: number) => {
+  // Pages are keyed on the last row loaded (not an offset), so edits that move rows in or out of the
+  // filters, or a sync adding rows, never skip or repeat rows. `after` null loads the first page.
+  const fetchPage = useCallback(async (after: Transaction | null) => {
     const id = ++request.current;
-    setList((current) => ({ ...current, loading: true, error: "", ...(offset === 0 && { hasMore: false }) }));
+    setList((current) => ({ ...current, loading: true, error: "", ...(!after && { hasMore: false }) }));
     try {
-      const page = await loadTransactions(context, { ...query, limit: PAGE_SIZE, offset });
+      const page = await loadTransactions(context, { ...query, limit: PAGE_SIZE, ...(after && { before: { date: after.date, id: after.id } }) });
       if (id !== request.current) return;
-      setList((current) => ({ items: offset === 0 ? page.transactions : [...current.items, ...page.transactions], hasMore: page.hasMore, loading: false, error: "" }));
+      setList((current) => {
+        if (!after) return { items: page.transactions, hasMore: page.hasMore, loading: false, error: "" };
+        const seen = new Set(current.items.map((item) => item.id));
+        return { items: [...current.items, ...page.transactions.filter((item) => !seen.has(item.id))], hasMore: page.hasMore, loading: false, error: "" };
+      });
     } catch (reason) {
       if (id !== request.current) return;
       setList((current) => ({ ...current, loading: false, error: reason instanceof Error ? reason.message : "Couldn't load transactions." }));
@@ -90,11 +96,12 @@ export function TransactionsPage({ context, portfolio, notify, onOpenSettings, t
 
   useEffect(() => {
     setSelected(new Set());
-    void fetchPage(0);
+    void fetchPage(null);
   }, [fetchPage]);
 
   // Infinite scroll: load the next page when the end of the list comes into view.
-  const loadMore = useCallback(() => { if (list.hasMore && !list.loading) void fetchPage(list.items.length); }, [fetchPage, list.hasMore, list.loading, list.items.length]);
+  const lastItem = list.items.length ? list.items[list.items.length - 1] : null;
+  const loadMore = useCallback(() => { if (list.hasMore && !list.loading && lastItem) void fetchPage(lastItem); }, [fetchPage, list.hasMore, list.loading, lastItem]);
   useEffect(() => {
     const node = sentinel.current;
     if (!node || !list.hasMore || typeof IntersectionObserver === "undefined") return;
@@ -154,7 +161,7 @@ export function TransactionsPage({ context, portfolio, notify, onOpenSettings, t
     <FinanceSection
       title="Transactions"
       error={setupError || list.error}
-      onRetry={() => { void reloadSetup(); void fetchPage(0); }}
+      onRetry={() => { void reloadSetup(); void fetchPage(null); }}
       actions={<button type="button" className="btn small" disabled={!setup} onClick={() => setManaging(true)}>Manage categories</button>}
     >
       <div className="txn-toolbar">
@@ -211,16 +218,16 @@ export function TransactionsPage({ context, portfolio, notify, onOpenSettings, t
       {selected.size > 0 && setup && (
         <div className="bulk-bar" role="region" aria-label="Edit selected transactions">
           <strong>{selected.size} selected</strong>
-          <CategoryPicker categories={setup.categories} value={null} placeholder="Set category…" label="Set category for selected" onChange={(id) => { if (id !== null) void bulk({ categoryId: id }, "Recategorized"); }} />
+          <CategoryPicker categories={setup.categories} value={null} placeholder="Set category…" label="Set category for selected" disabled={bulkBusy} onChange={(id) => { if (id !== null) void bulk({ categoryId: id }, "Recategorized"); }} />
           <button type="button" className="btn small" disabled={bulkBusy} onClick={() => void bulk({ excluded: true }, "Excluded")}>Exclude</button>
           <button type="button" className="btn small" disabled={bulkBusy} onClick={() => void bulk({ excluded: false }, "Included")}>Include</button>
-          <button type="button" className="btn small" disabled={bulkBusy} onClick={() => void bulk({ reviewed: true }, "Marked reviewed:")}>Mark reviewed</button>
+          <button type="button" className="btn small" disabled={bulkBusy} onClick={() => void bulk({ reviewed: true }, "Marked reviewed")}>Mark reviewed</button>
           <button type="button" className="btn small" onClick={() => setSelected(new Set(list.items.map((item) => item.id)))}>Select all {list.items.length}</button>
           <button type="button" className="btn link" onClick={() => setSelected(new Set())}>Clear</button>
         </div>
       )}
 
-      {!setup || (list.loading && !list.items.length) ? <p className="hint">Loading…</p> : noAccounts ? (
+      {!setup || (list.loading && !list.items.length) ? <FinanceLoading error={setupError || list.error} /> : list.error && !list.items.length ? null : noAccounts ? (
         <FinanceEmpty onOpenSettings={onOpenSettings}>Connect a bank or card to see its transactions here.</FinanceEmpty>
       ) : !list.items.length ? (
         <FinanceEmpty>{filtered ? "No transactions match these filters." : "No transactions yet. Plaid can take a few minutes to gather the first ones after connecting."}</FinanceEmpty>
@@ -236,11 +243,13 @@ export function TransactionsPage({ context, portfolio, notify, onOpenSettings, t
                   const name = transaction.merchantName || transaction.name;
                   return (
                     <li key={transaction.id} className={`txn-row${transaction.excluded ? " dim" : ""}${selected.has(transaction.id) ? " selected" : ""}`}>
-                      <input type="checkbox" className="txn-check" aria-label={`Select ${name}, ${transactionAmount(transaction.amountCents)}`} checked={selected.has(transaction.id)} onChange={() => toggle(transaction.id)} />
+                      <label className="txn-check">
+                        <input type="checkbox" aria-label={`Select ${name}, ${transactionAmount(transaction.amountCents)}`} checked={selected.has(transaction.id)} onChange={() => toggle(transaction.id)} />
+                      </label>
                       <button type="button" className="txn-main" onClick={() => setOpenId(transaction.id)}>
                         <TransactionIcon transaction={transaction} emoji={category?.emoji || (transaction.amountCents > 0 ? "↘" : "•")} />
                         <span className="txn-name">
-                          <span className="txn-title">{name}{!transaction.reviewed && <span className="txn-unreviewed" title="Not reviewed" aria-label="not reviewed" />}</span>
+                          <span className="txn-title">{name}{!transaction.reviewed && <><span className="txn-unreviewed" title="Not reviewed" aria-hidden="true" /><span className="sr-only">(not reviewed)</span></>}</span>
                           <small className="txn-sub">{categoryLabel(category)}{account ? ` · ${account}` : ""}</small>
                         </span>
                         <span className={`txn-cat${category ? "" : " none"}`}>{categoryLabel(category)}</span>
@@ -274,7 +283,7 @@ export function TransactionsPage({ context, portfolio, notify, onOpenSettings, t
           account={accountById.get(openTransaction.plaidAccountId)}
           notify={notify}
           onUpdated={replaceItem}
-          onRulesChanged={(changed) => { void reloadSetup(); if (changed) void fetchPage(0); }}
+          onRulesChanged={(changed) => { void reloadSetup(); if (changed) void fetchPage(null); }}
           onClose={() => setOpenId(null)}
         />
       )}
@@ -287,7 +296,7 @@ export function TransactionsPage({ context, portfolio, notify, onOpenSettings, t
           rules={setup.rules}
           accounts={setup.accounts}
           notify={notify}
-          onChanged={(changed) => { void reloadSetup(); if (changed) void fetchPage(0); }}
+          onChanged={(changed) => { void reloadSetup(); if (changed) void fetchPage(null); }}
           onClose={() => setManaging(false)}
         />
       )}

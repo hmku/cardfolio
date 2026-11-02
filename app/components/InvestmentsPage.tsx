@@ -4,18 +4,19 @@ import { Fragment, useCallback, useMemo, useState } from "react";
 import { isoDate } from "../lib/core/dates";
 import {
   ACTIVITY_KINDS, activityKind, aggregatePositions, allocationByAccount, allocationByClass, ASSET_CLASSES, balanceSeries, INVESTMENT_MANUAL_KINDS,
-  periodChange, rangeStart, seriesFrom, sortPositions, summarizePositions, type ActivityKind, type PositionSort, type Range,
+  periodChange, rangeStart, seriesFrom, snapshotKey, snapshotLoadStart, sortPositions, summarizePositions, withLiveEnd,
+  type ActivityKind, type PositionSort, type Range,
 } from "../lib/core/investments";
 import {
   loadBalanceSnapshots, loadBankAccounts, loadHoldings, loadInvestmentTransactions, loadManualAccounts, loadSecurities, MANUAL_ACCOUNT_KINDS,
   type InvestmentTransaction,
 } from "../lib/finance-data";
 import { bankAccountLabel } from "../lib/presentation/account-labels";
-import { moneyExact, moneyWhole, transactionAmount } from "../lib/presentation/finance-format";
-import { shortDate } from "../lib/presentation/format";
-import { bankAccountOwner, OwnerButtons, RangeButtons, type OwnerFilter } from "./FinanceAccounts";
-import { BarList, Change, LineChart, longDate, percent, signedMoney, signedPercent } from "./FinanceChart";
-import { FinanceEmpty, FinanceSection, useFinanceLoad, type FinancePageProps } from "./FinanceShared";
+import { moneyExact, moneyWhole, percent, signedMoney, signedPercent, transactionAmount } from "../lib/presentation/finance-format";
+import { fullDate, shortDate } from "../lib/presentation/format";
+import { AccountName, bankAccountOwner, bankBalanceCents, OwnerButtons, RangeButtons, type OwnerFilter } from "./FinanceAccounts";
+import { BarList, Change, LineChart } from "./FinanceChart";
+import { FinanceEmpty, FinanceLoading, FinanceSection, useFinanceLoad, type FinancePageProps } from "./FinanceShared";
 
 const ACTIVITY_PAGE = 200;
 const classLabel = (value: string) => ASSET_CLASSES.find((item) => item.value === value)?.label ?? value;
@@ -24,37 +25,42 @@ const quantityText = (value: number) => value.toLocaleString("en-US", { maximumF
 const priceText = (dollars: number) => moneyExact(Math.round(dollars * 100));
 
 /** One investment account: a Plaid investment account or a manual one (e.g. Edgar Street Capital). */
-type InvestmentAccount = { key: string; name: string; ownerId: number | null; plaidAccountId: number | null; manualAccountId: number | null };
+type InvestmentAccount = { key: string; name: string; fullName: string; ownerId: number | null; plaidAccountId: number | null; manualAccountId: number | null };
 
 /** Investments tab: value, cost basis and gains, allocation, holdings by security, value over time and activity. */
 export function InvestmentsPage({ context, portfolio, notify, onOpenSettings }: FinancePageProps) {
+  const today = isoDate(new Date());
+  const [range, setRange] = useState<Range>("1Y");
   const load = useCallback(async () => {
-    const [holdings, bank, manual, snapshots, activity, securities] = await Promise.all([
-      loadHoldings(context), loadBankAccounts(context), loadManualAccounts(context), loadBalanceSnapshots(context),
+    const [holdings, bank, manual, activity, securities] = await Promise.all([
+      loadHoldings(context), loadBankAccounts(context), loadManualAccounts(context),
       loadInvestmentTransactions(context, { limit: ACTIVITY_PAGE }), loadSecurities(context),
     ]);
-    return { holdings, bank, manual, snapshots, activity, securities };
+    return { holdings, bank, manual, activity, securities };
   }, [context]);
-  const { data, error, reload } = useFinanceLoad(load);
+  const { data, error: positionsError, reload: reloadPositions } = useFinanceLoad(load);
+  // Only the history the chosen range needs (there's a row per account per day); the old range shows until it arrives.
+  const loadHistory = useCallback(() => loadBalanceSnapshots(context, snapshotLoadStart(today, range)), [context, today, range]);
+  const { data: snapshots, error: historyError, reload: reloadHistory } = useFinanceLoad(loadHistory);
+  const error = positionsError || historyError;
+  const reload = useCallback(async () => { await Promise.all([reloadPositions(), reloadHistory()]); }, [reloadPositions, reloadHistory]);
   const [owner, setOwner] = useState<OwnerFilter>(null);
   const [accountKey, setAccountKey] = useState("all");
-  const [range, setRange] = useState<Range>("1Y");
   const [sort, setSort] = useState<PositionSort>("value");
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [activityType, setActivityType] = useState<ActivityKind | "all">("all");
   const [shown, setShown] = useState(25);
   const [more, setMore] = useState<{ rows: InvestmentTransaction[]; done: boolean }>({ rows: [], done: false });
   const [loadingMore, setLoadingMore] = useState(false);
-  const today = isoDate(new Date());
 
   const accounts = useMemo<InvestmentAccount[]>(() => {
     if (!data) return [];
     const withHoldings = new Set(data.holdings.map((holding) => holding.plaidAccountId));
     return [
       ...data.bank.filter((account) => account.type === "investment" || withHoldings.has(account.id))
-        .map((account) => ({ key: `p${account.id}`, name: bankAccountLabel(account, portfolio), ownerId: bankAccountOwner(portfolio, account), plaidAccountId: account.id, manualAccountId: null })),
+        .map((account) => ({ key: `p${account.id}`, name: bankAccountLabel(account, portfolio), fullName: bankAccountLabel(account, portfolio, { full: true }), ownerId: bankAccountOwner(portfolio, account), plaidAccountId: account.id, manualAccountId: null })),
       ...data.manual.filter((account) => !account.archived && !account.liability && INVESTMENT_MANUAL_KINDS.has(account.kind))
-        .map((account) => ({ key: `m${account.id}`, name: account.name, ownerId: account.personId, plaidAccountId: null, manualAccountId: account.id })),
+        .map((account) => ({ key: `m${account.id}`, name: account.name, fullName: account.name, ownerId: account.personId, plaidAccountId: null, manualAccountId: account.id })),
     ];
   }, [data, portfolio]);
   const accountName = useMemo(() => new Map(accounts.map((account) => [account.key, account.name])), [accounts]);
@@ -70,13 +76,20 @@ export function InvestmentsPage({ context, portfolio, notify, onOpenSettings }: 
     const withHoldings = new Set(holdings.map((holding) => holding.plaidAccountId));
     const manual = data.manual.filter((account) => chosen.has(`m${account.id}`)).map((account) => ({ id: account.id, name: account.name, kind: account.kind, balanceCents: account.balanceCents }));
     // A connected investment account with a balance but no holdings counts as one position.
-    const bare = data.bank.filter((account) => chosen.has(`p${account.id}`) && !withHoldings.has(account.id) && (account.currentCents ?? account.availableCents) !== null)
-      .map((account) => ({ plaidAccountId: account.id, name: bankAccountLabel(account, portfolio), balanceCents: (account.currentCents ?? account.availableCents)! }));
+    const bare = data.bank.flatMap((account) => {
+      const balanceCents = bankBalanceCents(account);
+      return chosen.has(`p${account.id}`) && !withHoldings.has(account.id) && balanceCents !== null ? [{ plaidAccountId: account.id, name: bankAccountLabel(account, portfolio), balanceCents }] : [];
+    });
     const positions = aggregatePositions(holdings, manual, bare);
-    const series = balanceSeries(data.snapshots, (snapshot) => chosen.has(snapshot.plaidAccountId !== null ? `p${snapshot.plaidAccountId}` : `m${snapshot.manualAccountId}`));
-    const points = seriesFrom(series, rangeStart(today, range));
-    return { positions, summary: summarizePositions(positions), byClass: allocationByClass(positions), byAccount: allocationByAccount(positions), series, points };
-  }, [data, chosen, portfolio, range, today]);
+    const summary = summarizePositions(positions);
+    const start = rangeStart(today, range);
+    const loaded = snapshots ? balanceSeries(snapshots, (snapshot) => chosen.has(snapshotKey(snapshot))) : [];
+    // End on today's live value so the chart, the change and the headline agree.
+    const points = withLiveEnd(seriesFrom(loaded, start), today, summary.valueCents);
+    // When the history is shorter than the range, say where it starts.
+    const firstDate = loaded.length && (!start || loaded[0].date > start) ? loaded[0].date : null;
+    return { positions, summary, byClass: allocationByClass(positions), byAccount: allocationByAccount(positions), points, firstDate };
+  }, [data, snapshots, chosen, portfolio, range, today]);
 
   const activity = useMemo(() => {
     if (!data) return [];
@@ -108,11 +121,11 @@ export function InvestmentsPage({ context, portfolio, notify, onOpenSettings }: 
 
   const change = view ? periodChange(view.points) : null;
   const sorted = view ? sortPositions(view.positions, sort) : [];
-  const nameOf = (account: { plaidAccountId: number | null; manualAccountId: number | null }) => accountName.get(account.plaidAccountId !== null ? `p${account.plaidAccountId}` : `m${account.manualAccountId}`) ?? "Account";
+  const nameOf = (account: { plaidAccountId: number | null; manualAccountId: number | null }) => accountName.get(snapshotKey(account)) ?? "Account";
 
   return (
     <FinanceSection title="Investments" error={error} onRetry={() => void reload()}>
-      {!data || !view ? <p className="hint">Loading…</p> : accounts.length === 0 ? (
+      {!data || !view ? <FinanceLoading error={error} /> : accounts.length === 0 ? (
         <FinanceEmpty onOpenSettings={onOpenSettings}>No investments yet. Connect a brokerage or retirement account with &ldquo;Connect investments&rdquo;, or add a private holding on the Accounts tab (&ldquo;Add a manual account&rdquo;, kind Private investment).</FinanceEmpty>
       ) : (
         <>
@@ -120,7 +133,7 @@ export function InvestmentsPage({ context, portfolio, notify, onOpenSettings }: 
             <OwnerButtons people={portfolio.people} value={owner} onChange={(value) => { setOwner(value); setAccountKey("all"); }} />
             <select className="filter-select" aria-label="Account" value={accountKey} onChange={(event) => setAccountKey(event.target.value)}>
               <option value="all">All accounts</option>
-              {ownerAccounts.map((account) => <option key={account.key} value={account.key}>{account.name}</option>)}
+              {ownerAccounts.map((account) => <option key={account.key} value={account.key}>{account.fullName}</option>)}
             </select>
             <RangeButtons value={range} onChange={setRange} />
           </div>
@@ -130,7 +143,7 @@ export function InvestmentsPage({ context, portfolio, notify, onOpenSettings }: 
               <div className="stat hero">
                 <span className="stat-label">Total value</span>
                 <span className="stat-value">{moneyWhole(view.summary.valueCents)}</span>
-                {change && view.points.length > 1 && <span className="stat-delta"><Change cents={change.changeCents} percent={change.percent} /> since {longDate(change.startDate)}</span>}
+                {change && view.points.length > 1 && <span className="stat-delta"><Change cents={change.changeCents} percent={change.percent} /> since {fullDate(change.startDate)}</span>}
               </div>
               <div className="stat"><span className="stat-label">Cost basis</span><span className="stat-value">{moneyWhole(view.summary.costBasisCents)}</span></div>
               <div className="stat">
@@ -143,7 +156,7 @@ export function InvestmentsPage({ context, portfolio, notify, onOpenSettings }: 
               <p className="hint">{view.summary.withoutCostBasis} position{view.summary.withoutCostBasis === 1 ? "" : "s"} ({moneyWhole(view.summary.valueWithoutCostBasisCents)}) without a cost basis {view.summary.withoutCostBasis === 1 ? "is" : "are"} left out of the cost basis and gain.</p>
             )}
             <LineChart points={view.points} label="Investment value" emptyText="Value history starts the day an investment account is connected (or a manual value is saved); a point is added every day." />
-            <p className="hint">{view.series.length ? `History from ${longDate(view.series[0].date)}, when the first of these accounts was connected; earlier values aren't available from the bank.` : "History starts when an account is connected."} Includes cash held in the accounts.</p>
+            <p className="hint">{view.firstDate ? `History from ${fullDate(view.firstDate)}, when the first of these accounts was connected; earlier values aren't available from the bank. ` : ""}Includes cash held in the accounts.</p>
           </div>
 
           <div className="finance-split">
@@ -191,7 +204,7 @@ export function InvestmentsPage({ context, portfolio, notify, onOpenSettings }: 
                         <span className="holding-name">
                           <strong>{position.ticker || position.name}</strong>
                           {position.ticker && <span className="sub">{position.name}</span>}
-                          <span className="sub">{classLabel(position.assetClass)}{several ? ` · ${position.accounts.length} accounts` : onlyAccount !== position.name ? ` · ${onlyAccount}` : ""}</span>
+                          <span className="sub">{classLabel(position.assetClass)}{several ? ` · ${position.accounts.length} accounts` : onlyAccount !== position.name ? <> · <AccountName label={onlyAccount!} /></> : ""}</span>
                         </span>
                       );
                       return (
@@ -213,7 +226,7 @@ export function InvestmentsPage({ context, portfolio, notify, onOpenSettings }: 
                           </tr>
                           {open && position.accounts.map((account) => (
                             <tr key={account.key} className="sub-row">
-                              <td className="sticky"><span className="holding-account">{nameOf(account)}</span></td>
+                              <td className="sticky"><span className="holding-account"><AccountName label={nameOf(account)} /></span></td>
                               <td className="num r">{account.quantity === null ? "—" : quantityText(account.quantity)}</td>
                               <td />
                               <td className="num r">{moneyWhole(account.valueCents)}</td>
@@ -243,16 +256,15 @@ export function InvestmentsPage({ context, portfolio, notify, onOpenSettings }: 
               <ul className="finance-list flush">
                 {activity.slice(0, shown).map((row) => {
                   const security = row.securityId !== null ? data.securities.get(row.securityId) : undefined;
-                  const detail = [
-                    activityLabel(row.kind),
-                    nameOf({ plaidAccountId: row.plaidAccountId, manualAccountId: null }),
+                  const before = activityLabel(row.kind);
+                  const after = [
                     security?.tickerSymbol,
                     row.quantity ? `${quantityText(Math.abs(row.quantity))}${row.price ? ` @ ${priceText(row.price)}` : ""}` : null,
                   ].filter(Boolean).join(" · ");
                   return (
                     <li key={row.id} className="finance-row">
-                      <span className="when">{shortDate(row.date)}</span>
-                      <span className="grow">{row.name}<small>{detail}</small></span>
+                      <span className="when">{shortDate(row.date)}{row.date.slice(0, 4) !== today.slice(0, 4) && <small>{row.date.slice(0, 4)}</small>}</span>
+                      <span className="grow">{row.name}<small>{before} · <AccountName label={nameOf({ plaidAccountId: row.plaidAccountId, manualAccountId: null })} />{after ? ` · ${after}` : ""}</small></span>
                       <span className={`num amount${row.amountCents > 0 ? " in" : ""}`}>{transactionAmount(row.amountCents)}</span>
                     </li>
                   );

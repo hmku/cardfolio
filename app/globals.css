@@ -368,15 +368,23 @@ input[type="date"]::-webkit-datetime-edit { padding: 0; }
 .finance-page { display: grid; gap: 10px; }
 .finance-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
 .finance-head h2 { margin: 0 auto 0 0; font-size: 17px; }
-.finance-total { font-size: 17px; font-weight: 600; }
+/* One height for the toolbar controls on every finance tab (search, selects, segmented buttons, buttons). */
+.finance-page { --control-h: 34px; }
+.txn-toolbar > :is(.btn:not(.link), .search, select), .finance-filters > :is(.seg, select), .cf-period > .seg, .cf-stepper > :is(.btn, select), .group-head > select.filter-select { min-height: var(--control-h); box-sizing: border-box; }
+.icon-btn { width: var(--control-h, 34px); padding: 0; display: inline-grid; place-items: center; font-size: 16px; line-height: 1; }
+.icon-btn:disabled { opacity: .45; cursor: default; }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+/* An account's last digits ("··1234") stay on one line, together. */
+.acct-mask { white-space: nowrap; }
 .finance-empty { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 16px 18px; display: grid; gap: 10px; justify-items: start; }
 .finance-empty p { margin: 0; color: var(--muted); }
 .finance-list { list-style: none; margin: 0; padding: 0; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
 .finance-row { display: flex; align-items: center; gap: 12px; padding: 9px 14px; border-bottom: 1px solid var(--line-soft); min-width: 0; }
 .finance-row:last-child { border-bottom: 0; }
 .finance-row.dim { color: var(--faint); }
-.finance-row .when { color: var(--muted); font-size: 13px; width: 52px; flex: none; }
-.finance-row .grow { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.finance-row .when { color: var(--muted); font-size: 13px; width: 52px; flex: none; align-self: flex-start; }
+.finance-row .when small { font-size: 11px; color: var(--faint); }
+.finance-row .grow { flex: 1; min-width: 0; overflow-wrap: break-word; }
 .finance-row small { display: block; color: var(--muted); font-size: 12px; }
 .finance-row .amount { white-space: nowrap; font-weight: 500; }
 .finance-row .amount.in { color: var(--used); }
@@ -400,11 +408,13 @@ input[type="date"]::-webkit-datetime-edit { padding: 0; }
 .txn-day { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
 .txn-day-head { margin: 0; font-size: 12px; font-weight: 600; color: var(--muted); background: var(--surface-2); padding: 6px 14px; border-bottom: 1px solid var(--line-soft); }
 .txn-day ul { list-style: none; margin: 0; padding: 0; }
-.txn-row { display: flex; align-items: center; gap: 4px; padding-left: 12px; border-bottom: 1px solid var(--line-soft); }
+.txn-row { display: flex; align-items: center; gap: 0; border-bottom: 1px solid var(--line-soft); }
 .txn-row:last-child { border-bottom: 0; }
 .txn-row.selected { background: color-mix(in srgb, var(--info-bg) 60%, var(--surface)); }
-.txn-check { flex: none; width: 16px; height: 16px; margin: 0; }
-.txn-main { flex: 1; min-width: 0; display: grid; grid-template-columns: 30px minmax(0, 1fr) minmax(0, 190px) minmax(0, 150px) minmax(110px, auto); gap: 12px; align-items: center; border: 0; background: transparent; text-align: left; padding: 9px 14px 9px 8px; }
+/* The checkbox's label is its tap target: the full row height and about 40px wide. */
+.txn-check { flex: none; align-self: stretch; display: grid; place-items: center; width: 40px; padding-left: 4px; cursor: pointer; }
+.txn-check input { width: 16px; height: 16px; margin: 0; cursor: pointer; }
+.txn-main { flex: 1; min-width: 0; display: grid; grid-template-columns: 30px minmax(0, 1fr) minmax(0, 190px) minmax(0, 150px) minmax(110px, auto); gap: 12px; align-items: center; border: 0; background: transparent; text-align: left; padding: 9px 14px 9px 4px; }
 .txn-main:hover { background: var(--surface-2); }
 .txn-icon { width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; background: var(--surface-2); border: 1px solid var(--line-soft); font-size: 15px; object-fit: cover; color: var(--muted); }
 .txn-name { min-width: 0; }
@@ -431,7 +441,8 @@ input[type="date"]::-webkit-datetime-edit { padding: 0; }
 .category-group { display: grid; gap: 1px; }
 .category-kind { font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--faint); padding: 6px 8px 2px; }
 .category-option { border: 0; background: transparent; text-align: left; padding: 6px 8px; border-radius: 6px; }
-.category-option:hover, .category-option:focus-visible { background: var(--surface-2); }
+.category-option:hover, .category-option:focus-visible, .category-option.active { background: var(--surface-2); }
+.category-option.active { box-shadow: inset 0 0 0 1px var(--line); }
 .category-option[aria-selected="true"] { font-weight: 600; background: var(--info-bg); color: var(--info); }
 .category-picker > .btn { justify-self: start; }
 .category-row { display: grid; grid-template-columns: 3rem minmax(0, 1fr) minmax(0, 7.5rem) auto; gap: 6px; align-items: center; }
@@ -469,7 +480,7 @@ label.f textarea { border: 1px solid var(--line); border-radius: 7px; padding: 7
 .cf-tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
 .cf-tile { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; display: grid; gap: 4px; align-content: start; min-width: 0; }
 .cf-tile-label { font-size: 12px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
-.cf-tile strong { font-size: 24px; font-weight: 600; letter-spacing: -.01em; overflow-wrap: anywhere; line-height: 1.2; }
+.cf-tile strong { font-size: 24px; font-weight: 600; letter-spacing: -.01em; overflow-wrap: anywhere; line-height: 1.2; font-variant-numeric: tabular-nums; }
 .cf-tile strong.negative { color: var(--alert); }
 .cf-tile-sub { color: var(--muted); font-size: 12px; }
 .cf-change { font-size: 12px; color: var(--muted); }
@@ -515,8 +526,7 @@ label.f textarea { border: 1px solid var(--line); border-radius: 7px; padding: 7
 .cf-hits { position: absolute; top: 0; bottom: 0; display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); }
 .cf-hits button { border: 0; background: transparent; padding: 0; border-radius: 8px; cursor: pointer; }
 .cf-hits button:focus-visible { outline: 2px solid var(--info); outline-offset: -2px; }
-.cf-tooltip { position: absolute; top: 4px; z-index: 2; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 6px 20px rgba(20, 32, 44, .14); padding: 8px 11px; display: grid; gap: 3px; font-size: 12px; color: var(--muted); pointer-events: none; white-space: nowrap; }
-.cf-tooltip.left { transform: translateX(-100%); }
+.cf-tooltip { position: absolute; top: 4px; left: 0; z-index: 2; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 6px 20px rgba(20, 32, 44, .14); padding: 8px 11px; display: grid; gap: 3px; font-size: 12px; color: var(--muted); pointer-events: none; white-space: nowrap; }
 .cf-tooltip strong { color: var(--ink); font-size: 13px; margin-bottom: 1px; }
 .cf-tooltip span { display: flex; align-items: center; gap: 7px; }
 .cf-tooltip b { color: var(--ink); font-weight: 600; }
@@ -613,7 +623,7 @@ button.cf-flow-label:hover, button.cf-flow-label:focus-visible { background: var
 .stat-row { display: flex; flex-wrap: wrap; gap: 12px 32px; align-items: flex-end; }
 .stat { display: grid; gap: 2px; min-width: 0; }
 .stat-label { font-size: 12px; color: var(--muted); }
-.stat-value { font-size: 20px; font-weight: 600; letter-spacing: -.01em; }
+.stat-value { font-size: 20px; font-weight: 600; letter-spacing: -.01em; font-variant-numeric: tabular-nums; }
 .stat.hero .stat-value { font-size: 32px; }
 .stat-delta { font-size: 13px; color: var(--muted); }
 .change.up { color: var(--used); }
@@ -639,7 +649,7 @@ button.cf-flow-label:hover, button.cf-flow-label:focus-visible { background: var
 .r { text-align: right !important; }
 .barlist { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
 .barlist li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 12px; align-items: center; }
-.barlist-label { grid-column: 1; grid-row: 1; font-size: 14px; min-width: 0; overflow-wrap: anywhere; }
+.barlist-label { grid-column: 1; grid-row: 1; font-size: 14px; min-width: 0; overflow-wrap: break-word; }
 .barlist-label small { display: block; color: var(--muted); font-size: 12px; }
 .barlist-value { grid-column: 2; grid-row: 1 / 3; font-size: 13px; text-align: right; white-space: nowrap; align-self: center; }
 .barlist-value small { display: block; color: var(--muted); }
@@ -674,7 +684,7 @@ p.hint.pad { margin: 0; border-top: 1px solid var(--line-soft); }
 .holding-toggle .caret { color: var(--faint); width: 10px; font-weight: 600; transition: transform .15s; flex: none; }
 .holding-toggle[aria-expanded="true"] .caret { transform: rotate(90deg); }
 .holding-name { display: grid; min-width: 0; white-space: normal; }
-.holding-name .sub { overflow-wrap: anywhere; }
+.holding-name .sub { overflow-wrap: break-word; }
 .sub-row td, .sub-row td.sticky { background: var(--surface-2); color: var(--muted); }
 .holding-account { padding-left: 18px; display: block; white-space: normal; max-width: 260px; }
 @media (max-width: 600px) { .holding-toggle, .holding-account { max-width: 160px; } }

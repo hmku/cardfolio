@@ -2,15 +2,15 @@
 
 import { useCallback, useMemo, useState, type ReactNode } from "react";
 import {
-  assignCategoryHues, cashFlowBreakdown, cashFlowByMonth, cashFlowFlow, cashFlowPeriodRanges, cashFlowSide, defaultCashFlowPeriod,
-  fillMonths, foldShares, recentMonths, relativeChange, withPreviousShares, type CashFlowShare, type DateRange, type FlowNode, type MerchantSpend,
+  assignCategoryHues, cashFlowBreakdown, cashFlowByMonth, cashFlowFlow, cashFlowPeriodRanges, cashFlowSide, chartWindowEnd, defaultCashFlowPeriod,
+  elapsedMonths, fillMonths, foldShares, recentMonths, relativeChange, withPreviousShares, type CashFlowShare, type DateRange, type FlowNode, type MerchantSpend,
 } from "../lib/core/finance";
 import { isoDate } from "../lib/core/dates";
 import { loadCashFlowTransactions, loadCategories, type Category } from "../lib/finance-data";
-import { moneyWhole } from "../lib/presentation/finance-format";
+import { moneyWhole, percent } from "../lib/presentation/finance-format";
 import { monthYear } from "../lib/presentation/format";
 import type { TransactionFilters } from "../lib/presentation/transaction-view";
-import { FlowDiagram, MonthChart, percent, SegmentBar, type FlowItem } from "./CashFlowCharts";
+import { FlowDiagram, MonthChart, SegmentBar, type FlowItem } from "./CashFlowCharts";
 import { FinanceEmpty, FinanceSection, useFinanceLoad, type FinancePageProps } from "./FinanceShared";
 
 /** How far back the month picker goes (and what's loaded: 12 months plus the 12 before, for comparisons). */
@@ -151,20 +151,24 @@ export function CashFlowView({ data, error, onRetry, today, onOpenSettings, onSh
   // A month (YYYY-MM) or "12m"; null until the person picks one (then the default applies).
   const [chosen, setChosen] = useState<string | null>(null);
   const [lastMonth, setLastMonth] = useState<string | null>(null);
+  // The chart's 12-month window (index of its last month): it only moves when the picked month is
+  // outside it, so clicking a bar highlights it instead of shifting every bar. Null = the newest 12.
+  const [windowEnd, setWindowEnd] = useState<number | null>(null);
   const period = chosen ?? autoMonth;
   const yearView = period === "12m";
   const month = yearView ? lastMonth ?? autoMonth : period;
   const pick = (value: string) => {
     if (value !== "12m") setLastMonth(value);
     setChosen(value);
+    setWindowEnd(value === "12m" ? null : chartWindowEnd(chartEnd, months.indexOf(value), CHART_MONTHS, months.length));
   };
 
   const ranges = useMemo(() => cashFlowPeriodRanges(period, today), [period, today]);
   const comparable = ranges.previousRange.from >= firstLoaded;
   const vs = yearView ? "vs the 12 months before" : `vs ${monthOf(ranges.previousMonth || month)}`;
   const index = months.indexOf(month);
-  const chartEnd = yearView ? months.length - 1 : Math.max(index, CHART_MONTHS - 1);
-  const chartMonths = useMemo(() => months.slice(chartEnd - CHART_MONTHS + 1, chartEnd + 1), [months, chartEnd]);
+  const chartEnd = yearView ? months.length - 1 : chartWindowEnd(windowEnd ?? months.length - 1, index, CHART_MONTHS, months.length);
+  const chartMonths = useMemo(() => months.slice(Math.max(chartEnd - CHART_MONTHS + 1, 0), chartEnd + 1), [months, chartEnd]);
 
   const byMonth = useMemo(() => (data ? fillMonths(cashFlowByMonth(data.transactions, data.categories), chartMonths) : []), [data, chartMonths]);
   const breakdown = useMemo(() => (data ? cashFlowBreakdown(between(data.transactions, ranges.range), data.categories, 8) : null), [data, ranges]);
@@ -195,11 +199,11 @@ export function CashFlowView({ data, error, onRetry, today, onOpenSettings, onSh
       </div>
       {!yearView && (
         <div className="cf-stepper">
-          <button type="button" className="btn small" aria-label="Previous month" disabled={index <= 0} onClick={() => pick(months[index - 1])}>‹</button>
+          <button type="button" className="btn icon-btn" aria-label="Previous month" disabled={index <= 0} onClick={() => pick(months[index - 1])}>‹</button>
           <select aria-label="Month" value={month} onChange={(event) => pick(event.target.value)}>
             {[...months].reverse().map((value) => <option key={value} value={value}>{monthYear(`${value}-01`)}{value === thisMonth ? " (so far)" : ""}</option>)}
           </select>
-          <button type="button" className="btn small" aria-label="Next month" disabled={index >= months.length - 1} onClick={() => pick(months[index + 1])}>›</button>
+          <button type="button" className="btn icon-btn" aria-label="Next month" disabled={index >= months.length - 1} onClick={() => pick(months[index + 1])}>›</button>
         </div>
       )}
     </div>
@@ -223,7 +227,8 @@ export function CashFlowView({ data, error, onRetry, today, onOpenSettings, onSh
   const spendChange = previous && relativeChange(breakdown.expenseCents, previous.expenseCents);
   const netDiff = previous ? breakdown.netCents - previous.netCents : null;
   const rateDiff = rate !== null && previousRate !== null ? Math.round((rate - previousRate) * 100) : null;
-  const perMonth = (cents: number) => (yearView ? <small className="cf-tile-sub">{moneyWhole(Math.round(cents / ranges.months))} a month</small> : null);
+  // "A month" over the last 12: this month counts only for the part of it that's gone by.
+  const perMonth = (cents: number) => (yearView ? <small className="cf-tile-sub">{moneyWhole(Math.round(cents / elapsedMonths(today, ranges.months)))} a month</small> : null);
 
   // Flow diagram: income sources → spending categories and savings.
   const flow = cashFlowFlow(breakdown, { incomeNodes: 3, spendingNodes: COLORED_CATEGORIES });

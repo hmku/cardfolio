@@ -165,7 +165,7 @@ export function CategorySettings({ context, portfolio, categories, rules, accoun
             <label className="f full">On account
               <select value={ruleAccount ?? ""} onChange={(event) => setRuleAccount(event.target.value ? Number(event.target.value) : null)}>
                 <option value="">Any account</option>
-                {accounts.map((account) => <option key={account.id} value={account.id}>{bankAccountLabel(account, portfolio)}</option>)}
+                {accounts.map((account) => <option key={account.id} value={account.id}>{bankAccountLabel(account, portfolio, { full: true })}</option>)}
               </select>
             </label>
             <div className="full"><CategoryPicker categories={categories} value={ruleCategory} onChange={setRuleCategory} label="Rule category" placeholder="Choose a category" /></div>

@@ -32,3 +32,12 @@ export function bankAccountKind(account: { type: string | null; subtype: string 
   const text = account.subtype || account.type || "account";
   return KIND_LABELS[text] || text[0].toUpperCase() + text.slice(1);
 }
+
+/**
+ * Splits a label's trailing last digits off ("Plaid Checking ··1234" → "Plaid Checking" and "··1234"),
+ * so the digits can be kept together on one line instead of wrapping or breaking apart.
+ */
+export function splitMask(label: string): { name: string; mask: string } {
+  const match = /^(.*\S)\s+(··\S+)$/.exec(label);
+  return match ? { name: match[1], mask: match[2] } : { name: label, mask: "" };
+}

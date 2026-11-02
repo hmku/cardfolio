@@ -1,7 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { FEE_LOOKBACK_DAYS, type CardPlaidData, type CardTransaction, type LinkedCard } from "./core/card-plaid.ts";
 import { addDays, isoDate, parseDate } from "./core/dates.ts";
-import { transactionsForRule, type CategoryKind, type CategorySource, type RuleField, type StoredRuleTarget } from "./core/finance.ts";
+import { transactionsBefore, transactionsForRule, type CategoryKind, type CategorySource, type RuleField, type StoredRuleTarget } from "./core/finance.ts";
 
 /**
  * Browser data layer for the finance pages (Transactions, Cash flow, Investments, Accounts).
@@ -349,6 +349,8 @@ export type TransactionQuery = {
   /** Page size (default 50, at most 1000) and offset for paging. */
   limit?: number;
   offset?: number;
+  /** Keyset paging: only rows after this one (the last row of the previous page). Use instead of `offset`. */
+  before?: { date: string; id: number };
 };
 
 /** Transactions newest first (date, then id), filtered. Returns the page and whether more exist. */
@@ -358,11 +360,16 @@ export async function loadTransactions(context: FinanceContext, query: Transacti
   let request = context.db.from("transactions").select(TRANSACTION_COLUMNS).eq("household_id", context.householdId);
   for (const word of (query.search || "").split(/\s+/).filter(Boolean)) request = request.ilike("search_text", containsPattern(word));
   if (query.accountIds?.length) request = request.in("plaid_account_id", query.accountIds);
+  // PostgREST takes one `or` here, so both conditions go in one logic tree: `.or()` wraps its argument
+  // in or(…), so a single tree is passed without its own "or(" … ")", and two are ANDed inside it.
+  const trees: string[] = [];
   if (query.categoryIds?.length) {
     const ids = query.categoryIds.filter((id): id is number => id !== null);
     const parts = [...(ids.length ? [`category_id.in.(${ids.join(",")})`] : []), ...(query.categoryIds.includes(null) ? ["category_id.is.null"] : [])];
-    request = request.or(parts.join(","));
+    trees.push(`or(${parts.join(",")})`);
   }
+  if (query.before) trees.push(transactionsBefore(query.before));
+  if (trees.length) request = request.or(trees.length === 1 ? trees[0].slice(3, -1) : `and(${trees.join(",")})`);
   if (query.from) request = request.gte("date", query.from);
   if (query.to) request = request.lte("date", query.to);
   if (query.includeExcluded === false) request = request.eq("excluded", false);
@@ -611,11 +618,17 @@ export type BalanceSnapshot = {
   balanceCents: number;
 };
 
-/** Daily balances from `from` (YYYY-MM-DD) on, oldest first. Feed to balanceSeries() in core/investments. */
-export async function loadBalanceSnapshots(context: FinanceContext, from?: string): Promise<BalanceSnapshot[]> {
+/**
+ * Daily balances from `from` (YYYY-MM-DD) on, oldest first, optionally for one account. Feed to
+ * balanceSeries() in core/investments. Pass a `from` (snapshotLoadStart) where you can: there's a row
+ * per account per day.
+ */
+export async function loadBalanceSnapshots(context: FinanceContext, from?: string | null, account?: { plaidAccountId: number } | { manualAccountId: number }): Promise<BalanceSnapshot[]> {
   const rows = await pageAll((start, end) => {
     let request = context.db.from("balance_snapshots").select("date, plaid_account_id, manual_account_id, balance_cents").eq("household_id", context.householdId);
     if (from) request = request.gte("date", from);
+    if (account && "plaidAccountId" in account) request = request.eq("plaid_account_id", account.plaidAccountId);
+    if (account && "manualAccountId" in account) request = request.eq("manual_account_id", account.manualAccountId);
     return request.order("date").order("id").range(start, end);
   }, "load balance history");
   return rows.map((row) => ({ date: String(row.date), plaidAccountId: numOrNull(row.plaid_account_id), manualAccountId: numOrNull(row.manual_account_id), balanceCents: num(row.balance_cents) }));

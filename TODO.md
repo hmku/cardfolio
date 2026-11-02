@@ -81,8 +81,6 @@ done and move them to **Done** with the date.
       project and Vercel site, and fix anything that trips.
 
 - [ ] Plaid Phase 1 (connect banks, link cards) is built and in Sandbox (`PLAID_ENV=sandbox`).
-  - [ ] Claude: test it in Sandbox on production (First Platypus Bank, user_good / pass_good),
-        then disconnect the test bank.
   - [ ] Harrison: when it works, set `PLAID_ENV=production` in Vercel, redeploy, and connect
         the most valuable logins first (10 free Trial connections for good). Sophia connects
         her own. Check each card's match in Settings → Bank connections.
@@ -123,6 +121,11 @@ done and move them to **Done** with the date.
 
 ## Done
 
+- 2026-11-02: Plaid Phase 1 tested in Sandbox on production as devtest068: Link opened,
+  First Platypus Bank connected with its two fake credit cards (no auto-match, as expected),
+  a manual link saved and greyed that card out in the other dropdown, and Disconnect removed
+  the item at Plaid and here (tables empty afterwards). The card dropdown now lists open
+  cards only (plus whatever is already linked).
 - 2026-11-02: Card drawer quick actions. Under the title, a status line ("Open since …",
   "Pending · applied …", "Closed …") and buttons: open cards get "Upgrade / downgrade" and
   "Close card"; pending cards get "Approved" and "Declined". Each opens a small panel (date

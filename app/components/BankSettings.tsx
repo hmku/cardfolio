@@ -112,9 +112,11 @@ export function BankSettings({ portfolio, accessToken, notify }: { portfolio: Po
     }
   }
 
-  // Cards to pick from: open ones first, then the rest (newest first), never declined applications.
+  // Cards to pick from: open ones (banks only report open cards), newest first, plus any
+  // card already linked so a link to a since-closed card still shows.
+  const linkedIds = new Set(data?.items.flatMap((item) => item.accounts.map((row) => row.accountId)));
   const cards = portfolio.accounts
-    .filter((account) => account.status !== "declined")
+    .filter((account) => account.status === "open" || linkedIds.has(account.id))
     .map((account) => ({ account, holding: portfolio.current(account.id) }))
     .filter((card) => card.holding)
     .sort((left, right) => Number(right.account.status === "open") - Number(left.account.status === "open") || right.holding!.startedOn.localeCompare(left.holding!.startedOn))

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import type { Portfolio } from "../lib/core/model";
 import type { FinanceContext } from "../lib/finance-data";
+import type { TransactionFilters } from "../lib/presentation/transaction-view";
 
 /** What Portfolio passes to every finance page (Transactions, Cash flow, Investments, Accounts). */
 export type FinancePageProps = {
@@ -14,6 +15,11 @@ export type FinancePageProps = {
   notify: (text: string, error?: boolean) => void;
   /** Opens Settings (bank connections live there). */
   onOpenSettings: () => void;
+  /** The Transactions tab's filters, kept by Portfolio so they survive tab switches. */
+  transactionFilters: TransactionFilters;
+  onTransactionFilters: (filters: TransactionFilters) => void;
+  /** Opens the Transactions tab with these filters (the rest reset), e.g. from Cash flow. */
+  onShowTransactions: (filters: Partial<TransactionFilters>) => void;
 };
 
 /**

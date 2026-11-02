@@ -19,6 +19,15 @@ Credits, Transactions, Cash flow, Investments and Accounts. The card tabs:
   **Always used** (a recurring charge: its column comes last with dashed checks and counts as
   used every period without ticking) or **Not using** (hidden everywhere but Settings; history
   kept, and switching back restores it).
+- **Transactions**: every synced transaction, newest first and grouped by day, with search,
+  date presets and filters (account, category, money in/out, excluded, unreviewed). Tap one
+  to change its category, add notes, exclude it from cash flow or mark it reviewed, or to
+  always categorize that merchant (a rule, optionally applied to past transactions). Tick
+  several to change them together. "Manage categories" edits categories and rules.
+- **Cash flow**: income, spending, net and savings rate for a month or the last 12 months,
+  a monthly income vs spending chart, and spending and income by category plus top
+  merchants. Tap a category or merchant to see its transactions. Transfers (like card
+  payments) and excluded transactions never count.
 
 Card types and their credits, review rules, notifications, cardholders, sign-in access and
 exports live in **Settings**. Card types with no open cards and no credits are tucked behind

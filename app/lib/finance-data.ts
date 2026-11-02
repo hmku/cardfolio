@@ -345,13 +345,13 @@ export async function loadTransactions(context: FinanceContext, query: Transacti
   return { transactions: rows.slice(0, limit).map(toTransaction), hasMore: rows.length > limit };
 }
 
-/** Every transaction in a date range with only what cash flow needs (paged past 1,000 rows). */
+/** Every transaction in a date range with only what cash flow needs (paged past 1,000 rows); `merchant` is the merchant name, else the description. */
 export async function loadCashFlowTransactions(context: FinanceContext, from: string, to: string) {
   const rows = await pageAll((start, end) => context.db.from("transactions")
-    .select("id, date, amount_cents, category_id, excluded, plaid_account_id")
+    .select("id, date, amount_cents, category_id, excluded, plaid_account_id, merchant_name, name")
     .eq("household_id", context.householdId).gte("date", from).lte("date", to)
     .order("date").order("id").range(start, end), "load cash flow");
-  return rows.map((row) => ({ id: num(row.id), date: String(row.date), amountCents: num(row.amount_cents), categoryId: numOrNull(row.category_id), excluded: Boolean(row.excluded), plaidAccountId: num(row.plaid_account_id) }));
+  return rows.map((row) => ({ id: num(row.id), date: String(row.date), amountCents: num(row.amount_cents), categoryId: numOrNull(row.category_id), excluded: Boolean(row.excluded), plaidAccountId: num(row.plaid_account_id), merchant: text(row.merchant_name) || text(row.name) }));
 }
 
 export type TransactionPatch = { categoryId?: number | null; notes?: string | null; excluded?: boolean; reviewed?: boolean };

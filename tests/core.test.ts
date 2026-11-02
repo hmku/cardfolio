@@ -11,6 +11,8 @@ import {
 } from "../app/lib/core/finance.ts";
 import { matchPlaidAccounts } from "../app/lib/core/plaid.ts";
 import { verifyPlaidWebhook } from "../db/plaid-webhook.ts";
+import { cashFlowBreakdown, datePresetRange, fillMonths, monthBounds, recentMonths } from "../app/lib/core/finance.ts";
+import { bankAccountShortLabel, DEFAULT_TRANSACTION_FILTERS, filtersToQuery, groupByDate } from "../app/lib/presentation/transaction-view.ts";
 import { accountAction } from "../app/lib/core/rules.ts";
 import { parseOffer, planSheetImport, planToPortfolioData } from "../app/lib/core/sheet-import.ts";
 import { bonusStatus, dueItems, feeStatus, fiveTwentyFour, personStats } from "../app/lib/core/stats.ts";
@@ -350,4 +352,63 @@ test("Plaid webhook signatures are checked: key, age and body hash", async () =>
   const other = generateKeyPairSync("ec", { namedCurve: "P-256" }).publicKey.export({ format: "jwk" });
   assert.equal((await verifyPlaidWebhook(body, jwt({ iat: fresh, request_body_sha256: hash }), async () => ({ ...other, kid: "k1" }), now)).ok, false, "wrong key");
   assert.equal((await verifyPlaidWebhook(body, null, fetchKey, now)).ok, false);
+});
+
+test("cash flow breakdown: totals, savings rate, categories by share and top merchants", () => {
+  const breakdown = cashFlowBreakdown([
+    { date: "2026-10-01", amountCents: 500000, categoryId: 1, excluded: false, merchant: "Acme Payroll" },
+    { date: "2026-10-02", amountCents: 1000, categoryId: null, excluded: false, merchant: "Venmo" },
+    { date: "2026-10-03", amountCents: -30000, categoryId: 3, excluded: false, merchant: "Whole Foods" },
+    { date: "2026-10-04", amountCents: -10000, categoryId: 3, excluded: false, merchant: "whole foods" },
+    { date: "2026-10-05", amountCents: 5000, categoryId: 3, excluded: false, merchant: "Whole Foods" },
+    { date: "2026-10-06", amountCents: -15000, categoryId: 4, excluded: false, merchant: "Nopa" },
+    { date: "2026-10-07", amountCents: 2000, categoryId: 7, excluded: false, merchant: "Blue Bottle" },
+    { date: "2026-10-08", amountCents: -100000, categoryId: 5, excluded: false, merchant: "Chase" },
+    { date: "2026-10-09", amountCents: -99999, categoryId: 4, excluded: true, merchant: "Nopa" },
+    { date: "2026-10-10", amountCents: -5000, categoryId: null, excluded: false, merchant: null },
+  ], financeCategories);
+  assert.equal(breakdown.incomeCents, 501000);
+  assert.equal(breakdown.expenseCents, 30000 + 10000 - 5000 + 15000 - 2000 + 5000);
+  assert.equal(breakdown.netCents, 501000 - 53000);
+  assert.equal(Math.round(breakdown.savingsRate! * 1000), 894);
+  // Coffee only had a refund, so it's left out of the bars; uncategorized spending is its own row.
+  assert.deepEqual(breakdown.spending.map((row) => [row.categoryId, row.cents]), [[3, 35000], [4, 15000], [null, 5000]]);
+  assert.equal(breakdown.spending.reduce((sum, row) => sum + row.share, 0).toFixed(6), "1.000000");
+  assert.deepEqual(breakdown.income.map((row) => [row.categoryId, row.cents]), [[1, 500000], [null, 1000]]);
+  assert.deepEqual(breakdown.merchants, [{ merchant: "Whole Foods", cents: 35000, count: 3 }, { merchant: "Nopa", cents: 15000, count: 1 }]);
+  assert.equal(cashFlowBreakdown([], financeCategories).savingsRate, null);
+});
+
+test("cash flow months and date presets", () => {
+  assert.deepEqual(recentMonths("2026-02-15", 4), ["2025-11", "2025-12", "2026-01", "2026-02"]);
+  assert.deepEqual(monthBounds("2028-02"), { from: "2028-02-01", to: "2028-02-29" });
+  assert.deepEqual(fillMonths([{ month: "2026-01", incomeCents: 5, expenseCents: 2, netCents: 3 }], ["2025-12", "2026-01"]),
+    [{ month: "2025-12", incomeCents: 0, expenseCents: 0, netCents: 0 }, { month: "2026-01", incomeCents: 5, expenseCents: 2, netCents: 3 }]);
+  assert.deepEqual(datePresetRange("this-month", "2026-11-02"), { from: "2026-11-01", to: "2026-11-02" });
+  assert.deepEqual(datePresetRange("last-month", "2026-01-10"), { from: "2025-12-01", to: "2025-12-31" });
+  assert.deepEqual(datePresetRange("90-days", "2026-03-01"), { from: "2025-12-02", to: "2026-03-01" });
+  assert.deepEqual(datePresetRange("this-year", "2026-11-02"), { from: "2026-01-01", to: "2026-11-02" });
+  assert.deepEqual(datePresetRange("all", "2026-11-02"), {});
+});
+
+test("transaction filters become a query; linked cards show their short name", () => {
+  assert.deepEqual(filtersToQuery(DEFAULT_TRANSACTION_FILTERS, "2026-11-02"), {
+    search: undefined, accountIds: undefined, categoryIds: undefined, includeExcluded: false, unreviewedOnly: undefined, direction: undefined,
+  });
+  const query = filtersToQuery({ ...DEFAULT_TRANSACTION_FILTERS, search: " whole foods ", category: "none", datePreset: "custom", from: "2026-10-01", to: "2026-10-31", direction: "out", accountIds: [4] }, "2026-11-02");
+  assert.equal(query.search, "whole foods");
+  assert.deepEqual(query.categoryIds, [null]);
+  assert.deepEqual([query.from, query.to, query.direction, query.accountIds], ["2026-10-01", "2026-10-31", "out", [4]]);
+  assert.equal(filtersToQuery({ ...DEFAULT_TRANSACTION_FILTERS, category: 7, datePreset: "last-month" }, "2026-11-02").from, "2026-10-01");
+
+  const holding = holdingsOf("Harrison", "biz plat").at(-1)!;
+  const bank = {
+    id: 1, itemId: 1, institutionName: "American Express", name: "Business Platinum", officialName: null, mask: "1001", type: "credit", subtype: "credit card",
+    cardAccountId: holding.accountId, personId: null, currentCents: null, availableCents: null, limitCents: null, currency: null, balancesUpdatedAt: null,
+    statement: { lastStatementCents: null, lastStatementDate: null, minimumPaymentCents: null, nextDueDate: null, lastPaymentCents: null, lastPaymentDate: null, overdue: null, updatedAt: null },
+  };
+  assert.equal(bankAccountShortLabel(bank, portfolio), holdingName(portfolio, portfolio.current(holding.accountId)!));
+  assert.equal(bankAccountShortLabel({ ...bank, cardAccountId: null, institutionName: "Chase", mask: "1234" }, portfolio), "Chase ··1234");
+
+  assert.deepEqual(groupByDate([{ date: "2026-11-02", id: 1 }, { date: "2026-11-02", id: 2 }, { date: "2026-11-01", id: 3 }]).map((group) => [group.date, group.items.length]), [["2026-11-02", 2], ["2026-11-01", 1]]);
 });

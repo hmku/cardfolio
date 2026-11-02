@@ -377,3 +377,112 @@ export function monthsBefore(date: string, months: number) {
   target.setUTCDate(Math.min(day, lastDay));
   return target.toISOString().slice(0, 10);
 }
+
+// ---------- cash flow breakdowns (Cash flow page) ----------
+
+/** How a transaction counts in cash flow: income, spending, or not at all (excluded or a transfer). */
+export function cashFlowSide(transaction: Pick<CashFlowTransaction, "amountCents" | "categoryId" | "excluded">, kinds: Map<number, CategoryKind>): "income" | "expense" | null {
+  if (transaction.excluded) return null;
+  const kind = transaction.categoryId === null ? null : kinds.get(transaction.categoryId) ?? null;
+  if (kind === "transfer") return null;
+  if (kind === "income" || (kind === null && transaction.amountCents > 0)) return "income";
+  return "expense";
+}
+
+export type CashFlowShare = { categoryId: number | null; cents: number; share: number };
+export type MerchantSpend = { merchant: string; cents: number; count: number };
+export type CashFlowBreakdown = {
+  incomeCents: number;
+  expenseCents: number;
+  netCents: number;
+  /** Net as a share of income (0.25 = saved a quarter), or null without income. */
+  savingsRate: number | null;
+  /** Spending per category (null = uncategorized), largest first; categories netting to zero or less (only refunds) are left out. */
+  spending: CashFlowShare[];
+  /** Income per category, largest first. */
+  income: CashFlowShare[];
+  /** Spending per merchant (merchant name, else the description), largest first. */
+  merchants: MerchantSpend[];
+};
+
+function shares(totals: Map<number | null, number>): CashFlowShare[] {
+  const rows = [...totals].filter(([, cents]) => cents > 0).map(([categoryId, cents]) => ({ categoryId, cents, share: 0 }));
+  const total = rows.reduce((sum, row) => sum + row.cents, 0);
+  for (const row of rows) row.share = total ? row.cents / total : 0;
+  return rows.sort((left, right) => right.cents - left.cents || (left.categoryId ?? -1) - (right.categoryId ?? -1));
+}
+
+/**
+ * Totals, spending and income by category, and top merchants for a set of transactions
+ * (one month or a year), counted the same way as cashFlowByMonth.
+ */
+export function cashFlowBreakdown(transactions: (CashFlowTransaction & { merchant?: string | null })[], categories: { id: number; kind: CategoryKind }[], merchantLimit = 10): CashFlowBreakdown {
+  const kinds = new Map(categories.map((category) => [category.id, category.kind]));
+  const spending = new Map<number | null, number>();
+  const income = new Map<number | null, number>();
+  const merchants = new Map<string, MerchantSpend>();
+  let incomeCents = 0;
+  let expenseCents = 0;
+  for (const transaction of transactions) {
+    const side = cashFlowSide(transaction, kinds);
+    if (side === "income") {
+      incomeCents += transaction.amountCents;
+      income.set(transaction.categoryId, (income.get(transaction.categoryId) ?? 0) + transaction.amountCents);
+    } else if (side === "expense") {
+      expenseCents -= transaction.amountCents;
+      spending.set(transaction.categoryId, (spending.get(transaction.categoryId) ?? 0) - transaction.amountCents);
+      const name = (transaction.merchant || "").trim();
+      if (name) {
+        const key = name.toLowerCase();
+        const row = merchants.get(key) ?? { merchant: name, cents: 0, count: 0 };
+        row.cents -= transaction.amountCents;
+        row.count += 1;
+        merchants.set(key, row);
+      }
+    }
+  }
+  const netCents = incomeCents - expenseCents;
+  return {
+    incomeCents,
+    expenseCents,
+    netCents,
+    savingsRate: incomeCents > 0 ? netCents / incomeCents : null,
+    spending: shares(spending),
+    income: shares(income),
+    merchants: [...merchants.values()].filter((row) => row.cents > 0)
+      .sort((left, right) => right.cents - left.cents || left.merchant.localeCompare(right.merchant)).slice(0, merchantLimit),
+  };
+}
+
+/** The `count` months (YYYY-MM) ending with the month of `today` (YYYY-MM-DD), oldest first. */
+export function recentMonths(today: string, count: number) {
+  const [year, month] = today.split("-").map(Number);
+  return Array.from({ length: count }, (_, index) => new Date(Date.UTC(year, month - 1 - (count - 1 - index), 1)).toISOString().slice(0, 7));
+}
+
+/** First and last day (YYYY-MM-DD) of a YYYY-MM month. */
+export function monthBounds(month: string) {
+  const [year, number] = month.split("-").map(Number);
+  const last = new Date(Date.UTC(year, number, 0)).getUTCDate();
+  return { from: `${month}-01`, to: `${month}-${String(last).padStart(2, "0")}` };
+}
+
+/** cashFlowByMonth rows for exactly these months (in the order given), with zeros where nothing happened. */
+export function fillMonths(rows: CashFlowMonth[], months: string[]): CashFlowMonth[] {
+  const byMonth = new Map(rows.map((row) => [row.month, row]));
+  return months.map((month) => byMonth.get(month) ?? { month, incomeCents: 0, expenseCents: 0, netCents: 0 });
+}
+
+export type DatePreset = "all" | "this-month" | "last-month" | "90-days" | "this-year" | "custom";
+
+/** The inclusive YYYY-MM-DD range of a date preset on `today` (YYYY-MM-DD); open for "all" and "custom". */
+export function datePresetRange(preset: DatePreset, today: string): { from?: string; to?: string } {
+  if (preset === "this-month") return { from: `${today.slice(0, 7)}-01`, to: today };
+  if (preset === "last-month") return monthBounds(recentMonths(today, 2)[0]);
+  if (preset === "this-year") return { from: `${today.slice(0, 4)}-01-01`, to: today };
+  if (preset === "90-days") {
+    const [year, month, day] = today.split("-").map(Number);
+    return { from: new Date(Date.UTC(year, month - 1, day - 89)).toISOString().slice(0, 10), to: today };
+  }
+  return {};
+}

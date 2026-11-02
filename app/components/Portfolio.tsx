@@ -21,6 +21,7 @@ import { InvestmentsPage } from "./InvestmentsPage";
 import { TransactionsPage } from "./TransactionsPage";
 import type { FinanceContext } from "../lib/finance-data";
 import { CheckIcon, Dot, personTone, Toast, type ToastMessage } from "./ui";
+import { DEFAULT_TRANSACTION_FILTERS, type TransactionFilters } from "../lib/presentation/transaction-view";
 import { money, shortDate } from "../lib/presentation/format";
 
 type Props = { db: SupabaseClient; accessToken: string; onSignOut: () => Promise<void> };
@@ -64,6 +65,7 @@ export function Portfolio({ db, accessToken, onSignOut }: Props) {
   const [today, setToday] = useState(() => atNoon(new Date()));
   const [prefs, setPrefs] = useState<Prefs>(readPrefs);
   const [search, setSearch] = useState("");
+  const [transactionFilters, setTransactionFilters] = useState<TransactionFilters>(DEFAULT_TRANSACTION_FILTERS);
   const [panel, setPanel] = useState<Panel>(null);
   const [menu, setMenu] = useState<Menu>(null);
   // Bumped after a product change so the open drawer re-reads the card instead of keeping a stale form.
@@ -303,7 +305,9 @@ export function Portfolio({ db, accessToken, onSignOut }: Props) {
 
       {FinancePage ? (
         <main className="portfolio-views">
-          <FinancePage context={financeContext} accessToken={accessToken} portfolio={portfolio} notify={settingsNotify} onOpenSettings={() => setPanel({ kind: "settings" })} />
+          <FinancePage context={financeContext} accessToken={accessToken} portfolio={portfolio} notify={settingsNotify} onOpenSettings={() => setPanel({ kind: "settings" })}
+            transactionFilters={transactionFilters} onTransactionFilters={setTransactionFilters}
+            onShowTransactions={(filters) => { setTransactionFilters({ ...DEFAULT_TRANSACTION_FILTERS, ...filters }); updatePrefs({ view: "transactions" }); window.scrollTo({ top: 0 }); }} />
         </main>
       ) : <>
       <section className="people" aria-label="Cardholders">

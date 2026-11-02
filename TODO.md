@@ -111,6 +111,24 @@ done and move them to **Done** with the date.
         `cardfolio_seed_categories`), and that Amex/Chase return Liabilities for every card.
   - [ ] Supabase security advisor will flag the `plaid_item_status` view (it filters by
         `is_cardfolio_member` itself rather than using security_invoker); that's intended.
+- [ ] **Transactions and Cash flow follow-ups** (pages built 2026-11-02; Transactions and Cash
+      flow are done in the "Pages to build" item above):
+  - [ ] Look at both tabs with real (or Sandbox) transactions, on a phone and on desktop, in
+        light and dark mode. They were only built against tests and type checks: check the date
+        groups, the row layout at phone width, the bulk bar, the month chart's tooltip and bars,
+        and that linked cards show their short name (e.g. "biz plat HK9").
+  - [ ] Check that Plaid's merchant logos (`logo_url`) load; rows fall back to the category
+        emoji when they don't.
+  - [ ] Category picks made in bulk count as "set by hand" (never overwritten by rules or sync).
+        Decide whether choosing a category should also mark a transaction reviewed (Monarch does).
+  - [ ] Ideas: split a transaction, tags, recurring/subscription detection, a budget per
+        category, CSV export of the filtered list, a "needs review" count on the tab, keyboard
+        shortcuts (j/k, c for category), editing rules in place (today: delete and add again).
+  - [ ] Applying a rule to past transactions updates every non-manual match in one request; if
+        the household reaches tens of thousands of transactions, move it into a Postgres function.
+  - [ ] Cash flow counts uncategorized money in as income and money out as spending. If card
+        payments or transfers land uncategorized, they inflate both; fix their category (or add a
+        rule) rather than changing the math.
 - [ ] Plaid Phase 3: suggest credit uses from transactions, bonus spend progress, annual fee
       postings, link card payments between accounts.
 - [ ] Plaid background (Harrison and Sophia each connect their own bank logins). Research from 2026-10-07 (plaid.com was unreachable from
@@ -145,6 +163,20 @@ done and move them to **Done** with the date.
 
 ## Done
 
+- 2026-11-02: Transactions and Cash flow tabs. **Transactions**: search (debounced, merchant,
+  description and notes), date presets (this month, last month, last 90 days, this year,
+  custom), and a Filters panel (category incl. Uncategorized, money in/out, accounts, show
+  excluded, unreviewed only); a list grouped by day that loads 100 at a time as you scroll;
+  rows show the merchant logo or category emoji, category, the account (linked cards by short
+  name), amount and pending. Tap a row for a drawer: category (searchable), notes, exclude
+  from cash flow, reviewed, and "Always categorize <merchant> as …" (adds a rule, then offers
+  to apply it to past transactions). Checkboxes select rows for bulk category, exclude/include
+  and mark reviewed. "Manage categories" edits categories (emoji, name, kind, delete) and
+  rules. **Cash flow**: a month picker (or last 12 months), income, spending and net with the
+  savings rate, a 12-month income vs spending chart (tap a month), spending and income by
+  category and top merchants; tapping a category or merchant opens Transactions filtered to it
+  for that period. Aggregation in `app/lib/core/finance.ts` (`cashFlowBreakdown`,
+  `datePresetRange`, …), tested. No database changes.
 - 2026-11-02: Finance backbone (Plaid Phase 2). New migration `20261102000002_finance.sql`:
   balances and card statement details on `plaid_accounts` (now readable by members),
   `transactions` (cents, positive = money in), `categories` (default set seeded from Plaid's

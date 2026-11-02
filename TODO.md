@@ -43,11 +43,11 @@ done and move them to **Done** with the date.
   - Guesses to confirm: Sophia's Monarch "delta biz gold SL4" (...1002, first charge April 2026)
     doesn't match Cardfolio's SL4 last digits (31004). Monarch's "biz plat HK9" (...1005) also
     holds biz plat HK6's history (same last 4).
-  - A new Chase account "H. KU (...3624)" (seen from Aug 2026, small Costco/Instacart charges)
-    matches no card in Cardfolio. It may be a replacement number for cic HK8 (...9182) or a card
-    that isn't in Cardfolio yet. Say which and rename it.
+  - Monarch's cic HK8 ends in ...3624, but Cardfolio (from 1Password) has ...9182. Check the
+    Chase app or the physical card: if the card was replaced, update the last digits in
+    Cardfolio and 1Password.
   - No Monarch account yet for delta biz gold SL5 and Sophia's venture, citi premier, ha biz,
-    aa mileup and redcards (and cic HK8, unless it's ...3624). Connect them in Monarch if wanted.
+    aa mileup and redcards. Connect them in Monarch if wanted.
   - Until there's a real sync, rename and close Monarch accounts by hand whenever a card
     opens, changes product or closes in Cardfolio.
 
@@ -120,7 +120,7 @@ done and move them to **Done** with the date.
   Cardfolio close dates; that includes the stale old-number entries cff HK1, csr HK4 and citi
   premier HK1, whose live accounts are csr HK5, cff HK3 and citi custom cash HK1. 30 cards
   that were already closed in Monarch were renamed too. Newly connected Chase cards were named
-  united biz HK1, united biz SL1 and cff HK3; the old disconnected cff HK3 entry was closed.
+  united biz HK1, united biz SL1, cff HK3 and cic HK8 (...3624); the old disconnected cff HK3 entry was closed.
 - 2026-10-07: The 1Password last-digits script prints only each card's title and last
   digits (dropped vault, cardholder name, card type and expiry), so its output is safe to paste
   to Claude.

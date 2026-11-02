@@ -1,4 +1,6 @@
+import { paymentsDue } from "@/app/lib/core/card-plaid";
 import { isoDate } from "@/app/lib/core/dates";
+import { loadCardPlaidData } from "@/app/lib/finance-data";
 import { indexPortfolio } from "@/app/lib/core/model";
 import { dailyReminder, todayInTimeZone } from "@/app/lib/core/reminders";
 import { loadPortfolio } from "@/app/lib/data";
@@ -25,7 +27,12 @@ export async function GET(request: Request) {
 
   const results = [];
   for (const { id: householdId } of households || []) {
-    const reminder = dailyReminder(indexPortfolio(await loadPortfolio(db, householdId)), today);
+    const portfolio = indexPortfolio(await loadPortfolio(db, householdId));
+    // Payments due on Plaid-linked cards; reminders still go out if the Plaid tables aren't there.
+    const payments = await loadCardPlaidData({ db, householdId }, { today: sentOn })
+      .then((plaid) => paymentsDue(portfolio, plaid, today))
+      .catch(() => []);
+    const reminder = dailyReminder(portfolio, today, payments);
     if (!reminder) { results.push({ householdId, sent: 0, reason: "nothing due" }); continue; }
     const { data: logged } = await db.from("reminder_log").select("sent_on").eq("household_id", householdId).eq("sent_on", sentOn).maybeSingle();
     if (logged && !force) { results.push({ householdId, sent: 0, reason: "already sent today" }); continue; }

@@ -11,6 +11,9 @@ import { AccountDrawer, type ProductChange } from "./AccountDrawer";
 import { CardGroups, groupId } from "./CardGroups";
 import { DueList } from "./DueList";
 import { CardList } from "./CardList";
+import { CreditSuggestions } from "./CreditSuggestions";
+import { useCardPlaid } from "./useCardPlaid";
+import type { CreditSuggestion } from "../lib/core/card-plaid";
 import { CreditMenu, type CellTarget } from "./CreditCell";
 import { SettingsDrawer, type Membership } from "./SettingsDrawer";
 import { GettingStarted } from "./GettingStarted";
@@ -228,7 +231,40 @@ export function Portfolio({ db, accessToken, onSignOut }: Props) {
     return search.toLowerCase().split(/\s+/).every((word) => haystack.includes(word));
   }, [portfolio, search]);
 
-  const due = useMemo(() => (portfolio ? dueItems(portfolio, today, include) : []), [portfolio, today, include]);
+  // Bank details for Plaid-linked cards (null when none are linked or Plaid isn't set up).
+  const cardPlaid = useCardPlaid(financeContext, portfolio, today);
+  const plaid = cardPlaid.view;
+  const due = useMemo(() => (portfolio ? dueItems(portfolio, today, include, plaid?.payments) : []), [portfolio, today, include, plaid]);
+
+  /** Records a suggested credit use from a bank transaction, after a person taps Record. */
+  function acceptSuggestion(suggestion: CreditSuggestion) {
+    if (!portfolio) return;
+    const { credit, holding, transaction, recordCents, key } = suggestion;
+    const state = creditState(portfolio, credit, holding, today);
+    if (state.kind === "off") return;
+    const periodKey = state.period.key;
+    const previous = state.usedCents || null;
+    cardPlaid.remember(key);
+    void write((ctx) => data.setCreditUse(ctx, credit.id, holding.id, periodKey, recordCents, { source: "plaid", usedOn: transaction.date }), {
+      optimistic: (value) => ({
+        ...value,
+        uses: [
+          ...value.uses.filter((use) => !(use.creditId === credit.id && use.holdingId === holding.id && use.periodKey === periodKey)),
+          { id: -Date.now(), creditId: credit.id, holdingId: holding.id, periodKey, amountCents: recordCents, usedOn: transaction.date, recordedBy: membership?.email || null, source: "plaid" as const },
+        ],
+      }),
+      success: `Recorded ${credit.name} on ${holdingName(portfolio, holding)}`,
+      undo: () => {
+        cardPlaid.forget(key);
+        setUse({ credit, holding }, previous, "Restored");
+      },
+    });
+  }
+
+  function dismissSuggestion(suggestion: CreditSuggestion) {
+    cardPlaid.remember(suggestion.key);
+    notify(`Dismissed ${suggestion.credit.name}${portfolio ? ` on ${holdingName(portfolio, suggestion.holding)}` : ""}`, () => cardPlaid.forget(suggestion.key));
+  }
 
   if (loadError && !portfolio) {
     return (
@@ -249,7 +285,7 @@ export function Portfolio({ db, accessToken, onSignOut }: Props) {
   const people = [...portfolio.people].sort((left, right) => left.sort - right.sort);
   const viewerPerson = people.find((person) => person.email && person.email.toLowerCase() === membership.email.toLowerCase()) || people[0];
   const groupProps = {
-    portfolio, today, include, collapsed: prefs.collapsed,
+    portfolio, today, include, collapsed: prefs.collapsed, plaid,
     showClosed: prefs.creditsShowClosed,
     onShowClosed: (show: boolean) => updatePrefs({ creditsShowClosed: show }),
     onCollapse: (key: string) => updatePrefs({ collapsed: { ...prefs.collapsed, [key]: !prefs.collapsed[key] } }),
@@ -328,7 +364,7 @@ export function Portfolio({ db, accessToken, onSignOut }: Props) {
         })}
       </section>
 
-      <DueList portfolio={portfolio} items={due} onOpenAccount={groupProps.onOpenAccount} onOpenCredits={(product) => {
+      <DueList portfolio={portfolio} items={due} plaid={plaid} onOpenAccount={groupProps.onOpenAccount} onOpenCredits={(product) => {
         updatePrefs({ view: "credits", collapsed: { ...prefs.collapsed, [`product-${product.id}`]: false } });
         requestAnimationFrame(() => document.getElementById(groupId(product.slug))?.scrollIntoView({ behavior: "smooth", block: "start" }));
       }} />
@@ -345,7 +381,7 @@ export function Portfolio({ db, accessToken, onSignOut }: Props) {
             onSettings={() => setPanel({ kind: "settings" })} />
         ) : prefs.view === "cards" ? (
           <>
-            <CardList portfolio={portfolio} accounts={cardList} today={today} onOpenAccount={groupProps.onOpenAccount} />
+            <CardList portfolio={portfolio} accounts={cardList} today={today} plaid={plaid} onOpenAccount={groupProps.onOpenAccount} />
             {hiddenCount > 0 && (
               <button type="button" className="btn show-closed" aria-pressed={prefs.showClosed} onClick={() => updatePrefs({ showClosed: !prefs.showClosed })}>
                 {prefs.showClosed ? "Hide closed & declined" : `Show closed & declined (${hiddenCount})`}
@@ -354,11 +390,14 @@ export function Portfolio({ db, accessToken, onSignOut }: Props) {
           </>
         ) : (
           <>
+            {plaid && <CreditSuggestions portfolio={portfolio} onAccept={acceptSuggestion} onDismiss={dismissSuggestion}
+              suggestions={plaid.suggestions.filter((suggestion) => { const account = portfolio.account(suggestion.holding.accountId); return !!account && include(account); })} />}
             <div className="legend">
               <span><span className="cell used"><CheckIcon /></span>Used</span>
               <span><span className="cell partial"><span className="num">$30</span></span>Partly used</span>
               <span><span className="cell" />Not used</span>
               <span><span className="cell off">–</span>Not enrolled</span>
+              {plaid && plaid.suggestions.length > 0 && <span><span className="cell suggested" />Bank shows a credit</span>}
               {portfolio.credits.some((credit) => credit.mode === "auto") && <span><span className="cell used auto"><CheckIcon /></span>Always used</span>}
               <span>Tap a box to mark it used. Press and hold (or right-click) for a partial amount or to mark it not enrolled.</span>
             </div>
@@ -392,6 +431,9 @@ export function Portfolio({ db, accessToken, onSignOut }: Props) {
           }}
           onToggle={toggleCredit}
           onMenu={groupProps.onMenu}
+          plaid={selectedAccount ? plaid?.byAccount.get(selectedAccount.id) : null}
+          onAcceptSuggestion={acceptSuggestion}
+          onDismissSuggestion={dismissSuggestion}
         />
       )}
 

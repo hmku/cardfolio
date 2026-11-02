@@ -1,11 +1,13 @@
+import type { PaymentStatus } from "./card-plaid.ts";
 import { addDays, parseDate } from "./dates.ts";
-import { bonusLabel, formatMoney, holdingName, shortName, type Portfolio } from "./model.ts";
+import { bonusLabel, formatMoney, holdingName, shortName, type Account, type Portfolio } from "./model.ts";
 import { ruleMatches } from "./rules.ts";
 import { dueItems, type DueItem } from "./stats.ts";
 
 /** Days before a deadline on which a reminder goes out. */
 const CREDIT_REMINDER_DAYS = [7, 2, 0];
 const BONUS_REMINDER_DAYS = [30, 14, 3];
+const PAYMENT_REMINDER_DAYS = [3, 0];
 
 export type Reminder = { title: string; lines: string[]; body: string };
 
@@ -16,7 +18,7 @@ export function todayInTimeZone(timeZone: string, now = new Date()) {
 }
 
 const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? "" : "s"}`;
-const when = (days: number) => (days === 0 ? "today" : days === 1 ? "tomorrow" : `in ${days} days`);
+const when = (days: number) => (days === 0 ? "today" : days === 1 ? "tomorrow" : days < 0 ? `${-days} day${days === -1 ? "" : "s"} ago` : `in ${days} days`);
 
 function line(portfolio: Portfolio, item: DueItem) {
   if (item.kind === "credit") {
@@ -30,21 +32,28 @@ function line(portfolio: Portfolio, item: DueItem) {
     const bonus = item.account.bonus ? bonusLabel(item.account.bonus) : "bonus";
     return item.daysLeft < 0 ? `${bonus} bonus deadline passed: ${card}` : `${bonus} bonus deadline ${when(item.daysLeft)}: ${card}`;
   }
+  if (item.kind === "payment") {
+    const { payment } = item;
+    if (payment.overdue) return `${card} payment is overdue${payment.minimumCents ? ` (minimum ${formatMoney(payment.minimumCents)})` : ""}`;
+    return `Pay ${formatMoney(payment.remainingCents)} on ${card}: due ${when(payment.daysLeft ?? 0)}`;
+  }
   return `${card} application still pending`;
 }
 
 /**
  * What to notify about today, or null for a quiet day. Individual items ping on a
- * few set days before their deadline (and a review rule on the day it starts
- * matching); Mondays also send a summary of everything due soon.
+ * few set days before their deadline (a review rule on the day it starts matching, an
+ * overdue card every day); Mondays also send a summary of everything due soon.
+ * `payments` come from linked Plaid cards (`paymentsDue` in card-plaid.ts).
  */
-export function dailyReminder(portfolio: Portfolio, today: Date): Reminder | null {
-  const items = dueItems(portfolio, today);
+export function dailyReminder(portfolio: Portfolio, today: Date, payments: { account: Account; payment: PaymentStatus }[] = []): Reminder | null {
+  const items = dueItems(portfolio, today, undefined, payments);
   const yesterday = addDays(today, -1);
   const pinged = items.filter((item) => {
     if (item.kind === "credit") return CREDIT_REMINDER_DAYS.includes(item.daysLeft);
     if (item.kind === "bonus") return BONUS_REMINDER_DAYS.includes(item.daysLeft);
     if (item.kind === "review") return !ruleMatches(portfolio, item.rule, item.account, yesterday);
+    if (item.kind === "payment") return item.payment.overdue || PAYMENT_REMINDER_DAYS.includes(item.payment.daysLeft ?? -1);
     return false;
   });
   const weekly = today.getDay() === 1;

@@ -484,3 +484,27 @@ label.f textarea { border: 1px solid var(--line); border-radius: 7px; padding: 7
 .cf-share-value b { color: var(--ink); font-size: 13px; font-weight: 600; }
 .cf-share-track { grid-column: 1 / -1; height: 8px; }
 .cf-share-bar { display: block; height: 100%; border-radius: 0 4px 4px 0; min-width: 2px; }
+
+/* Card bank details from Plaid: suggested credit uses, balances, the drawer's bank section */
+.suggestions { display: grid; gap: 6px; }
+.suggestions .todo-head .meta { color: var(--used); }
+.suggestion-list { list-style: none; margin: 0; padding: 6px 10px; display: grid; background: var(--surface); border: 1px solid var(--used); border-radius: 10px; }
+.drawer .suggestion-list { padding: 0; border: 0; background: transparent; }
+.suggestion { display: flex; align-items: center; gap: 10px; padding: 7px 0; }
+.suggestion + .suggestion { border-top: 1px solid var(--line-soft); }
+.suggestion .grow { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.suggestion small { display: block; color: var(--muted); font-size: 12px; }
+.suggestion .inline-actions { flex: none; }
+@media (max-width: 600px) {
+  .suggestion { flex-wrap: wrap; }
+  .suggestion .inline-actions { margin-left: auto; }
+}
+.cell.suggested { box-shadow: 0 0 0 2px var(--used-bg); border-color: var(--used); border-style: dashed; }
+.balance-cell { white-space: nowrap; }
+.balance-cell .sub.alert { color: var(--alert); font-weight: 600; }
+.bank-facts { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; margin: 0; font-size: 13px; }
+.bank-facts dt { color: var(--muted); }
+.bank-facts dd { margin: 0; }
+.bank-facts .alert { color: var(--alert); font-weight: 600; }
+.bank-note { font-size: 12px; color: var(--muted); margin: 0; }
+.due-kind.alert { color: var(--alert); }

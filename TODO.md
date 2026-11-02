@@ -129,8 +129,25 @@ done and move them to **Done** with the date.
   - [ ] Cash flow counts uncategorized money in as income and money out as spending. If card
         payments or transfers land uncategorized, they inflate both; fix their category (or add a
         rule) rather than changing the math.
-- [ ] Plaid Phase 3: suggest credit uses from transactions, bonus spend progress, annual fee
-      postings, link card payments between accounts.
+- [ ] Plaid Phase 3 left: link card payments between accounts (checking → card).
+- [ ] **Card features from Plaid follow-ups** (built 2026-11-02, see README → "What a linked card adds"):
+  - [ ] Once real cards are synced, check the credit matcher against actual Amex descriptions
+        (Transactions tab, search "credit"): fix aliases in `CREDIT_ALIASES`
+        (`app/lib/core/card-plaid.ts`) for anything missed or mis-matched. Guesses: Uber Cash
+        is paid into the Uber app, so it probably never shows on the card (only Uber One does);
+        the airline credit may post under the airline's name (not matched, on purpose: it looks
+        like a ticket refund).
+  - [ ] If an alias list isn't enough, add a per-credit keyword override (a `match_keywords`
+        column on `credits` plus a field in Settings → Card types and credits).
+  - [ ] Dismissed suggestions are remembered per browser (localStorage), so Sophia still sees
+        ones Harrison dismissed. Move them to a small table if that's annoying.
+  - [ ] A credit posted early in the next period (bought Oct 31, credited Nov 2) is suggested
+        for the new period; check how often that happens.
+  - [ ] Check that bonus spend roughly matches the issuer's tracker for a card in its window,
+        and that Liabilities' due dates and `is_overdue` look right for Amex and Chase.
+  - [ ] Not tried in a browser with real data yet (built without signing in): open a linked
+        card's drawer, the Credits "From your bank" list and the Cards Balance column on a
+        phone and desktop.
 - [ ] Plaid background (Harrison and Sophia each connect their own bank logins). Research from 2026-10-07 (plaid.com was unreachable from
       the agent's container, so check these on the Plaid Dashboard):
   - Sign up as a new team for the free **Trial plan** (teams created after 2026-04-15; no
@@ -177,6 +194,17 @@ done and move them to **Done** with the date.
   category and top merchants; tapping a category or merchant opens Transactions filtered to it
   for that period. Aggregation in `app/lib/core/finance.ts` (`cashFlowBreakdown`,
   `datePresetRange`, …), tested. No database changes.
+- 2026-11-02: Card features from Plaid (Phase 3, `app/lib/core/card-plaid.ts`, tests in
+  `tests/card-plaid.test.ts`). Linked cards show their balance and statement ("$1,234 due
+  Nov 20") in the Cards table (new Balance column), tiles and the drawer's "From your bank"
+  section; To do and push reminders get "Pay" items for unpaid statements due within 5 days
+  and "Overdue" alerts. Bonus tags and To do items show spend so far ("$3,210 of $5,000 spent,
+  48 days left") with a warning when Plaid's history starts after approval. Statement credits
+  in a card's transactions are suggested under "From your bank" on Credits and in the drawer
+  (Record saves the use with source `plaid`; Dismiss hides it in that browser), and matching
+  cells get a dashed green outline. Annual fee postings show in the drawer and on the
+  keep-or-close review. No database changes. Unlinked cards look as before.
+
 - 2026-11-02: Finance backbone (Plaid Phase 2). New migration `20261102000002_finance.sql`:
   balances and card statement details on `plaid_accounts` (now readable by members),
   `transactions` (cents, positive = money in), `categories` (default set seeded from Plaid's

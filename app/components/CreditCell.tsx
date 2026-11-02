@@ -18,10 +18,12 @@ type CellProps = {
   label: string;
   onToggle: () => void;
   onMenu: (anchor: DOMRect) => void;
+  /** A linked card's transactions show a matching statement credit waiting to be confirmed. */
+  suggested?: boolean;
 };
 
 /** One credit on one card. Tap toggles used; press-and-hold or right-click opens more options. */
-export function CreditCell({ credit, state, due, label, onToggle, onMenu }: CellProps) {
+export function CreditCell({ credit, state, due, label, onToggle, onMenu, suggested }: CellProps) {
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const longPressed = useRef(false);
   const button = useRef<HTMLButtonElement>(null);
@@ -47,8 +49,9 @@ export function CreditCell({ credit, state, due, label, onToggle, onMenu }: Cell
     description = `${money(state.usedCents)} of ${money(credit.amountCents)} used`;
   }
   if (due) className += " due";
+  if (suggested) className += " suggested";
 
-  let title = `${label}: ${description}`;
+  let title = `${label}: ${description}${suggested ? " · your bank shows a matching credit (see From your bank)" : ""}`;
   if (state.kind !== "off") {
     title += state.period.label === "Card year" ? ` · card year ends ${fullDate(state.period.end)}` : ` · ${state.period.label} ends ${shortDate(state.period.end)}`;
     const last = state.uses[state.uses.length - 1];

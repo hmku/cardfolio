@@ -43,7 +43,7 @@ everyone signed in.
 | `accounts` | One row per credit line: applied/approved dates, how it was opened, status, closing date, welcome bonus, notes. |
 | `account_products` | The products an account has been over time. An upgrade or downgrade ends one row and starts the next; the account itself stays open. Each row stores its **card number** (`CSR #5`: the 5th time that person held a CSR, counting product changes) and optional **last digits**. |
 | `credits` | Recurring credits on a card type: amount, cadence (monthly, quarterly, twice a year, calendar year, card year), `mode` (`track`, `auto` = always used, `skip` = not using) and whether to remind. |
-| `credit_uses` | A credit used on a specific card in a specific period. Partial amounts add up. `source` is `manual`, `import` or (later) `plaid`. |
+| `credit_uses` | A credit used on a specific card in a specific period. Partial amounts add up. `source` is `manual`, `import` or `plaid` (a bank suggestion someone accepted). |
 | `credit_opt_outs` | Credits not tracked on a specific card ("not enrolled"). |
 | `action_rules` | Review rules (annual fee window, NLL, Ink Cash, RedCard). |
 | `plaid_items` | Bank logins connected through Plaid (access token encrypted), with sync status and the `/transactions/sync` cursor. Server-only; browsers see the token-free view `plaid_item_status`. |
@@ -256,6 +256,30 @@ How a sync works (`db/plaid-sync.ts`):
   the pending one it replaces.
 - **Snapshots**: every sync writes today's balance for each account; the daily job also
   carries manual accounts forward, so net worth history has a point per day.
+
+What a linked card adds to Cards and Credits (`app/lib/core/card-plaid.ts`; an unlinked card
+looks as before):
+
+- **Payments**: the balance and statement ("$1,234 due Nov 20") in the card row, tile and
+  drawer. A To do item (and a push reminder 3 days before and on the day) when a statement
+  balance is due within 5 days and payments since the statement date (Liabilities' last
+  payment or "payment"/"autopay" transactions) don't cover it; "Overdue" when the bank says so
+  (reminded daily).
+- **Bonus spend**: posted purchases on the card from approval through the deadline, shown on
+  the bonus tag and To do item ("$3,210 of $5,000 spent, 48 days left"). Pending purchases are
+  shown separately; fees, interest, cash advances and transfers are left out; refunds and
+  statement credits aren't subtracted. A note warns when Plaid's transactions for the card
+  start more than 14 days after approval or Plaid is still loading history.
+- **Credit suggestions**: a posted money-in transaction whose merchant or description matches
+  one of the card's tracked credits ("AMEX Resy Credit" → Resy), dated in the credit's current
+  period and at most 2.5× its amount, shows under "From your bank" on Credits and in the drawer
+  with Record (saves the use with `source = 'plaid'`, dated the posting) or Dismiss. Keywords
+  come from a short alias list (Uber vs Uber One, airline, digital entertainment, Fine Hotels,
+  CLEAR, Walmart+…) or the credit's own name without generic words. Nothing is recorded
+  without a tap. Dismissals are remembered in that browser.
+- **Annual fees**: the latest "ANNUAL FEE"/"MEMBERSHIP FEE" charge in the last ~13 months
+  (and a matching refund) in the drawer and on the keep-or-close review ("fee posted Oct 3:
+  $695").
 
 1. Sign up at [dashboard.plaid.com](https://dashboard.plaid.com). A new team gets the free
    Trial plan (real banks, 10 connections for good).

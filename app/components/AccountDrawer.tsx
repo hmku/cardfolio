@@ -2,14 +2,17 @@
 
 import { useMemo, useState } from "react";
 import { creditIsDue, creditState, eligibleHoldings } from "../lib/core/credits";
-import { isoDate } from "../lib/core/dates";
+import type { CardPlaidSummary, CreditSuggestion } from "../lib/core/card-plaid";
+import { daysBetween, isoDate } from "../lib/core/dates";
+import { bonusHistoryWarning, bonusProgressText, feePostingText } from "../lib/presentation/card-plaid";
+import { CreditSuggestions } from "./CreditSuggestions";
 import { holdingName, nextHoldingNumber, personCode, shortName, type Account, type BonusUnit, type Holding, type Kind, type OpenedVia, type Portfolio } from "../lib/core/model";
 import { OPENED_VIA_LABELS } from "../lib/presentation/labels";
 import type { AccountDraft, ProductDraft } from "../lib/data";
 import type { CellTarget } from "./CreditCell";
 import { CreditCell } from "./CreditCell";
 import { Drawer } from "./ui";
-import { fullDate, money, shortDate, toCents, toDollarsInput } from "../lib/presentation/format";
+import { fullDate, inDays, money, shortDate, toCents, toDollarsInput } from "../lib/presentation/format";
 
 export type ProductChange = { productId: number | "new"; newProduct?: ProductDraft; date: string; annualFeeCents: number; last4: string | null; direction: "upgrade" | "downgrade" };
 
@@ -26,7 +29,38 @@ type Props = {
   onDelete: () => Promise<void>;
   onToggle: (target: CellTarget) => void;
   onMenu: (target: CellTarget, anchor: DOMRect) => void;
+  /** Bank details when the card is linked to Plaid. */
+  plaid?: CardPlaidSummary | null;
+  onAcceptSuggestion?: (suggestion: CreditSuggestion) => void;
+  onDismissSuggestion?: (suggestion: CreditSuggestion) => void;
 };
+
+/** Balances, statement, payments, bonus spend and fee postings from Plaid, plus suggested credit uses. */
+function BankSection({ portfolio, plaid, today, onAccept, onDismiss }: { portfolio: Portfolio; plaid: CardPlaidSummary; today: Date; onAccept?: (suggestion: CreditSuggestion) => void; onDismiss?: (suggestion: CreditSuggestion) => void }) {
+  const { payment, bonus, fee, card } = plaid;
+  const warning = bonus ? bonusHistoryWarning(bonus) : null;
+  const updated = card.updatedAt ? new Date(card.updatedAt) : null;
+  return (
+    <div className="fieldset">
+      <h3>From your bank</h3>
+      <dl className="bank-facts">
+        {payment.overdue && <><dt>Payment</dt><dd className="alert">Overdue{payment.minimumCents ? ` · pay at least ${money(payment.minimumCents)}` : ""}</dd></>}
+        {payment.balanceCents !== null && <><dt>Balance</dt><dd className="num">{money(payment.balanceCents)}{payment.limitCents ? ` of ${money(payment.limitCents)} limit` : ""}</dd></>}
+        {payment.statementCents !== null && <><dt>Statement</dt><dd><span className="num">{money(payment.statementCents)}</span>{payment.statementDate ? ` on ${shortDate(payment.statementDate)}` : ""}{payment.statementCents > 0 ? (payment.remainingCents < 100 ? " · paid" : payment.paidCents > 0 ? ` · ${money(payment.remainingCents)} left` : "") : ""}</dd></>}
+        {payment.dueDate && <><dt>Due</dt><dd>{shortDate(payment.dueDate)}{payment.daysLeft !== null && payment.daysLeft >= 0 ? ` (${inDays(payment.daysLeft)})` : ""}{payment.minimumCents ? ` · minimum ${money(payment.minimumCents)}` : ""}</dd></>}
+        {payment.lastPaymentCents !== null && payment.lastPaymentDate && <><dt>Last payment</dt><dd><span className="num">{money(payment.lastPaymentCents)}</span> on {shortDate(payment.lastPaymentDate)}</dd></>}
+        {bonus && <><dt>Bonus spend</dt><dd>{bonusProgressText(bonus)}</dd></>}
+        {fee && <><dt>Annual fee</dt><dd>{feePostingText(fee).replace(/^fee /, "")}</dd></>}
+      </dl>
+      {warning && <p className="bank-note">{warning}</p>}
+      {bonus && <p className="bank-note">Counts posted purchases since approval; fees, interest and transfers are left out and refunds aren&apos;t subtracted, so the issuer&apos;s total can differ.</p>}
+      {plaid.suggestions.length > 0 && onAccept && onDismiss && (
+        <CreditSuggestions portfolio={portfolio} suggestions={plaid.suggestions} onAccept={onAccept} onDismiss={onDismiss} showCard={false} />
+      )}
+      {updated && !Number.isNaN(updated.getTime()) && <p className="hint">Balances from Plaid, updated {inDays(daysBetween(updated, today) * -1)}.</p>}
+    </div>
+  );
+}
 
 function draftFrom(portfolio: Portfolio, account: Account | undefined, defaultPersonId: number, today: Date): AccountDraft {
   if (account) {
@@ -259,6 +293,8 @@ export function AccountDrawer(props: Props) {
         </div>
       )}
 
+      {account && props.plaid && <BankSection portfolio={portfolio} plaid={props.plaid} today={today} onAccept={props.onAcceptSuggestion} onDismiss={props.onDismissSuggestion} />}
+
       <div className="fieldset">
         <h3>Card</h3>
         <div className="fields">
@@ -364,7 +400,8 @@ export function AccountDrawer(props: Props) {
               return (
                 <div key={credit.id} className="inline-credit">
                   <CreditCell credit={credit} state={state} due={creditIsDue(credit, state)} label={credit.name}
-                    onToggle={() => props.onToggle({ credit, holding: current })} onMenu={(anchor) => props.onMenu({ credit, holding: current }, anchor)} />
+                    onToggle={() => props.onToggle({ credit, holding: current })} onMenu={(anchor) => props.onMenu({ credit, holding: current }, anchor)}
+                    suggested={props.plaid?.suggestions.some((suggestion) => suggestion.credit.id === credit.id && suggestion.holding.id === current.id)} />
                   <span className="grow">{credit.name} · {money(credit.amountCents)}
                     <small>{status}{state.kind !== "off" && ` · ${state.period.label} ends ${shortDate(state.period.end)}`}</small>
                   </span>

@@ -15,6 +15,7 @@ import {
   type OpenedVia,
   type PortfolioData,
   type Product,
+  type UseSource,
 } from "./core/model.ts";
 
 export type Context = { db: SupabaseClient; householdId: string; email: string };
@@ -129,7 +130,11 @@ function check<T>(result: { data: T; error: { message: string; code?: string } |
 // ---------- credits ----------
 
 /** Replaces a card's usage of a credit for one period. `amountCents` null clears it. */
-export async function setCreditUse(context: Context, creditId: number, holdingId: number, periodKey: string, amountCents: number | null) {
+/**
+ * Sets (or with null clears) a credit's use for a period. `source: "plaid"` with the posting's
+ * `usedOn` date records an accepted bank suggestion.
+ */
+export async function setCreditUse(context: Context, creditId: number, holdingId: number, periodKey: string, amountCents: number | null, options: { source?: UseSource; usedOn?: string } = {}) {
   const { db, householdId, email } = context;
   check(await db.rpc("cardfolio_set_credit_use", {
     p_household: householdId,
@@ -137,9 +142,9 @@ export async function setCreditUse(context: Context, creditId: number, holdingId
     p_holding: holdingId,
     p_period: periodKey,
     p_amount_cents: amountCents,
-    p_used_on: isoDate(new Date()),
+    p_used_on: options.usedOn ?? isoDate(new Date()),
     p_recorded_by: email,
-    p_source: "manual",
+    p_source: options.source ?? "manual",
   }), "update the credit");
 }
 

@@ -2,6 +2,8 @@ import { anniversaryIn, daysBetween, parseDate } from "../core/dates.ts";
 import { bonusLabel, holdingName, type Account, type Holding, type Portfolio } from "../core/model.ts";
 import { accountAction } from "../core/rules.ts";
 import { bonusStatus, feeStatus } from "../core/stats.ts";
+import type { CardPlaidSummary } from "../core/card-plaid.ts";
+import { bonusProgressText, feePostingText, paymentText } from "./card-plaid.ts";
 import { inDays, money, monthYear, shortDate } from "./format.ts";
 
 export type CardTone = "alert" | "due" | "info" | "kept";
@@ -15,8 +17,8 @@ function approvedDays(account: Account, today: Date) {
   return approved ? daysBetween(approved, today) : -1;
 }
 
-/** Shared presentation for Cards and Credits; financial rules stay in core. */
-export function cardStatus(portfolio: Portfolio, account: Account, holding: Holding, today: Date) {
+/** Shared presentation for Cards and Credits; financial rules stay in core. `plaid` adds bank details for a linked card. */
+export function cardStatus(portfolio: Portfolio, account: Account, holding: Holding, today: Date, plaid?: CardPlaidSummary | null) {
   const tags: StatusTag[] = [];
   const tones: CardTone[] = [];
   const current = portfolio.current(account.id);
@@ -38,7 +40,7 @@ export function cardStatus(portfolio: Portfolio, account: Account, holding: Hold
     const timing = fee && last && last.getTime() <= today.getTime() && fee.daysLeft > 180
       ? `renewed ${shortDate(last)}` : fee ? `renews ${inDays(fee.daysLeft)}` : "";
     tags.push({ key: "rule", tone: "alert", title: rule.name,
-      text: rule.actionCode === "CLOSE" && fee ? `Keep or close? ${money(fee.feeCents)} fee, ${timing}` : rule.name });
+      text: rule.actionCode === "CLOSE" && fee ? `Keep or close? ${plaid?.fee ? feePostingText(plaid.fee) : `${money(fee.feeCents)} fee, ${timing}`}` : rule.name });
   } else if (fee && approvedDays(account, today) >= YEAR_DAYS) {
     // Kept past its first fee and outside a review window: a light "think about it" nudge.
     tones.push("kept");
@@ -55,7 +57,17 @@ export function cardStatus(portfolio: Portfolio, account: Account, holding: Hold
     const spend = account.bonus.spendCents ? `spend ${money(account.bonus.spendCents)}` : "earn";
     tags.push({ key: "bonus", tone: overdue ? "alert" : "due", text: overdue
       ? `Bonus deadline passed ${shortDate(bonus.deadline)}: earned it?`
+      : plaid?.bonus ? `${bonusLabel(account.bonus)}: ${bonusProgressText(plaid.bonus)}`
       : `${bonusLabel(account.bonus)}: ${spend} by ${shortDate(bonus.deadline)} · ${bonus.daysLeft}d left` });
+  }
+  if (plaid && account.status === "open") {
+    const { payment } = plaid;
+    if (payment.overdue) {
+      tones.push("alert");
+      tags.push({ key: "payment", tone: "alert", text: `Payment ${paymentText(payment)?.toLowerCase()}`, title: "The bank reports this card as past due" });
+    } else if (payment.needsPayment) {
+      tags.push({ key: "payment", text: paymentText(payment) || "", title: "Statement balance not paid yet" });
+    }
   }
   if (account.status === "pending") {
     tones.push("info");

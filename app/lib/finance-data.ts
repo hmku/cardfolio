@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { isoDate } from "./core/dates.ts";
+import { FEE_LOOKBACK_DAYS, type CardPlaidData, type CardTransaction, type LinkedCard } from "./core/card-plaid.ts";
+import { addDays, isoDate, parseDate } from "./core/dates.ts";
 import type { CategoryKind, CategorySource, RuleField } from "./core/finance.ts";
 
 /**
@@ -605,4 +606,73 @@ export async function syncNow(accessToken: string, itemId?: number): Promise<Syn
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(payload.error || "Couldn't sync");
   return payload as SyncSummary;
+}
+
+// ---------- card features (Cards and Credits tabs) ----------
+
+const CARD_TRANSACTION_COLUMNS = "id, plaid_account_id, date, amount_cents, name, merchant_name, pending, plaid_category_primary, plaid_category_detailed";
+
+const toCardTransaction = (row: Row): CardTransaction => ({
+  id: num(row.id),
+  plaidAccountId: num(row.plaid_account_id),
+  date: String(row.date),
+  amountCents: num(row.amount_cents),
+  name: String(row.name),
+  merchantName: text(row.merchant_name),
+  pending: Boolean(row.pending),
+  categoryPrimary: text(row.plaid_category_primary),
+  categoryDetailed: text(row.plaid_category_detailed),
+});
+
+/**
+ * Plaid data for the card pages (see app/lib/core/card-plaid.ts): linked credit cards with
+ * their balances and statements, plus only the transactions those features read: money in
+ * over the last ~13 months (payments and statement credits), annual fee postings, and
+ * purchases on cards in a welcome-bonus window (`bonusWindows`, by Cardfolio account id,
+ * YYYY-MM-DD bounds). Works with the service-role client too (the reminder cron).
+ */
+export async function loadCardPlaidData(context: FinanceContext, options: { today: string; bonusWindows?: { accountId: number; from: string; to: string }[] }): Promise<CardPlaidData> {
+  const [accounts, logins] = await Promise.all([loadBankAccounts(context), loadBankLogins(context).catch(() => [] as BankLogin[])]);
+  const status = new Map(logins.map((login) => [login.id, login.transactionsStatus]));
+  const linked = accounts.filter((account) => account.type === "credit" && account.cardAccountId !== null);
+  if (!linked.length) return { cards: [], transactions: [] };
+  const ids = linked.map((account) => account.id);
+  const since = isoDate(addDays(parseDate(options.today)!, -FEE_LOOKBACK_DAYS));
+  const base = () => context.db.from("transactions").select(CARD_TRANSACTION_COLUMNS).eq("household_id", context.householdId).in("plaid_account_id", ids);
+  const windows = (options.bonusWindows || []).flatMap((window) => {
+    const card = linked.find((account) => account.cardAccountId === window.accountId);
+    return card ? [{ ...window, plaidAccountId: card.id }] : [];
+  });
+  const [moneyIn, fees, spend, firsts] = await Promise.all([
+    pageAll((start, end) => base().gt("amount_cents", 0).gte("date", since).order("date").order("id").range(start, end), "load card payments and credits"),
+    pageAll((start, end) => base().gte("date", since).or('name.ilike."%annual fee%",name.ilike."%membership fee%",name.ilike."%annual membership%"').order("date").order("id").range(start, end), "load annual fees"),
+    Promise.all(windows.map((window) => pageAll((start, end) => context.db.from("transactions").select(CARD_TRANSACTION_COLUMNS)
+      .eq("household_id", context.householdId).eq("plaid_account_id", window.plaidAccountId).lt("amount_cents", 0)
+      .gte("date", window.from).lte("date", window.to).order("date").order("id").range(start, end), "load bonus spend"))),
+    Promise.all(windows.map(async (window) => {
+      const rows = check(await context.db.from("transactions").select("date").eq("household_id", context.householdId)
+        .eq("plaid_account_id", window.plaidAccountId).order("date").limit(1), "load card history") || [];
+      return [window.plaidAccountId, rows[0] ? String(rows[0].date) : null] as const;
+    })),
+  ]);
+  const firstDates = new Map(firsts);
+  const transactions = new Map<number, CardTransaction>();
+  for (const row of [...moneyIn, ...fees, ...spend.flat()]) transactions.set(num(row.id), toCardTransaction(row));
+  const cards: LinkedCard[] = linked.map((account) => ({
+    plaidAccountId: account.id,
+    accountId: account.cardAccountId!,
+    currentCents: account.currentCents,
+    limitCents: account.limitCents,
+    statementCents: account.statement.lastStatementCents,
+    statementDate: account.statement.lastStatementDate,
+    minimumCents: account.statement.minimumPaymentCents,
+    dueDate: account.statement.nextDueDate,
+    lastPaymentCents: account.statement.lastPaymentCents,
+    lastPaymentDate: account.statement.lastPaymentDate,
+    overdue: account.statement.overdue,
+    updatedAt: account.balancesUpdatedAt,
+    historyComplete: status.get(account.itemId) ? status.get(account.itemId) === "HISTORICAL_UPDATE_COMPLETE" : null,
+    ...(firstDates.has(account.id) && { firstTransactionDate: firstDates.get(account.id) ?? null }),
+  }));
+  return { cards, transactions: [...transactions.values()] };
 }

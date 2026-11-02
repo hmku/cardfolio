@@ -1,5 +1,6 @@
 import { creditIsDue, creditState, eligibleHoldings, type Period } from "./credits.ts";
 import { addMonths, DAY_MS, daysBetween, isoDate, nextAnniversary, parseDate } from "./dates.ts";
+import type { PaymentStatus } from "./card-plaid.ts";
 import type { Account, ActionRule, Credit, Holding, Portfolio } from "./model.ts";
 import { accountAction } from "./rules.ts";
 
@@ -48,13 +49,21 @@ export type DueItem =
   | { kind: "credit"; credit: Credit; period: Period; holdings: Holding[]; daysLeft: number }
   | { kind: "review"; account: Account; rule: ActionRule }
   | { kind: "bonus"; account: Account; deadline: Date; daysLeft: number }
-  | { kind: "pending"; account: Account; daysWaiting: number };
+  | { kind: "pending"; account: Account; daysWaiting: number }
+  /** A linked card's statement balance due soon and unpaid, or the card is overdue (Plaid). */
+  | { kind: "payment"; account: Account; payment: PaymentStatus };
 
 const BONUS_WINDOW_DAYS = 60;
 
-/** Everything that needs attention, soonest first. `include` filters accounts (person, search). */
-export function dueItems(portfolio: Portfolio, today: Date, include: (account: Account) => boolean = () => true): DueItem[] {
+/**
+ * Everything that needs attention, soonest first. `include` filters accounts (person, search).
+ * `payments` are linked cards with a payment due or overdue (`paymentsDue` in card-plaid.ts).
+ */
+export function dueItems(portfolio: Portfolio, today: Date, include: (account: Account) => boolean = () => true, payments: { account: Account; payment: PaymentStatus }[] = []): DueItem[] {
   const items: Array<{ item: DueItem; sort: number }> = [];
+  for (const { account, payment } of payments) {
+    if (include(account)) items.push({ item: { kind: "payment", account, payment }, sort: payment.overdue ? -1000 : payment.daysLeft ?? 0 });
+  }
   for (const credit of portfolio.credits) {
     if (credit.mode !== "track" || !credit.remind) continue;
     const grouped = new Map<string, { period: Period; holdings: Holding[]; daysLeft: number }>();

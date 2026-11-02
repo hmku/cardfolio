@@ -2,6 +2,7 @@
 
 import { creditIsDue, creditState, creditSummary, eligibleHoldings, periodFor, DUE_WINDOW_DAYS } from "../lib/core/credits";
 import { daysBetween } from "../lib/core/dates";
+import type { CardPlaidView } from "../lib/core/card-plaid";
 import { holdingName, shortName, type Account, type Credit, type Holding, type Portfolio } from "../lib/core/model";
 import { CreditCell, type CellTarget } from "./CreditCell";
 import { StatusTags, WhoLabel } from "./CardDetails";
@@ -22,6 +23,8 @@ type GroupProps = Handlers & {
   /** Closed cards and earlier products (before an upgrade or downgrade) are hidden unless set. */
   showClosed: boolean;
   onShowClosed: (show: boolean) => void;
+  /** Bank details for linked cards: status tags and cells with a suggested credit use. */
+  plaid?: CardPlaidView | null;
 };
 
 function GroupHead({ id, title, meta, collapsed, onToggle }: { id: string; title: string; meta: string; collapsed: boolean; onToggle: (key: string) => void }) {
@@ -38,7 +41,8 @@ export const groupId = (key: string) => `g-${key.replace(/[^a-z0-9]+/gi, "-")}`;
 
 /** Card types with credits: one row per card, one checkbox column per credit. */
 export function CardGroups(props: GroupProps) {
-  const { portfolio, today, include, collapsed, onCollapse, showClosed, onShowClosed } = props;
+  const { portfolio, today, include, collapsed, onCollapse, showClosed, onShowClosed, plaid } = props;
+  const suggested = new Set((plaid?.suggestions || []).map((suggestion) => `${suggestion.credit.id}:${suggestion.holding.id}`));
   let closedRows = 0;
   // "Not using" credits stay out of the grid; always-used ones come after the tracked ones.
   const visibleCredits = portfolio.credits.filter((credit) => credit.mode !== "skip");
@@ -108,11 +112,11 @@ export function CardGroups(props: GroupProps) {
                           return (
                             <td key={credit.id} className="credit">
                               <CreditCell credit={credit} state={state} due={creditIsDue(credit, state)} label={`${credit.name} on ${holdingName(portfolio, holding)}`}
-                                onToggle={() => props.onToggle({ credit, holding })} onMenu={(anchor) => props.onMenu({ credit, holding }, anchor)} />
+                                onToggle={() => props.onToggle({ credit, holding })} onMenu={(anchor) => props.onMenu({ credit, holding }, anchor)} suggested={suggested.has(`${credit.id}:${holding.id}`)} />
                             </td>
                           );
                         })}
-                        <td className="status-cell"><StatusTags portfolio={portfolio} account={account} holding={holding} today={today} /></td>
+                        <td className="status-cell"><StatusTags portfolio={portfolio} account={account} holding={holding} today={today} plaid={plaid?.byAccount.get(account.id)} /></td>
                       </tr>
                     );
                   })}

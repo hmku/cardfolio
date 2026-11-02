@@ -458,7 +458,15 @@ export function cashFlowSide(transaction: Pick<CashFlowTransaction, "amountCents
 }
 
 export type CashFlowShare = { categoryId: number | null; cents: number; share: number };
-export type MerchantSpend = { merchant: string; cents: number; count: number };
+export type MerchantSpend = {
+  merchant: string;
+  cents: number;
+  count: number;
+  /** The merchant's logo from its latest transaction that has one, if any. */
+  logoUrl: string | null;
+  /** The category most of this merchant's spending falls in (null = uncategorized), for an emoji fallback. */
+  categoryId: number | null;
+};
 export type CashFlowBreakdown = {
   incomeCents: number;
   expenseCents: number;
@@ -484,11 +492,11 @@ function shares(totals: Map<number | null, number>): CashFlowShare[] {
  * Totals, spending and income by category, and top merchants for a set of transactions
  * (one month or a year), counted the same way as cashFlowByMonth.
  */
-export function cashFlowBreakdown(transactions: (CashFlowTransaction & { merchant?: string | null })[], categories: { id: number; kind: CategoryKind }[], merchantLimit = 10): CashFlowBreakdown {
+export function cashFlowBreakdown(transactions: (CashFlowTransaction & { merchant?: string | null; logoUrl?: string | null })[], categories: { id: number; kind: CategoryKind }[], merchantLimit = 10): CashFlowBreakdown {
   const kinds = new Map(categories.map((category) => [category.id, category.kind]));
   const spending = new Map<number | null, number>();
   const income = new Map<number | null, number>();
-  const merchants = new Map<string, MerchantSpend>();
+  const merchants = new Map<string, MerchantSpend & { byCategory: Map<number | null, number> }>();
   let incomeCents = 0;
   let expenseCents = 0;
   for (const transaction of transactions) {
@@ -502,9 +510,11 @@ export function cashFlowBreakdown(transactions: (CashFlowTransaction & { merchan
       const name = (transaction.merchant || "").trim();
       if (name) {
         const key = name.toLowerCase();
-        const row = merchants.get(key) ?? { merchant: name, cents: 0, count: 0 };
+        const row = merchants.get(key) ?? { merchant: name, cents: 0, count: 0, logoUrl: null, categoryId: null, byCategory: new Map() };
         row.cents -= transaction.amountCents;
         row.count += 1;
+        if (transaction.logoUrl) row.logoUrl = transaction.logoUrl;
+        row.byCategory.set(transaction.categoryId, (row.byCategory.get(transaction.categoryId) ?? 0) - transaction.amountCents);
         merchants.set(key, row);
       }
     }
@@ -518,7 +528,8 @@ export function cashFlowBreakdown(transactions: (CashFlowTransaction & { merchan
     spending: shares(spending),
     income: shares(income),
     merchants: [...merchants.values()].filter((row) => row.cents > 0)
-      .sort((left, right) => right.cents - left.cents || left.merchant.localeCompare(right.merchant)).slice(0, merchantLimit),
+      .sort((left, right) => right.cents - left.cents || left.merchant.localeCompare(right.merchant)).slice(0, merchantLimit)
+      .map(({ byCategory, ...row }) => ({ ...row, categoryId: [...byCategory].reduce((best, entry) => (entry[1] > best[1] ? entry : best), [null, -Infinity] as [number | null, number])[0] })),
   };
 }
 
@@ -553,4 +564,132 @@ export function datePresetRange(preset: DatePreset, today: string): { from?: str
     return { from: new Date(Date.UTC(year, month - 1, day - 89)).toISOString().slice(0, 10), to: today };
   }
   return {};
+}
+
+// ---------- Cash flow page: default period, comparisons, category colors, the flow diagram ----------
+
+/**
+ * The period the Cash flow page opens on (YYYY-MM): this month once it has something to show
+ * (from the 7th, with at least 5 counted transactions), otherwise last month, which is complete.
+ */
+export function defaultCashFlowPeriod(today: string, countedThisMonth: number) {
+  return Number(today.slice(8, 10)) >= 7 && countedThisMonth >= 5 ? today.slice(0, 7) : recentMonths(today, 2)[0];
+}
+
+export type DateRange = { from: string; to: string };
+
+/**
+ * A Cash flow period ("12m" = the last 12 months including this one, or a YYYY-MM month) as a date
+ * range, the period before it to compare against, and how many months it spans.
+ */
+export function cashFlowPeriodRanges(period: string, today: string): { range: DateRange; previousRange: DateRange; previousMonth: string | null; months: number } {
+  if (period === "12m") {
+    const months = recentMonths(today, 24);
+    return { range: { from: `${months[12]}-01`, to: today }, previousRange: { from: `${months[0]}-01`, to: monthBounds(months[11]).to }, previousMonth: null, months: 12 };
+  }
+  const previousMonth = recentMonths(`${period}-01`, 2)[0];
+  return { range: monthBounds(period), previousRange: monthBounds(previousMonth), previousMonth, months: 1 };
+}
+
+/** Relative change (0.1 = up 10%), or null when the earlier value is zero or less (nothing to compare with). */
+export function relativeChange(current: number, previous: number) {
+  return previous > 0 ? (current - previous) / previous : null;
+}
+
+export type ShareChange = CashFlowShare & { previousCents: number };
+
+/** Each current category share with what the same category came to in the previous period (0 if nothing). */
+export function withPreviousShares(current: CashFlowShare[], previous: CashFlowShare[]): ShareChange[] {
+  const before = new Map(previous.map((row) => [row.categoryId, row.cents]));
+  return current.map((row) => ({ ...row, previousCents: before.get(row.categoryId) ?? 0 }));
+}
+
+/**
+ * The `keep` largest shares, and the rest folded together. A lone leftover isn't folded
+ * (it's shown as itself), so "the rest" always stands for two or more categories.
+ */
+export function foldShares<T extends CashFlowShare>(rows: T[], keep: number): { shown: T[]; rest: T[]; restCents: number; restShare: number } {
+  const limit = rows.length <= keep + 1 ? rows.length : keep;
+  const rest = rows.slice(limit);
+  return { shown: rows.slice(0, limit), rest, restCents: rest.reduce((sum, row) => sum + row.cents, 0), restShare: rest.reduce((sum, row) => sum + row.share, 0) };
+}
+
+/** How many category hues the chart palette has (globals.css --cat-0 … --cat-6). */
+export const CATEGORY_HUES = 7;
+
+/** Default hue per default category name: 0 orange, 1 aqua, 2 yellow, 3 magenta, 4 green, 5 violet, 6 red. */
+const DEFAULT_CATEGORY_HUES: Record<string, number> = {
+  "groceries": 4,
+  "restaurants & bars": 0,
+  "shopping": 3,
+  "travel": 1,
+  "transportation": 6,
+  "rent & mortgage": 5,
+  "utilities & phone": 2,
+  "home": 1,
+  "entertainment": 5,
+  "health": 6,
+  "personal care": 3,
+  "insurance": 2,
+  "services": 4,
+  "gifts & donations": 3,
+  "taxes & government": 5,
+  "fees & interest": 6,
+  "loan payments": 2,
+};
+
+/** The hue a category asks for: by default category name, else spread by id. "Other" has none (it's neutral). */
+export function preferredCategoryHue(category: { id: number; name: string }): number | null {
+  const name = category.name.trim().toLowerCase();
+  if (name === "other") return null;
+  return DEFAULT_CATEGORY_HUES[name] ?? Math.abs(category.id) % CATEGORY_HUES;
+}
+
+/**
+ * Hues for categories shown together, largest first. Each keeps the hue it asks for unless a larger
+ * category already has it; then it takes the next free hue, so no two shown categories share a color.
+ * Categories without a hue ("Other", or past the palette) are left out of the map and drawn neutral.
+ */
+export function assignCategoryHues(categories: { id: number; name: string }[]): Map<number, number> {
+  const hues = new Map<number, number>();
+  const used = new Set<number>();
+  for (const category of categories) {
+    const preferred = preferredCategoryHue(category);
+    if (preferred === null || used.size >= CATEGORY_HUES) continue;
+    let hue = preferred;
+    while (used.has(hue)) hue = (hue + 1) % CATEGORY_HUES;
+    used.add(hue);
+    hues.set(category.id, hue);
+  }
+  return hues;
+}
+
+export type FlowNode = {
+  key: string;
+  /** income / spending: one category (null = uncategorized); the rest stand for a group or a balance. */
+  role: "income" | "spending" | "other-income" | "other-spending" | "savings" | "deficit";
+  categoryId: number | null;
+  cents: number;
+  /** For the folded groups: how many categories they hold. */
+  count: number;
+};
+
+/**
+ * Nodes for an "income → spending" flow diagram: income categories on the left (plus "from savings"
+ * when spending beat income), spending categories and what was saved on the right. Both sides add
+ * up to the same total, so every left band fans out into the right column without gaps.
+ */
+export function cashFlowFlow(breakdown: Pick<CashFlowBreakdown, "income" | "spending">, options: { incomeNodes?: number; spendingNodes?: number } = {}) {
+  const node = (role: FlowNode["role"], row: CashFlowShare): FlowNode => ({ key: `${role}:${row.categoryId}`, role, categoryId: row.categoryId, cents: row.cents, count: 1 });
+  const income = foldShares(breakdown.income, options.incomeNodes ?? 3);
+  const spending = foldShares(breakdown.spending, options.spendingNodes ?? 7);
+  const sources = income.shown.map((row) => node("income", row));
+  if (income.rest.length) sources.push({ key: "other-income", role: "other-income", categoryId: null, cents: income.restCents, count: income.rest.length });
+  const targets = spending.shown.map((row) => node("spending", row));
+  if (spending.rest.length) targets.push({ key: "other-spending", role: "other-spending", categoryId: null, cents: spending.restCents, count: spending.rest.length });
+  const incomeCents = breakdown.income.reduce((sum, row) => sum + row.cents, 0);
+  const spendingCents = breakdown.spending.reduce((sum, row) => sum + row.cents, 0);
+  if (incomeCents > spendingCents) targets.push({ key: "savings", role: "savings", categoryId: null, cents: incomeCents - spendingCents, count: 0 });
+  if (spendingCents > incomeCents) sources.push({ key: "deficit", role: "deficit", categoryId: null, cents: spendingCents - incomeCents, count: 0 });
+  return { sources, targets, totalCents: Math.max(incomeCents, spendingCents), incomeCents, spendingCents };
 }

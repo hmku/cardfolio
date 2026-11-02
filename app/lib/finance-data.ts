@@ -377,10 +377,10 @@ export async function loadTransactions(context: FinanceContext, query: Transacti
 /** Every transaction in a date range with only what cash flow needs (paged past 1,000 rows); `merchant` is the merchant name, else the description. */
 export async function loadCashFlowTransactions(context: FinanceContext, from: string, to: string) {
   const rows = await pageAll((start, end) => context.db.from("transactions")
-    .select("id, date, amount_cents, category_id, excluded, plaid_account_id, merchant_name, name")
+    .select("id, date, amount_cents, category_id, excluded, plaid_account_id, merchant_name, name, logo_url")
     .eq("household_id", context.householdId).gte("date", from).lte("date", to)
     .order("date").order("id").range(start, end), "load cash flow");
-  return rows.map((row) => ({ id: num(row.id), date: String(row.date), amountCents: num(row.amount_cents), categoryId: numOrNull(row.category_id), excluded: Boolean(row.excluded), plaidAccountId: num(row.plaid_account_id), merchant: text(row.merchant_name) || text(row.name) }));
+  return rows.map((row) => ({ id: num(row.id), date: String(row.date), amountCents: num(row.amount_cents), categoryId: numOrNull(row.category_id), excluded: Boolean(row.excluded), plaidAccountId: num(row.plaid_account_id), merchant: text(row.merchant_name) || text(row.name), logoUrl: text(row.logo_url) || null }));
 }
 
 export type TransactionPatch = { categoryId?: number | null; notes?: string | null; excluded?: boolean; reviewed?: boolean };

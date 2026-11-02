@@ -15,7 +15,7 @@ import {
 } from "../app/lib/core/investments.ts";
 import { cardNameScore, matchPlaidAccounts } from "../app/lib/core/plaid.ts";
 import { verifyPlaidWebhook } from "../db/plaid-webhook.ts";
-import { cashFlowBreakdown, datePresetRange, fillMonths, monthBounds, recentMonths } from "../app/lib/core/finance.ts";
+import { assignCategoryHues, cashFlowBreakdown, cashFlowFlow, cashFlowPeriodRanges, datePresetRange, defaultCashFlowPeriod, fillMonths, foldShares, monthBounds, preferredCategoryHue, recentMonths, relativeChange, withPreviousShares } from "../app/lib/core/finance.ts";
 import { bankAccountLabel } from "../app/lib/presentation/account-labels.ts";
 import { DEFAULT_TRANSACTION_FILTERS, filtersToQuery, groupByDate } from "../app/lib/presentation/transaction-view.ts";
 import { accountAction } from "../app/lib/core/rules.ts";
@@ -412,7 +412,7 @@ test("cash flow breakdown: totals, savings rate, categories by share and top mer
   const breakdown = cashFlowBreakdown([
     { date: "2026-10-01", amountCents: 500000, categoryId: 1, excluded: false, merchant: "Acme Payroll" },
     { date: "2026-10-02", amountCents: 1000, categoryId: null, excluded: false, merchant: "Venmo" },
-    { date: "2026-10-03", amountCents: -30000, categoryId: 3, excluded: false, merchant: "Whole Foods" },
+    { date: "2026-10-03", amountCents: -30000, categoryId: 3, excluded: false, merchant: "Whole Foods", logoUrl: "https://logo/wf.png" },
     { date: "2026-10-04", amountCents: -10000, categoryId: 3, excluded: false, merchant: "whole foods" },
     { date: "2026-10-05", amountCents: 5000, categoryId: 3, excluded: false, merchant: "Whole Foods" },
     { date: "2026-10-06", amountCents: -15000, categoryId: 4, excluded: false, merchant: "Nopa" },
@@ -429,7 +429,10 @@ test("cash flow breakdown: totals, savings rate, categories by share and top mer
   assert.deepEqual(breakdown.spending.map((row) => [row.categoryId, row.cents]), [[3, 35000], [4, 15000], [null, 5000]]);
   assert.equal(breakdown.spending.reduce((sum, row) => sum + row.share, 0).toFixed(6), "1.000000");
   assert.deepEqual(breakdown.income.map((row) => [row.categoryId, row.cents]), [[1, 500000], [null, 1000]]);
-  assert.deepEqual(breakdown.merchants, [{ merchant: "Whole Foods", cents: 35000, count: 3 }, { merchant: "Nopa", cents: 15000, count: 1 }]);
+  assert.deepEqual(breakdown.merchants, [
+    { merchant: "Whole Foods", cents: 35000, count: 3, logoUrl: "https://logo/wf.png", categoryId: 3 },
+    { merchant: "Nopa", cents: 15000, count: 1, logoUrl: null, categoryId: 4 },
+  ]);
   assert.equal(cashFlowBreakdown([], financeCategories).savingsRate, null);
 });
 
@@ -558,4 +561,52 @@ test("investment activity types group Plaid's type and subtype", () => {
   assert.equal(activityKind("cash", "tax withheld"), "fee");
   assert.equal(activityKind("transfer", "transfer"), "transfer");
   assert.equal(activityKind(null, null), "other");
+});
+
+test("cash flow page: default period, previous period and changes", () => {
+  // Early in the month (or with little data) the page opens on last month, which is complete.
+  assert.equal(defaultCashFlowPeriod("2026-11-02", 40), "2026-10");
+  assert.equal(defaultCashFlowPeriod("2026-11-12", 3), "2026-10");
+  assert.equal(defaultCashFlowPeriod("2026-11-12", 12), "2026-11");
+  assert.equal(defaultCashFlowPeriod("2026-01-03", 0), "2025-12");
+  assert.deepEqual(cashFlowPeriodRanges("2026-03", "2026-11-02"), { range: { from: "2026-03-01", to: "2026-03-31" }, previousRange: { from: "2026-02-01", to: "2026-02-28" }, previousMonth: "2026-02", months: 1 });
+  assert.deepEqual(cashFlowPeriodRanges("12m", "2026-11-02"), { range: { from: "2025-12-01", to: "2026-11-02" }, previousRange: { from: "2024-12-01", to: "2025-11-30" }, previousMonth: null, months: 12 });
+  assert.equal(relativeChange(110, 100), 0.1);
+  assert.equal(relativeChange(5, 0), null);
+  const changes = withPreviousShares([{ categoryId: 3, cents: 500, share: 0.5 }, { categoryId: null, cents: 500, share: 0.5 }], [{ categoryId: 3, cents: 400, share: 1 }]);
+  assert.deepEqual(changes.map((row) => row.previousCents), [400, 0]);
+});
+
+test("cash flow page: folded shares, category hues and the flow diagram", () => {
+  const rows = [5, 4, 3, 2, 1].map((cents, index) => ({ categoryId: index + 1, cents, share: cents / 15 }));
+  assert.deepEqual(foldShares(rows, 3).shown.map((row) => row.categoryId), [1, 2, 3]);
+  assert.equal(foldShares(rows, 3).restCents, 3);
+  // A single leftover is shown as itself rather than as "1 other".
+  assert.equal(foldShares(rows, 4).shown.length, 5);
+  assert.equal(foldShares(rows, 4).rest.length, 0);
+
+  assert.equal(preferredCategoryHue({ id: 9, name: "Groceries" }), 4);
+  assert.equal(preferredCategoryHue({ id: 9, name: "Other" }), null);
+  assert.equal(preferredCategoryHue({ id: 9, name: "Pets" }), 2);
+  // Health asks for the same hue as Transportation; the smaller one moves to the next free hue.
+  const hues = assignCategoryHues([{ id: 1, name: "Transportation" }, { id: 2, name: "Health" }, { id: 3, name: "Other" }, { id: 4, name: "Restaurants & bars" }]);
+  assert.deepEqual([...hues], [[1, 6], [2, 0], [4, 1]]);
+  assert.equal(new Set(hues.values()).size, hues.size);
+  const many = assignCategoryHues(Array.from({ length: 9 }, (_, index) => ({ id: index + 1, name: `Custom ${index}` })));
+  assert.equal(many.size, 7);
+
+  const saved = cashFlowFlow({
+    income: [{ categoryId: 1, cents: 8000, share: 0.8 }, { categoryId: 2, cents: 2000, share: 0.2 }],
+    spending: [{ categoryId: 3, cents: 3000, share: 0.5 }, { categoryId: 4, cents: 2000, share: 0.33 }, { categoryId: 6, cents: 600, share: 0.1 }, { categoryId: null, cents: 400, share: 0.07 }],
+  }, { spendingNodes: 2 });
+  assert.deepEqual(saved.sources.map((node) => [node.role, node.cents]), [["income", 8000], ["income", 2000]]);
+  assert.deepEqual(saved.targets.map((node) => [node.role, node.categoryId, node.cents, node.count]), [["spending", 3, 3000, 1], ["spending", 4, 2000, 1], ["other-spending", null, 1000, 2], ["savings", null, 4000, 0]]);
+  assert.equal(saved.totalCents, 10000);
+  const sum = (nodes: { cents: number }[]) => nodes.reduce((total, node) => total + node.cents, 0);
+  assert.equal(sum(saved.sources), sum(saved.targets));
+  // Spending more than came in: the gap is drawn as money from savings on the income side.
+  const short = cashFlowFlow({ income: [{ categoryId: 1, cents: 1000, share: 1 }], spending: [{ categoryId: 3, cents: 1500, share: 1 }] });
+  assert.deepEqual(short.sources.map((node) => [node.role, node.cents]), [["income", 1000], ["deficit", 500]]);
+  assert.deepEqual(short.targets.map((node) => node.role), ["spending"]);
+  assert.equal(sum(short.sources), sum(short.targets));
 });

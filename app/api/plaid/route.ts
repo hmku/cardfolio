@@ -13,10 +13,14 @@ export async function GET(request: Request) {
     ]);
     if (items.error) throw items.error;
     if (accounts.error) throw accounts.error;
+    // Members with hideInvestments don't see investment accounts, or logins that only have those.
+    const visible = (accounts.data || []).filter((account) => !context.hideInvestments || account.type !== "investment");
+    const hiddenItems = new Set((accounts.data || []).filter((account) => !visible.includes(account)).map((account) => account.item_id));
+    const shownItems = (items.data || []).filter((item) => !hiddenItems.has(item.id) || visible.some((account) => account.item_id === item.id));
     return Response.json({
       configured: plaidConfigured(),
       sandbox: (process.env.PLAID_ENV || "sandbox").trim().toLowerCase() !== "production",
-      items: (items.data || []).map((item) => ({
+      items: shownItems.map((item) => ({
         id: item.id,
         institutionName: item.institution_name || "Bank",
         status: item.status,
@@ -25,7 +29,7 @@ export async function GET(request: Request) {
         consentExpiresAt: item.consent_expires_at,
         lastSyncedAt: item.last_synced_at,
         createdAt: item.created_at,
-        accounts: (accounts.data || []).filter((account) => account.item_id === item.id).map((account) => ({
+        accounts: visible.filter((account) => account.item_id === item.id).map((account) => ({
           id: account.id,
           name: account.official_name || account.name,
           mask: account.mask,

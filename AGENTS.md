@@ -32,7 +32,8 @@ Update it in the same commit as the related change.
 ## Testing on production
 
 A test member, `devtest068@gmail.com`, can sign in to https://cardfolio.harrisonku.com. It sees
-and can edit the household's real data: only read unless the owner asks for a change, and undo
+and can edit the household's real data, except investment accounts (`hide_investments` is set
+for it): only read unless the owner asks for a change, and undo
 anything you change.
 
 1. The Claude Code environment must allow `cardfolio.harrisonku.com` and

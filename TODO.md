@@ -202,6 +202,13 @@ done and move them to **Done** with the date.
   `app/lib/core/investments.ts` (tested); hand-rolled SVG charts in
   `app/components/FinanceChart.tsx`. Checked with fake data only, not against real Plaid data.
 
+- 2026-11-02: Members can be barred from investments (`household_members.hide_investments`,
+  migration `20261102000003_hide_investments.sql`, applied). Row-level security hides Plaid
+  investment accounts (brokerage, IRA, 401(k)), their holdings, investment transactions,
+  transactions and balance history, and manual accounts of an investment kind; the bank
+  connections list hides them too. Set for the test member devtest068. There's no toggle in
+  Settings yet: `update household_members set hide_investments = true where email = …`.
+
 - 2026-11-02: Transactions and Cash flow tabs. **Transactions**: search (debounced, merchant,
   description and notes), date presets (this month, last month, last 90 days, this year,
   custom), and a Filters panel (category incl. Uncategorized, money in/out, accounts, show

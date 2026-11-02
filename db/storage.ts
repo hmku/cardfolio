@@ -7,6 +7,8 @@ export type HouseholdContext = {
   db: SupabaseClient;
   householdId: string;
   role: MembershipRole;
+  /** Investment accounts are hidden from this member (e.g. a test account); RLS enforces it too. */
+  hideInvestments: boolean;
   user: User;
 };
 
@@ -57,7 +59,7 @@ export async function requireHousehold(request: Request): Promise<HouseholdConte
   const db = adminClient();
   const membershipResult = await db
     .from("household_members")
-    .select("household_id, role")
+    .select("household_id, role, hide_investments")
     .eq("user_id", user.id)
     .maybeSingle();
   let membership = membershipResult.data;
@@ -103,13 +105,14 @@ export async function requireHousehold(request: Request): Promise<HouseholdConte
     if (invitationId) {
       await db.from("household_invitations").update({ accepted_at: new Date().toISOString() }).eq("id", invitationId);
     }
-    membership = { household_id: household.id, role };
+    membership = { household_id: household.id, role, hide_investments: false };
   }
 
   return {
     db,
     householdId: membership.household_id,
     role: membership.role as MembershipRole,
+    hideInvestments: !!membership.hide_investments,
     user,
   };
 }

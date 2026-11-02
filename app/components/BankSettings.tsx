@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { holdingName, type Portfolio } from "../lib/core/model";
 
 type BankAccount = { id: number; name: string; mask: string | null; type: string | null; subtype: string | null; accountId: number | null; linkSource: "auto" | "manual" | null };
-type BankItem = { id: number; institutionName: string; status: "ok" | "reconnect"; errorCode: string | null; addedByEmail: string | null; consentExpiresAt: string | null; lastSyncedAt: string | null; accounts: BankAccount[] };
+type BankItem = { id: number; institutionName: string; status: "ok" | "reconnect"; errorCode: string | null; addedByEmail: string | null; personId: number | null; consentExpiresAt: string | null; lastSyncedAt: string | null; accounts: BankAccount[] };
 type Connections = { configured: boolean; sandbox: boolean; items: BankItem[] };
 
 type LinkMetadata = { institution?: { institution_id?: string; name?: string } | null };
@@ -39,6 +39,14 @@ export function BankSettings({ portfolio, accessToken, notify }: { portfolio: Po
   const [data, setData] = useState<Connections | null>(null);
   const [busy, setBusy] = useState<number | "bank" | "investments" | "sync" | null>(null);
   const [confirm, setConfirm] = useState<number | null>(null);
+  // Whose login the next connection is; remembered on this device.
+  const [owner, setOwner] = useState<string>(() => {
+    try { return localStorage.getItem("cardfolio.plaidOwner") || ""; } catch { return ""; }
+  });
+  const chooseOwner = (value: string) => {
+    setOwner(value);
+    try { localStorage.setItem("cardfolio.plaidOwner", value); } catch { /* private mode */ }
+  };
 
   const call = useCallback(async (path: string, method: string, body?: unknown) => {
     const response = await fetch(path, { method, headers: { authorization: `Bearer ${accessToken}`, "content-type": "application/json" }, body: body ? JSON.stringify(body) : undefined });
@@ -70,7 +78,7 @@ export function BankSettings({ portfolio, accessToken, notify }: { portfolio: Po
           handler.destroy();
           const finish = item
             ? call("/api/plaid/items", "PATCH", { itemId: item.id })
-            : call("/api/plaid/items", "POST", { publicToken, institution: metadata.institution ? { id: metadata.institution.institution_id, name: metadata.institution.name } : null });
+            : call("/api/plaid/items", "POST", { publicToken, personId: owner ? Number(owner) : null, institution: metadata.institution ? { id: metadata.institution.institution_id, name: metadata.institution.name } : null });
           finish
             .then((result: { found: number; linked: number }) => {
               const unmatched = result.found - result.linked;
@@ -105,6 +113,19 @@ export function BankSettings({ portfolio, accessToken, notify }: { portfolio: Po
       await reload();
     } catch (reason) {
       notify(reason instanceof Error ? reason.message : "Couldn't sync", true);
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function setItemOwner(item: BankItem, value: string) {
+    setBusy(item.id);
+    try {
+      const { linked } = await call("/api/plaid/items", "PATCH", { itemId: item.id, personId: value ? Number(value) : null }) as { linked: number };
+      notify(linked ? `Matched ${linked} more card${linked === 1 ? "" : "s"}` : "Saved");
+      await reload();
+    } catch (reason) {
+      notify(reason instanceof Error ? reason.message : "Couldn't save that", true);
     } finally {
       setBusy(null);
     }
@@ -153,7 +174,7 @@ export function BankSettings({ portfolio, accessToken, notify }: { portfolio: Po
     <section className="fieldset settings-section">
       <h3>Bank connections</h3>
       <p className="hint">
-        Connect each login through Plaid: banks and card issuers with &ldquo;Connect a bank or card&rdquo;, brokerages and retirement accounts with &ldquo;Connect investments&rdquo;. Cards are matched to Cardfolio by their last digits; check each one.
+        Connect each login through Plaid: banks and card issuers with &ldquo;Connect a bank or card&rdquo;, brokerages and retirement accounts with &ldquo;Connect investments&rdquo;. Pick whose login it is first: cards are matched to that person&apos;s Cardfolio cards by card type and last digits. Check each one.
         {data?.sandbox && <> <strong>Test mode:</strong> Plaid&apos;s fake banks only (user_good / pass_good).</>}
         {data && !data.sandbox && <> Each new connection uses one of Plaid&apos;s 10 free slots, even after it&apos;s disconnected, so use Reconnect for a login that stops working.</>}
       </p>
@@ -165,6 +186,10 @@ export function BankSettings({ portfolio, accessToken, notify }: { portfolio: Po
               {item.institutionName}
               <small>{item.addedByEmail ? `Added by ${item.addedByEmail}` : ""}{item.consentExpiresAt ? ` · access ends ${new Date(item.consentExpiresAt).toLocaleDateString()}` : ""}{item.lastSyncedAt ? ` · synced ${new Date(item.lastSyncedAt).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}` : ""}</small>
             </span>
+            <select aria-label={`Whose login is ${item.institutionName}`} value={item.personId ?? ""} disabled={busy !== null} onChange={(event) => void setItemOwner(item, event.target.value)}>
+              <option value="">Whose login?</option>
+              {portfolio.people.map((person) => <option key={person.id} value={person.id}>{person.name}&apos;s login</option>)}
+            </select>
             {item.status === "reconnect" && <span className="tag alert" title={item.errorCode || undefined}>Needs reconnecting</span>}
             {item.status !== "reconnect" && <button type="button" className="btn small" disabled={busy !== null} onClick={() => void syncNow(item)}>{busy === item.id ? "Syncing…" : "Sync"}</button>}
             <button type="button" className={`btn small${item.status === "reconnect" ? " primary" : ""}`} disabled={busy !== null} onClick={() => void openLink(item)}>Reconnect</button>
@@ -198,8 +223,12 @@ export function BankSettings({ portfolio, accessToken, notify }: { portfolio: Po
       ))}
       {data?.configured && (
         <div className="inline-actions">
-          <button type="button" className="btn small primary" disabled={busy !== null} onClick={() => void openLink(undefined, "bank")}>{busy === "bank" ? "Connecting…" : "Connect a bank or card"}</button>
-          <button type="button" className="btn small" disabled={busy !== null} onClick={() => void openLink(undefined, "investments")}>{busy === "investments" ? "Connecting…" : "Connect investments"}</button>
+          <select aria-label="Whose login are you connecting" value={owner} onChange={(event) => chooseOwner(event.target.value)}>
+            <option value="">Whose login?</option>
+            {portfolio.people.map((person) => <option key={person.id} value={person.id}>{person.name}&apos;s</option>)}
+          </select>
+          <button type="button" className="btn small primary" disabled={busy !== null || !owner} title={owner ? undefined : "Pick whose login it is first"} onClick={() => void openLink(undefined, "bank")}>{busy === "bank" ? "Connecting…" : "Connect a bank or card"}</button>
+          <button type="button" className="btn small" disabled={busy !== null || !owner} title={owner ? undefined : "Pick whose login it is first"} onClick={() => void openLink(undefined, "investments")}>{busy === "investments" ? "Connecting…" : "Connect investments"}</button>
           {!!data.items.length && <button type="button" className="btn small" disabled={busy !== null} onClick={() => void syncNow()}>{busy === "sync" ? "Syncing…" : "Sync now"}</button>}
         </div>
       )}

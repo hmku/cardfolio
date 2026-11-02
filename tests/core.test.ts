@@ -13,7 +13,7 @@ import {
   activityKind, aggregatePositions, allocationByAccount, allocationByClass, balanceSeries, manualAccountGroup, periodChange, plaidAccountGroup,
   rangeStart, seriesFrom, sortPositions, summarizePositions, type HoldingInput,
 } from "../app/lib/core/investments.ts";
-import { matchPlaidAccounts } from "../app/lib/core/plaid.ts";
+import { cardNameScore, matchPlaidAccounts } from "../app/lib/core/plaid.ts";
 import { verifyPlaidWebhook } from "../db/plaid-webhook.ts";
 import { cashFlowBreakdown, datePresetRange, fillMonths, monthBounds, recentMonths } from "../app/lib/core/finance.ts";
 import { bankAccountShortLabel, DEFAULT_TRANSACTION_FILTERS, filtersToQuery, groupByDate } from "../app/lib/presentation/transaction-view.ts";
@@ -181,11 +181,11 @@ test("daily reminders ping on set days and summarize on Mondays", async () => {
 
 test("Plaid accounts link to cards by last digits only when the match is unique", () => {
   const cards = [
-    { accountId: 1, last4: "91006" },
-    { accountId: 2, last4: "61006" },
-    { accountId: 3, last4: "7145" },
-    { accountId: 4, last4: "21009" },
-    { accountId: 5, last4: null },
+    { accountId: 1, digits: ["91006"] },
+    { accountId: 2, digits: ["61006"] },
+    { accountId: 3, digits: ["7145"] },
+    { accountId: 4, digits: ["21009"] },
+    { accountId: 5, digits: [] },
   ];
   const matches = matchPlaidAccounts([
     { id: 10, mask: "1006" }, // two Amex cards end in 1006: left for a person
@@ -198,6 +198,49 @@ test("Plaid accounts link to cards by last digits only when the match is unique"
   // Already-linked cards aren't offered again, and two Plaid accounts can't claim one card.
   assert.deepEqual([...matchPlaidAccounts([{ id: 11, mask: "7145" }], cards, [3])], []);
   assert.deepEqual([...matchPlaidAccounts([{ id: 20, mask: "7145" }, { id: 21, mask: "7145" }], cards)], []);
+});
+
+test("Plaid accounts match on card type, cardholder and last digits", () => {
+  const HK = 1, SL = 2;
+  // Harrison's open Amex cards and Sophia's look-alikes (the 2026-11-02 Amex login).
+  const cards = [
+    { accountId: 118, digits: ["31000"], productName: "Delta Gold Business", personId: HK },
+    { accountId: 127, digits: ["91004"], productName: "Delta Gold Business", personId: HK },
+    { accountId: 104, digits: ["71006"], productName: "Delta Gold Business", personId: HK },
+    { accountId: 106, digits: ["31002"], productName: "Amex Business Platinum", personId: HK },
+    { accountId: 117, digits: ["21005"], productName: "Amex Business Platinum", personId: HK },
+    { accountId: 130, digits: ["81005"], productName: "Amex Platinum", personId: HK },
+    { accountId: 53, digits: ["61009"], productName: "Blue Business Plus", personId: HK },
+    // Downgraded from biz plat HK6 / HK7: no digits of their own, the Biz Plat's carry over.
+    { accountId: 92, digits: ["91005"], productName: "Amex Business Green", personId: HK },
+    { accountId: 99, digits: ["51009"], productName: "Amex Business Green", personId: HK },
+    { accountId: 149, digits: ["81004"], productName: "Amex Platinum", personId: SL },
+    { accountId: 95, digits: ["61006"], productName: "Amex Business Green", personId: SL },
+    { accountId: 100, digits: ["81006"], productName: "Amex Business Green", personId: SL },
+    { accountId: 123, digits: ["71001"], productName: "Delta Gold Business", personId: SL },
+  ];
+  const plaid = [
+    { id: 73, mask: "1000", name: "Delta Gold Business Card" },
+    { id: 75, mask: "1004", name: "Delta Gold Business Card" },
+    { id: 79, mask: "1006", name: "Delta Gold Business Card" },
+    { id: 74, mask: "1002", name: "Business Platinum Card®" },
+    { id: 77, mask: "1005", name: "Business Platinum Card®" },
+    { id: 78, mask: "1005", name: "Platinum Card®" },
+    { id: 81, mask: "1009", name: "Blue Business Plus Card" },
+    { id: 76, mask: "1005", name: "Business Green Rewards Card" },
+    { id: 82, mask: "1009", name: "Business Green Rewards Card" },
+  ];
+  const expected = [[73, 118], [75, 127], [79, 104], [74, 106], [77, 117], [78, 130], [81, 53], [76, 92], [82, 99]];
+  // Knowing it's Harrison's login settles everything…
+  assert.deepEqual([...matchPlaidAccounts(plaid, cards, [], { personId: HK })], expected);
+  // …and so does inferring him from the unambiguous matches.
+  assert.deepEqual([...matchPlaidAccounts(plaid, cards)], expected);
+  // Sophia's two Business Greens share a type and the last four digits (61006, 81006): left for a person.
+  assert.deepEqual([...matchPlaidAccounts([{ id: 1, mask: "1006", name: "Business Green Rewards Card" }], cards, [], { personId: SL })], []);
+  assert.equal(cardNameScore("Ink Business Preferred Credit Card", "Chase Ink Preferred"), 1);
+  assert.equal(cardNameScore("Platinum Card®", "Amex Business Platinum"), 1);
+  assert.equal(cardNameScore("Platinum Card®", "Amex Platinum"), 2);
+  assert.equal(cardNameScore("Delta SkyMiles Gold", "Amex Business Green"), 0);
 });
 
 // ---------- finance ----------

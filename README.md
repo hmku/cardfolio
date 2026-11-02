@@ -244,9 +244,11 @@ numbers, CVVs, expiry dates or cardholder names.
 
 ## Bank connections through Plaid (optional)
 
-Settings → Bank connections connects bank logins with Plaid Link and links each card Plaid
-finds to a Cardfolio card (automatically when exactly one open card ends in Plaid's last
-digits). Synced data fills the Transactions, Cash flow, Investments and Accounts tabs.
+Settings → Bank connections connects bank logins with Plaid Link (pick whose login it is
+first) and links each card Plaid finds to a Cardfolio card. Matching is automatic when exactly
+one of that person's open cards has the same card type and ends in Plaid's last digits (the
+account's earlier digits count too, since Amex keeps the number through a downgrade); the rest
+are picked from a dropdown. Synced data fills the Transactions, Cash flow, Investments and Accounts tabs.
 
 How a sync works (`db/plaid-sync.ts`):
 

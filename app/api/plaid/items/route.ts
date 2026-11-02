@@ -1,4 +1,4 @@
-import { encryptToken, exchangePublicToken, getAccounts, loadItem, noteItemError, PlaidApiError, removeItem, syncItemAccounts } from "@/db/plaid";
+import { autoLinkItem, encryptToken, exchangePublicToken, getAccounts, loadItem, noteItemError, PlaidApiError, removeItem, syncItemAccounts } from "@/db/plaid";
 import { syncItem, type ItemSyncResult } from "@/db/plaid-sync";
 import { errorResponse, requireHousehold, type HouseholdContext } from "@/db/storage";
 
@@ -20,7 +20,16 @@ async function firstSync(context: HouseholdContext, itemId: number): Promise<Ite
   }
 }
 
-type Body = { publicToken?: string; institution?: { id?: string; name?: string } | null; itemId?: number };
+type Body = { publicToken?: string; institution?: { id?: string; name?: string } | null; itemId?: number; personId?: number | null };
+
+/** The cardholder id if it belongs to this household, else null. */
+async function householdPerson(context: HouseholdContext, personId: unknown) {
+  if (!personId) return null;
+  const { data, error } = await context.db.from("people").select("id").eq("household_id", context.householdId).eq("id", Number(personId)).maybeSingle();
+  if (error) throw error;
+  if (!data) throw new Response("That cardholder wasn't found", { status: 404 });
+  return data.id as number;
+}
 
 /** Finishes connecting a bank: swaps Link's public token, stores the item and its cards. */
 export async function POST(request: Request) {
@@ -28,6 +37,7 @@ export async function POST(request: Request) {
     const context = await requireHousehold(request);
     const body = await request.json() as Body;
     if (!body.publicToken) throw new Response("Missing the token from Plaid", { status: 400 });
+    const personId = await householdPerson(context, body.personId);
     const { accessToken, itemId } = await exchangePublicToken(body.publicToken);
     const { accounts, item } = await getAccounts(accessToken);
     const { data, error } = await context.db.from("plaid_items").insert({
@@ -39,6 +49,7 @@ export async function POST(request: Request) {
       added_by: context.user.id,
       added_by_email: context.user.email,
       consent_expires_at: item.consent_expiration_time || null,
+      person_id: personId,
     }).select("id").single();
     if (error) {
       await removeItem(accessToken).catch(() => undefined);
@@ -51,11 +62,28 @@ export async function POST(request: Request) {
   }
 }
 
-/** Re-reads an item's cards, e.g. after reconnecting it in Link's update mode. */
+/**
+ * With personId: changes whose login this is (its accounts that followed the old owner move
+ * along) and re-runs card matching. Without: re-reads the item's cards, e.g. after
+ * reconnecting it in Link's update mode.
+ */
 export async function PATCH(request: Request) {
   try {
     const context = await requireHousehold(request);
-    const { itemId } = await request.json() as Body;
+    const body = await request.json() as Body;
+    const { itemId } = body;
+    if ("personId" in body) {
+      const personId = await householdPerson(context, body.personId);
+      const { data: current, error: currentError } = await context.db.from("plaid_items").select("id, person_id").eq("household_id", context.householdId).eq("id", Number(itemId)).maybeSingle();
+      if (currentError) throw currentError;
+      if (!current) throw new Response("That bank connection wasn't found", { status: 404 });
+      const { error } = await context.db.from("plaid_items").update({ person_id: personId, updated_at: new Date().toISOString() }).eq("id", current.id);
+      if (error) throw error;
+      const followers = context.db.from("plaid_accounts").update({ person_id: personId }).eq("item_id", current.id);
+      const { error: accountsError } = current.person_id ? await followers.or(`person_id.is.null,person_id.eq.${current.person_id}`) : await followers.is("person_id", null);
+      if (accountsError) throw accountsError;
+      return Response.json({ linked: await autoLinkItem(context, current.id) });
+    }
     const item = await loadItem(context, itemId);
     try {
       const { accounts, item: details } = await getAccounts(item.accessToken);

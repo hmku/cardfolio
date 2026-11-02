@@ -201,6 +201,13 @@ done and move them to **Done** with the date.
 
 ## Done
 
+- 2026-11-02: Card matching uses card type + cardholder + last digits. Connecting asks whose login
+  it is (`plaid_items.person_id`, migration `20261102000004_plaid_item_person.sql`); only that
+  person's open cards are candidates (inferred from the clear matches when not set), several
+  candidates are narrowed by Plaid's account name vs the card type, and a card with no digits
+  of its own uses its account's earlier ones (Amex keeps the number through a downgrade). Each
+  login's owner can be changed in Settings → Bank connections, which re-runs matching. Linked
+  Harrison's Amex login (10 cards) by hand the same way.
 - 2026-11-02: Tested the branch preview end to end with Plaid Sandbox (two fake logins): sync
   pulled 434 transactions (all categorized), balances, a card due date, 13 holdings and
   snapshots; Transactions, Cash flow, Accounts and Investments rendered on desktop and phone;

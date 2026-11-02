@@ -139,26 +139,60 @@ export async function syncItemAccounts(context: Pick<HouseholdContext, "db" | "h
     if (error) throw error;
   }
 
-  // Accounts a person already linked or unlinked by hand (link_source set) are left alone.
-  const [unlinked, open, current, linked] = await Promise.all([
-    db.from("plaid_accounts").select("id, mask").eq("item_id", itemId).eq("type", "credit").is("account_id", null).is("link_source", null),
+  // New accounts default to the login's owner.
+  const { data: item, error: itemError } = await db.from("plaid_items").select("person_id").eq("id", itemId).single();
+  if (itemError) throw itemError;
+  if (item.person_id) {
+    const { error } = await db.from("plaid_accounts").update({ person_id: item.person_id }).eq("item_id", itemId).is("person_id", null);
+    if (error) throw error;
+  }
+  const linked = await autoLinkItem(context, itemId);
+  return { found: accounts.length, linked };
+}
+
+/**
+ * Links an item's unlinked credit cards to open Cardfolio cards by card type, cardholder (the
+ * login's owner, when set) and last digits. Accounts a person already linked or unlinked by
+ * hand (link_source set) are left alone. Returns how many were linked.
+ */
+export async function autoLinkItem(context: Pick<HouseholdContext, "db" | "householdId">, itemId: number) {
+  const { db, householdId } = context;
+  const [item, unlinked, open, holdings, products, linked] = await Promise.all([
+    db.from("plaid_items").select("person_id").eq("id", itemId).single(),
+    db.from("plaid_accounts").select("id, mask, name, official_name").eq("item_id", itemId).eq("type", "credit").is("account_id", null).is("link_source", null),
     db.from("accounts").select("id").eq("household_id", householdId).eq("status", "open"),
-    db.from("account_products").select("account_id, last4").eq("household_id", householdId).is("ended_on", null),
+    db.from("account_products").select("account_id, person_id, product_id, last4, started_on, ended_on").eq("household_id", householdId),
+    db.from("products").select("id, name").eq("household_id", householdId),
     db.from("plaid_accounts").select("account_id").eq("household_id", householdId).not("account_id", "is", null),
   ]);
-  for (const result of [unlinked, open, current, linked]) if (result.error) throw result.error;
+  for (const result of [item, unlinked, open, holdings, products, linked]) if (result.error) throw result.error;
   const openIds = new Set((open.data || []).map((row) => row.id as number));
+  const productNames = new Map((products.data || []).map((row) => [row.id as number, row.name as string]));
+  const byAccount = new Map<number, { person_id: number; product_id: number; last4: string | null; started_on: string; ended_on: string | null }[]>();
+  for (const row of holdings.data || []) {
+    if (!openIds.has(row.account_id as number)) continue;
+    byAccount.set(row.account_id as number, [...(byAccount.get(row.account_id as number) || []), row as never]);
+  }
+  const cards = [...byAccount.entries()].flatMap(([accountId, rows]) => {
+    const history = [...rows].sort((left, right) => right.started_on.localeCompare(left.started_on));
+    const current = history.find((row) => !row.ended_on) || history[0];
+    if (!current) return [];
+    const digits = [...new Set(history.map((row) => row.last4).filter((value): value is string => !!value))];
+    return [{ accountId, digits, productName: productNames.get(current.product_id), personId: current.person_id }];
+  });
   const matches = matchPlaidAccounts(
-    (unlinked.data || []).map((row) => ({ id: row.id as number, mask: row.mask as string | null })),
-    (current.data || []).filter((row) => openIds.has(row.account_id as number)).map((row) => ({ accountId: row.account_id as number, last4: row.last4 as string | null })),
+    (unlinked.data || []).map((row) => ({ id: row.id as number, mask: row.mask as string | null, name: (row.official_name || row.name) as string })),
+    cards,
     (linked.data || []).map((row) => row.account_id as number),
+    { personId: item.data?.person_id as number | null },
   );
   for (const [id, accountId] of matches) {
     const { error } = await db.from("plaid_accounts").update({ account_id: accountId, link_source: "auto" }).eq("id", id);
     if (error) throw error;
   }
-  return { found: accounts.length, linked: matches.size };
+  return matches.size;
 }
+
 
 /** The household's item (with its decrypted access token), or a 404. */
 export async function loadItem(context: HouseholdContext, id: unknown) {

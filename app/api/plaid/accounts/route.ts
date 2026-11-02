@@ -13,9 +13,11 @@ export async function PATCH(request: Request) {
       if (error) throw error;
       if (!data) throw new Response("That card wasn't found", { status: 404 });
     }
-    const { data, error } = await context.db.from("plaid_accounts")
+    const update = context.db.from("plaid_accounts")
       .update({ account_id: accountId || null, link_source: "manual" })
-      .eq("household_id", context.householdId).eq("id", id).select("id");
+      .eq("household_id", context.householdId).eq("id", id);
+    // Investment accounts are hidden from members with hideInvestments (RLS doesn't apply here).
+    const { data, error } = await (context.hideInvestments ? update.neq("type", "investment") : update).select("id");
     if (error) throw error;
     if (!data?.length) throw new Response("That bank account wasn't found", { status: 404 });
     return Response.json({ ok: true });

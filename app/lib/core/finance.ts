@@ -356,6 +356,71 @@ export function webhookAction(payload: { webhook_type?: string; webhook_code?: s
   return { kind: "ignore" };
 }
 
+/** Advance warnings: the login still works, but the person should reconnect it before it stops. */
+const ADVANCE_WARNINGS = new Set(["PENDING_EXPIRATION", "PENDING_DISCONNECT"]);
+
+export type ItemStatus = { status: "ok" | "reconnect"; errorCode: string | null };
+
+export type ItemStatusEvent =
+  /** The person reconnected in Link's update mode, or Plaid sent LOGIN_REPAIRED. */
+  | { kind: "repaired" }
+  /** A sync reached the bank; errorCode is a product error that doesn't need reconnecting, or null. */
+  | { kind: "synced"; errorCode: string | null }
+  /** Plaid reported an error (from an API call or an ITEM webhook). */
+  | { kind: "error"; errorCode: string };
+
+/**
+ * A bank login's status after an event. A "reconnect" flag is only cleared by a repair, or by a
+ * successful sync when it was a hard login error (the sync proves the login works again).
+ * Advance warnings (PENDING_EXPIRATION, PENDING_DISCONNECT) stay until the person reconnects,
+ * and an error that doesn't need reconnecting never hides one that does.
+ */
+export function nextItemStatus(current: { status: string | null; errorCode: string | null }, event: ItemStatusEvent): ItemStatus {
+  if (event.kind === "repaired") return { status: "ok", errorCode: null };
+  if (event.kind === "error" && RECONNECT_ERRORS.has(event.errorCode)) return { status: "reconnect", errorCode: event.errorCode };
+  if (current.status === "reconnect" && (event.kind === "error" || ADVANCE_WARNINGS.has(current.errorCode || ""))) {
+    return { status: "reconnect", errorCode: current.errorCode };
+  }
+  return { status: "ok", errorCode: event.errorCode };
+}
+
+/**
+ * The products a login has synced, after a sync that may have covered only some of them (e.g.
+ * a HOLDINGS webhook): the previous list plus those that synced now, minus any the login
+ * doesn't have. Kept in ALL_SYNC_PRODUCTS order.
+ */
+export function mergeSyncedProducts(previous: readonly string[] | null | undefined, results: Partial<Record<SyncProduct, string>>) {
+  const merged = new Set(previous || []);
+  for (const [product, status] of Object.entries(results)) {
+    if (status === "ok") merged.add(product);
+    else if (status === "not_available") merged.delete(product);
+  }
+  return ALL_SYNC_PRODUCTS.filter((product) => merged.has(product));
+}
+
+type LoginAccount = { mask: string | null; subtype: string | null };
+
+/**
+ * Whether a newly connected login repeats one already stored: same institution, and every
+ * account with last digits matches one there by digits and subtype (the check Plaid suggests).
+ * Logins whose accounts have no last digits are never treated as duplicates.
+ */
+export function isDuplicateLogin(
+  institutionId: string | null | undefined,
+  accounts: readonly LoginAccount[],
+  existing: readonly { institutionId: string | null; accounts: readonly LoginAccount[] }[],
+) {
+  if (!institutionId) return false;
+  const key = (account: LoginAccount) => `${account.mask}|${account.subtype || ""}`;
+  const keys = accounts.filter((account) => account.mask).map(key);
+  if (keys.length === 0) return false;
+  return existing.some((item) => {
+    if (item.institutionId !== institutionId) return false;
+    const known = new Set(item.accounts.filter((account) => account.mask).map(key));
+    return keys.every((value) => known.has(value));
+  });
+}
+
 /** The first day of the investment transaction window: the same day `months` months ago (YYYY-MM-DD). */
 export function monthsBefore(date: string, months: number) {
   const [year, month, day] = date.split("-").map(Number);

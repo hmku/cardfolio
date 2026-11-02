@@ -1,3 +1,4 @@
+import { timingSafeEqual } from "node:crypto";
 import type { SupabaseClient, User } from "@supabase/supabase-js";
 import { createClient } from "@supabase/supabase-js";
 
@@ -36,6 +37,15 @@ export function adminClient() {
 function bearerToken(request: Request) {
   const authorization = request.headers.get("authorization") || "";
   return authorization.startsWith("Bearer ") ? authorization.slice(7).trim() : "";
+}
+
+/** Whether a request is Vercel Cron's (`Authorization: Bearer $CRON_SECRET`), compared in constant time. */
+export function isCronRequest(request: Request) {
+  const secret = process.env.CRON_SECRET;
+  if (!secret) return false;
+  const given = Buffer.from(bearerToken(request));
+  const expected = Buffer.from(secret);
+  return given.length === expected.length && timingSafeEqual(given, expected);
 }
 
 function normalizeEmail(value: string | null | undefined) {

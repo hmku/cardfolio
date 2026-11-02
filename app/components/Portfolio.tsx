@@ -180,7 +180,6 @@ export function Portfolio({ db, accessToken, onSignOut }: Props) {
     void write((ctx) => data.setCreditUse(ctx, credit.id, holding.id, periodKey, amountCents), {
       optimistic: (value) => ({
         ...value,
-        optOuts: value.optOuts,
         uses: [
           ...value.uses.filter((use) => !(use.creditId === credit.id && use.holdingId === holding.id && use.periodKey === periodKey)),
           ...(amountCents === null ? [] : [{ id: -Date.now(), creditId: credit.id, holdingId: holding.id, periodKey, amountCents, usedOn: null, recordedBy: membership?.email || null, source: "manual" as const }]),
@@ -341,7 +340,7 @@ export function Portfolio({ db, accessToken, onSignOut }: Props) {
 
       {FinancePage ? (
         <main className="portfolio-views">
-          <FinancePage context={financeContext} accessToken={accessToken} portfolio={portfolio} notify={settingsNotify} onOpenSettings={() => setPanel({ kind: "settings" })}
+          <FinancePage context={financeContext} portfolio={portfolio} notify={settingsNotify} onOpenSettings={() => setPanel({ kind: "settings" })}
             transactionFilters={transactionFilters} onTransactionFilters={setTransactionFilters}
             onShowTransactions={(filters) => { setTransactionFilters({ ...DEFAULT_TRANSACTION_FILTERS, ...filters }); updatePrefs({ view: "transactions" }); window.scrollTo({ top: 0 }); }} />
         </main>

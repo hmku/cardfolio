@@ -1,5 +1,5 @@
 import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
-import { balanceColumns, RECONNECT_ERRORS, type PlaidBalances } from "@/app/lib/core/finance";
+import { balanceColumns, nextItemStatus, type PlaidBalances } from "@/app/lib/core/finance";
 import { matchPlaidAccounts } from "@/app/lib/core/plaid";
 import type { HouseholdContext } from "./storage";
 
@@ -8,9 +8,15 @@ import type { HouseholdContext } from "./storage";
  * banks, PLAID_SANDBOX_SECRET) or "production" (real banks, PLAID_SECRET).
  */
 
-function plaidEnv() {
+/** The Plaid server PLAID_ENV picks, or null when it's set to something else. */
+export function plaidEnvironment(): "sandbox" | "production" | null {
   const env = (process.env.PLAID_ENV || "sandbox").trim().toLowerCase();
-  if (env !== "sandbox" && env !== "production") throw new Error("PLAID_ENV should be sandbox or production.");
+  return env === "sandbox" || env === "production" ? env : null;
+}
+
+function plaidEnv() {
+  const env = plaidEnvironment();
+  if (!env) throw new Error("PLAID_ENV should be sandbox or production.");
   return env;
 }
 
@@ -39,12 +45,16 @@ export class PlaidApiError extends Error {
   }
 }
 
+const PLAID_TIMEOUT_MS = 60_000;
+
 export async function plaid<T>(path: string, body: Record<string, unknown>): Promise<T> {
   const { env, clientId, secret } = credentials();
   const response = await fetch(`https://${env}.plaid.com${path}`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ client_id: clientId, secret, ...body }),
+    // One hung request shouldn't use up a route's whole time budget.
+    signal: AbortSignal.timeout(PLAID_TIMEOUT_MS),
   });
   const payload = await response.json().catch(() => ({})) as T & PlaidError;
   if (!response.ok) {
@@ -124,7 +134,7 @@ export async function removeItem(accessToken: string) {
   await plaid("/item/remove", { access_token: accessToken });
 }
 
-/** Saves Plaid's accounts for an item and links new credit cards to Cardfolio cards by last digits. */
+/** Saves Plaid's accounts for an item, then links new credit cards to Cardfolio cards (see autoLinkItem). */
 export async function syncItemAccounts(context: Pick<HouseholdContext, "db" | "householdId">, itemId: number, accounts: PlaidAccount[]) {
   const { db, householdId } = context;
   const now = new Date().toISOString();
@@ -194,17 +204,39 @@ export async function autoLinkItem(context: Pick<HouseholdContext, "db" | "house
 }
 
 
-/** The household's item (with its decrypted access token), or a 404. */
+/**
+ * Logins hidden from a member with hideInvestments: those with investment accounts and no
+ * other account (the same rule GET /api/plaid uses). Empty for everyone else.
+ */
+export async function hiddenItemIds(context: Pick<HouseholdContext, "db" | "householdId" | "hideInvestments">) {
+  const hidden = new Set<number>();
+  if (!context.hideInvestments) return hidden;
+  const { data, error } = await context.db.from("plaid_accounts").select("item_id, type").eq("household_id", context.householdId);
+  if (error) throw error;
+  const visible = new Set<number>();
+  for (const row of data || []) (row.type === "investment" ? hidden : visible).add(row.item_id as number);
+  for (const id of visible) hidden.delete(id);
+  return hidden;
+}
+
+/** A 404, as if the login didn't exist, when it's hidden from this member. */
+export async function assertItemVisible(context: Pick<HouseholdContext, "db" | "householdId" | "hideInvestments">, itemId: number) {
+  if ((await hiddenItemIds(context)).has(itemId)) throw new Response("That bank connection wasn't found", { status: 404 });
+}
+
+/** The household's item (with its decrypted access token), or a 404 (also when it's hidden from this member). */
 export async function loadItem(context: HouseholdContext, id: unknown) {
   const { data, error } = await context.db.from("plaid_items").select("id, access_token_encrypted").eq("household_id", context.householdId).eq("id", Number(id)).maybeSingle();
   if (error) throw error;
   if (!data) throw new Response("That bank connection wasn't found", { status: 404 });
+  await assertItemVisible(context, data.id as number);
   return { id: data.id as number, accessToken: decryptToken(data.access_token_encrypted as string) };
 }
 
-/** Marks an item for reconnecting when Plaid says the bank login needs attention. */
+/** Records a Plaid error on an item, marking it for reconnecting when the login needs attention (see nextItemStatus). */
 export async function noteItemError(context: Pick<HouseholdContext, "db">, itemId: number, error: unknown) {
   if (!(error instanceof PlaidApiError)) return;
-  const reconnect = RECONNECT_ERRORS.has(error.code);
-  await context.db.from("plaid_items").update({ status: reconnect ? "reconnect" : "ok", error_code: error.code, updated_at: new Date().toISOString() }).eq("id", itemId);
+  const { data: current } = await context.db.from("plaid_items").select("status, error_code").eq("id", itemId).maybeSingle();
+  const next = nextItemStatus({ status: (current?.status as string | null) ?? null, errorCode: (current?.error_code as string | null) ?? null }, { kind: "error", errorCode: error.code });
+  await context.db.from("plaid_items").update({ status: next.status, error_code: next.errorCode, updated_at: new Date().toISOString() }).eq("id", itemId);
 }

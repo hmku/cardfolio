@@ -1,6 +1,6 @@
 import { plaidConfigured } from "@/db/plaid";
 import { syncDate, syncHousehold, writeSnapshots } from "@/db/plaid-sync";
-import { adminClient } from "@/db/storage";
+import { adminClient, isCronRequest } from "@/db/storage";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -11,10 +11,7 @@ export const maxDuration = 300;
  * `Authorization: Bearer $CRON_SECRET`.
  */
 export async function GET(request: Request) {
-  const secret = process.env.CRON_SECRET;
-  if (!secret || request.headers.get("authorization") !== `Bearer ${secret}`) {
-    return Response.json({ error: "Not authorized" }, { status: 401 });
-  }
+  if (!isCronRequest(request)) return Response.json({ error: "Not authorized" }, { status: 401 });
   const db = adminClient();
   const date = syncDate();
   const { data: households, error } = await db.from("households").select("id");

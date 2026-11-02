@@ -4,7 +4,9 @@ import {
   ALL_SYNC_PRODUCTS,
   balanceColumns,
   isSkippableProductError,
+  mergeSyncedProducts,
   monthsBefore,
+  nextItemStatus,
   planTransactionWrites,
   plaidAmountToCents,
   RECONNECT_ERRORS,
@@ -80,11 +82,11 @@ function productsFor(itemProducts: string[] | null | undefined): Set<SyncProduct
   return available;
 }
 
-type LoadedItem = { id: number; institutionName: string | null; accessToken: string; cursor: string | null; webhookUrl: string | null };
+type LoadedItem = { id: number; institutionName: string | null; accessToken: string; cursor: string | null };
 
 async function loadSyncItem(context: SyncContext, itemId: number): Promise<LoadedItem> {
   const data = must(await context.db.from("plaid_items")
-    .select("id, institution_name, access_token_encrypted, transactions_cursor, webhook_url")
+    .select("id, institution_name, access_token_encrypted, transactions_cursor")
     .eq("household_id", context.householdId).eq("id", itemId).maybeSingle(), "load the bank connection");
   if (!data) throw new Response("That bank connection wasn't found", { status: 404 });
   return {
@@ -92,7 +94,6 @@ async function loadSyncItem(context: SyncContext, itemId: number): Promise<Loade
     institutionName: (data.institution_name as string | null) ?? null,
     accessToken: decryptToken(data.access_token_encrypted as string),
     cursor: (data.transactions_cursor as string | null) || null,
-    webhookUrl: (data.webhook_url as string | null) ?? null,
   };
 }
 
@@ -456,13 +457,15 @@ export async function syncItem(context: SyncContext, itemId: number, options: Sy
     }
   }
 
-  const syncedProducts = Object.entries(result.products).filter(([, status]) => status === "ok").map(([product]) => product);
+  // Read the status now, not at the start: a webhook may have flagged the login meanwhile.
+  const current = must(await context.db.from("plaid_items").select("status, error_code, synced_products").eq("id", item.id).maybeSingle(), "load the bank connection");
+  const next = nextItemStatus({ status: (current?.status as string | null) ?? null, errorCode: (current?.error_code as string | null) ?? null }, { kind: "synced", errorCode });
   must(await context.db.from("plaid_items").update({
     last_synced_at: now,
-    status: "ok",
-    error_code: errorCode,
+    status: next.status,
+    error_code: next.errorCode,
     updated_at: now,
-    ...(syncedProducts.length ? { synced_products: syncedProducts } : {}),
+    synced_products: mergeSyncedProducts(current?.synced_products as string[] | null, result.products),
   }).eq("id", item.id), "save the sync result");
 
   if (options.snapshots !== false) await writeSnapshots(context, today);

@@ -8,8 +8,6 @@ import type { TransactionFilters } from "../lib/presentation/transaction-view";
 /** What Portfolio passes to every finance page (Transactions, Cash flow, Investments, Accounts). */
 export type FinancePageProps = {
   context: FinanceContext;
-  /** Supabase access token, for server routes such as /api/plaid/sync (see syncNow in finance-data). */
-  accessToken: string;
   /** Cards, people and products, e.g. to name a linked card or a person. */
   portfolio: Portfolio;
   notify: (text: string, error?: boolean) => void;

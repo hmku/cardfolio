@@ -1,4 +1,4 @@
-import { plaidConfigured } from "@/db/plaid";
+import { plaidConfigured, plaidEnvironment } from "@/db/plaid";
 import { errorResponse, requireHousehold } from "@/db/storage";
 
 export const runtime = "nodejs";
@@ -19,7 +19,7 @@ export async function GET(request: Request) {
     const shownItems = (items.data || []).filter((item) => !hiddenItems.has(item.id) || visible.some((account) => account.item_id === item.id));
     return Response.json({
       configured: plaidConfigured(),
-      sandbox: (process.env.PLAID_ENV || "sandbox").trim().toLowerCase() !== "production",
+      sandbox: plaidEnvironment() === "sandbox",
       items: shownItems.map((item) => ({
         id: item.id,
         institutionName: item.institution_name || "Bank",

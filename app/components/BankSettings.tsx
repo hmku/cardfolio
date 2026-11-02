@@ -30,7 +30,8 @@ function loadPlaid(): Promise<PlaidGlobal> {
 
 function accountKind(account: Pick<BankAccount, "type" | "subtype">) {
   const text = account.subtype || account.type || "account";
-  return text === "ira" || text === "hsa" ? text.toUpperCase() : text === "401k" ? "401(k)" : text[0].toUpperCase() + text.slice(1);
+  const labels: Record<string, string> = { ira: "IRA", hsa: "HSA", cd: "CD", "401k": "401(k)", "403b": "403(b)", "529": "529", roth: "Roth IRA", auto: "Auto loan", student: "Student loan" };
+  return labels[text] || text[0].toUpperCase() + text.slice(1);
 }
 
 /** Settings → Bank connections: connect bank logins through Plaid and link their cards. */

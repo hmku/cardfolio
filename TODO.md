@@ -155,6 +155,11 @@ done and move them to **Done** with the date.
   (`/api/cron/sync`). New tabs Transactions, Cash flow, Investments and Accounts with
   placeholder lists; the to-do list and search stay on Cards and Credits. Not run against
   Plaid yet.
+- 2026-11-02: Two connect buttons in Settings → Bank connections: "Connect a bank or card"
+  (transactions plus card due dates/balances) and "Connect investments" (holdings plus cash
+  transactions); every account in a login is kept, only cards are matched. Tested both in
+  Sandbox on the branch preview. The live site now uses real banks (`PLAID_ENV=production`
+  for Production; Preview stays on Sandbox).
 - 2026-11-02: Plaid Phase 1 tested in Sandbox on production as devtest068: Link opened,
   First Platypus Bank connected with its two fake credit cards (no auto-match, as expected),
   a manual link saved and greyed that card out in the other dropdown, and Disconnect removed

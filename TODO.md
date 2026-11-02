@@ -37,6 +37,19 @@ done and move them to **Done** with the date.
       December; the app can't vary a monthly amount yet, so log the extra $20 as a partial use.
 - [ ] Stop editing the tracker, credits and stats tabs of the Google Sheet once the app is
       the source of truth.
+- [ ] **Monarch Money leftovers** from the 2026-11-01 manual cleanup:
+  - Two closed Monarch cards match nothing in Cardfolio: "HARRISON KU -11017 (...1017)" and
+    "-51044 (...1044)" (last synced 2022). Rename them or add the cards to Cardfolio.
+  - Guesses to confirm: Sophia's Monarch "delta biz gold SL4" (...1002, first charge April 2026)
+    doesn't match Cardfolio's SL4 last digits (31004). Monarch's "biz plat HK9" (...1005) also
+    holds biz plat HK6's history (same last 4).
+  - A new Chase account "H. KU (...3624)" (seen from Aug 2026, small Costco/Instacart charges)
+    matches no card in Cardfolio. It may be a replacement number for cic HK8 (...9182) or a card
+    that isn't in Cardfolio yet. Say which and rename it.
+  - No Monarch account yet for delta biz gold SL5 and Sophia's venture, citi premier, ha biz,
+    aa mileup and redcards (and cic HK8, unless it's ...3624). Connect them in Monarch if wanted.
+  - Until there's a real sync, rename and close Monarch accounts by hand whenever a card
+    opens, changes product or closes in Cardfolio.
 
 ## Optional setup
 
@@ -102,6 +115,12 @@ done and move them to **Done** with the date.
 
 - 2026-11-01: Entered last digits from 1Password on 111 cards (direct title matches,
   only where the card had none). Leftovers are under Needs Harrison.
+- 2026-11-01: Monarch Money cleanup done by hand (no code). Every Monarch credit card account
+  is now named with its Cardfolio short name ("biz plat HK8"). 13 accounts were closed on their
+  Cardfolio close dates; that includes the stale old-number entries cff HK1, csr HK4 and citi
+  premier HK1, whose live accounts are csr HK5, cff HK3 and citi custom cash HK1. 30 cards
+  that were already closed in Monarch were renamed too. Newly connected Chase cards were named
+  united biz HK1, united biz SL1 and cff HK3; the old disconnected cff HK3 entry was closed.
 - 2026-10-07: The 1Password last-digits script prints only each card's title and last
   digits (dropped vault, cardholder name, card type and expiry), so its output is safe to paste
   to Claude.

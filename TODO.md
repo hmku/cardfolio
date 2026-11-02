@@ -123,6 +123,16 @@ done and move them to **Done** with the date.
 
 ## Done
 
+- 2026-11-02: Card drawer quick actions. Under the title, a status line ("Open since …",
+  "Pending · applied …", "Closed …") and buttons: open cards get "Upgrade / downgrade" and
+  "Close card"; pending cards get "Approved" and "Declined". Each opens a small panel (date
+  defaulting to today; product changes also take the new card type, fee, optional new last
+  digits and an Upgrade/Downgrade toggle; Approved takes optional last digits) with a confirm
+  button. Closing, approving and declining save through the same path as the form's Status
+  field (any unsaved edits in the form are saved with them). The old "Change product" form
+  under Product history is gone; "Undo last change" stays there. Not yet tried on a phone
+  against real data.
+
 - 2026-11-01: Entered last digits from 1Password on 111 cards (direct title matches,
   only where the card had none). Leftovers are under Needs Harrison.
 - 2026-11-01: Monarch Money cleanup done by hand (no code). Every Monarch credit card account

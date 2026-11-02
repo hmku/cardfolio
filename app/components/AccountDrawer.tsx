@@ -19,7 +19,8 @@ type Props = {
   defaultPersonId: number;
   today: Date;
   onClose: () => void;
-  onSave: (draft: AccountDraft, newProduct: ProductDraft | null) => Promise<void>;
+  /** Saves the form; `message` replaces the usual "Saved" toast (used by the quick actions). */
+  onSave: (draft: AccountDraft, newProduct: ProductDraft | null, message?: string) => Promise<void>;
   onChangeProduct: (change: ProductChange) => Promise<void>;
   onUndoChange: () => Promise<void>;
   onDelete: () => Promise<void>;
@@ -43,6 +44,14 @@ function draftFrom(portfolio: Portfolio, account: Account | undefined, defaultPe
   };
 }
 
+/** One line under the drawer title saying where the card stands. */
+function stateLine(account: Account) {
+  if (account.status === "open") return account.approvedOn ? `Open since ${fullDate(account.approvedOn)}` : "Open";
+  if (account.status === "pending") return account.appliedOn ? `Pending · applied ${fullDate(account.appliedOn)}` : "Pending";
+  if (account.status === "declined") return account.closedOn ? `Declined ${fullDate(account.closedOn)}` : "Declined";
+  return account.closedOn ? `Closed ${fullDate(account.closedOn)}${account.approvedOn ? ` · opened ${fullDate(account.approvedOn)}` : ""}` : "Closed";
+}
+
 function NewProductFields({ value, onChange, idPrefix }: { value: ProductDraft; onChange: (value: ProductDraft) => void; idPrefix: string }) {
   return (
     <div className="fields full inline-form">
@@ -59,6 +68,9 @@ function NewProductFields({ value, onChange, idPrefix }: { value: ProductDraft; 
 
 const emptyProduct: ProductDraft = { name: "", issuer: "", kind: "personal", annualFeeCents: 0 };
 
+/** The focused panels behind the drawer's quick actions. */
+type QuickAction = "change" | "close" | "approve" | "decline";
+
 export function AccountDrawer(props: Props) {
   const { portfolio, accountId, defaultPersonId, today } = props;
   const account = accountId === null ? undefined : portfolio.account(accountId);
@@ -71,7 +83,9 @@ export function AccountDrawer(props: Props) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [confirmDelete, setConfirmDelete] = useState(false);
-  const [changing, setChanging] = useState(false);
+  const [action, setAction] = useState<QuickAction | null>(null);
+  const [actionDate, setActionDate] = useState(isoDate(today));
+  const [actionLast4, setActionLast4] = useState<string | null>(null);
   const [change, setChange] = useState<ProductChange>(() => ({ productId: current?.productId ?? 0, date: isoDate(today), annualFeeCents: 0, last4: null, direction: "downgrade" }));
   const [changeProductDraft, setChangeProductDraft] = useState<ProductDraft>(emptyProduct);
 
@@ -103,11 +117,36 @@ export function AccountDrawer(props: Props) {
     }
   }
 
-  function save() {
+  /** Saves the form with `patch` on top (the quick actions use this to close, approve or decline). */
+  function save(patch: Partial<AccountDraft> = {}, message?: string) {
     const bonus = draft.bonus && draft.bonus.amount > 0 ? draft.bonus : null;
     const creating = productChoice === "new";
     if (creating && !newProduct.name.trim()) { setError("Name the new card type."); return; }
-    void run(() => props.onSave({ ...draft, bonus, productId: creating ? 0 : Number(productChoice) }, creating ? { ...newProduct, annualFeeCents: draft.annualFeeCents } : null));
+    void run(() => props.onSave({ ...draft, bonus, productId: creating ? 0 : Number(productChoice), ...patch }, creating ? { ...newProduct, annualFeeCents: draft.annualFeeCents } : null, message));
+  }
+
+  function openAction(next: QuickAction) {
+    setError("");
+    setActionDate(isoDate(today));
+    setActionLast4(draft.last4);
+    if (next === "change" && current) setChange({ productId: current.productId, date: isoDate(today), annualFeeCents: current.annualFeeCents, last4: null, direction: "downgrade" });
+    setAction(next);
+  }
+
+  function finishAction() {
+    if (!current || !action) return;
+    if (!actionDate) { setError("Pick a date."); return; }
+    const short = holdingName(portfolio, current);
+    if (action === "close") {
+      const opened = draft.approvedOn || draft.appliedOn;
+      if (opened && actionDate < opened) { setError(`The closed date can't be before the card was opened (${fullDate(opened)}).`); return; }
+      save({ status: "closed", closedOn: actionDate }, `${short} closed`);
+    } else if (action === "decline") {
+      save({ status: "declined", closedOn: actionDate }, `${short} declined`);
+    } else {
+      if (actionLast4 && !/^\d{4,5}$/.test(actionLast4)) { setError("Last digits should be 4 or 5 numbers."); return; }
+      save({ status: "open", approvedOn: actionDate, closedOn: null, last4: actionLast4 }, `${shortName(portfolio.product(current.productId))} approved`);
+    }
   }
 
   const title = account && current
@@ -127,16 +166,103 @@ export function AccountDrawer(props: Props) {
             </button>
           )}
           <button type="button" className="btn" onClick={props.onClose}>Cancel</button>
-          <button type="button" className="btn primary" onClick={save} disabled={busy}>{busy ? "Saving…" : isNew ? "Add card" : "Save"}</button>
+          <button type="button" className="btn primary" onClick={() => save()} disabled={busy}>{busy ? "Saving…" : isNew ? "Add card" : "Save"}</button>
         </>
       }
     >
       {error && <div className="error-banner" role="alert">{error}</div>}
 
+      {account && current && (
+        <div className="card-actions">
+          <p className={`card-state ${account.status}`}>{stateLine(account)}</p>
+          {!action && account.status === "open" && (
+            <div className="action-row">
+              <button type="button" className="btn" onClick={() => openAction("change")}>Upgrade / downgrade</button>
+              <button type="button" className="btn danger" onClick={() => openAction("close")}>Close card</button>
+            </div>
+          )}
+          {!action && account.status === "pending" && (
+            <div className="action-row">
+              <button type="button" className="btn" onClick={() => openAction("approve")}>Approved</button>
+              <button type="button" className="btn danger" onClick={() => openAction("decline")}>Declined</button>
+            </div>
+          )}
+
+          {action === "change" && (
+            <div className="inline-form action-panel" role="group" aria-labelledby="a-title">
+              <h4 id="a-title">Upgrade or downgrade {holdingName(portfolio, current)}</h4>
+              <div className="seg" aria-label="Upgrade or downgrade">
+                {(["downgrade", "upgrade"] as const).map((direction) => (
+                  <button key={direction} type="button" aria-pressed={change.direction === direction}
+                    onClick={() => setChange({ ...change, direction })}>{direction === "upgrade" ? "Upgrade" : "Downgrade"}</button>
+                ))}
+              </div>
+              <div className="fields">
+                <label className="f full" htmlFor="c-product">New card type
+                  <select id="c-product" value={String(change.productId)} onChange={(event) => {
+                    const value = event.target.value === "new" ? "new" : Number(event.target.value);
+                    const product = portfolio.products.find((item) => item.id === value);
+                    setChange({ ...change, productId: value, annualFeeCents: product?.annualFeeCents ?? change.annualFeeCents });
+                  }}>
+                    {products.map((product) => <option key={product.id} value={product.id}>{product.name}{product.id === current.productId ? " (current)" : ""}</option>)}
+                    <option value="new">+ New card type…</option>
+                  </select>
+                </label>
+                {change.productId === "new" && <NewProductFields value={changeProductDraft} onChange={setChangeProductDraft} idPrefix="c-new" />}
+                <label className="f" htmlFor="c-date">On<input id="c-date" type="date" value={change.date} onChange={(event) => setChange({ ...change, date: event.target.value })} /></label>
+                <label className="f" htmlFor="c-fee">Annual fee ($)<input id="c-fee" type="number" min="0" inputMode="numeric" value={toDollarsInput(change.annualFeeCents)} placeholder="0" onChange={(event) => setChange({ ...change, annualFeeCents: toCents(event.target.value) })} /></label>
+                <label className="f full" htmlFor="c-last4">New last digits<input id="c-last4" inputMode="numeric" maxLength={5} placeholder="Only if the card number changed" value={change.last4 ?? ""} onChange={(event) => setChange({ ...change, last4: event.target.value.replace(/\D/g, "") || null })} /></label>
+              </div>
+              <p className="hint">
+                {change.productId !== "new" && change.productId && change.productId !== current.productId
+                  ? `Becomes ${shortName(portfolio.product(change.productId))} ${personCode(portfolio.person(account.personId))}${nextHoldingNumber(portfolio.holdings, account.personId, change.productId)}. `
+                  : "Pick the card type it changes to. "}
+                The account keeps its opening date, so 5/24 doesn&apos;t change.
+              </p>
+              <div className="inline-actions">
+                <button type="button" className="btn small" onClick={() => setAction(null)}>Cancel</button>
+                <button type="button" className="btn small primary" disabled={busy || change.productId === current.productId} onClick={() => {
+                  if (!change.date) { setError("Pick the date of the change."); return; }
+                  if (change.productId === "new" && !changeProductDraft.name.trim()) { setError("Name the new card type."); return; }
+                  void run(async () => { await props.onChangeProduct({ ...change, newProduct: change.productId === "new" ? { ...changeProductDraft, annualFeeCents: change.annualFeeCents } : undefined }); setAction(null); });
+                }}>{busy ? "Saving…" : change.direction === "upgrade" ? "Save upgrade" : "Save downgrade"}</button>
+              </div>
+            </div>
+          )}
+
+          {(action === "close" || action === "approve" || action === "decline") && (
+            <div className="inline-form action-panel" role="group" aria-labelledby="a-title">
+              <h4 id="a-title">
+                {action === "close" ? `Close ${holdingName(portfolio, current)}?` : `Mark ${shortName(portfolio.product(current.productId))} ${action === "approve" ? "approved" : "declined"}`}
+              </h4>
+              <div className="fields">
+                <label className="f" htmlFor="a-date">{action === "close" ? "Closed on" : action === "approve" ? "Approved on" : "Declined on"}
+                  <input id="a-date" type="date" value={actionDate} onChange={(event) => setActionDate(event.target.value)} />
+                </label>
+                {action === "approve" && (
+                  <label className="f" htmlFor="a-last4">Last digits<input id="a-last4" inputMode="numeric" maxLength={5} placeholder="Optional" value={actionLast4 ?? ""} onChange={(event) => setActionLast4(event.target.value.replace(/\D/g, "") || null)} /></label>
+                )}
+              </div>
+              <p className="hint">
+                {action === "close" && "It keeps its history and moves under Closed & declined. To reopen it, set Status back to Open below."}
+                {action === "approve" && `Becomes ${shortName(portfolio.product(current.productId))} ${personCode(portfolio.person(draft.personId))}${draft.number ?? nextHoldingNumber(portfolio.holdings.filter((holding) => holding.id !== current.id), draft.personId, current.productId)}.`}
+                {action === "decline" && "It moves under Closed & declined."}
+              </p>
+              <div className="inline-actions">
+                <button type="button" className="btn small" onClick={() => setAction(null)}>Cancel</button>
+                <button type="button" className={`btn small ${action === "approve" ? "primary" : "danger-fill"}`} disabled={busy} onClick={finishAction}>
+                  {busy ? "Saving…" : action === "close" ? "Close card" : action === "approve" ? "Mark approved" : "Mark declined"}
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
       <div className="fieldset">
         <h3>Card</h3>
         <div className="fields">
-          <label className="f full" htmlFor="f-product">{isNew ? "Card type" : "Card type (to correct a mistake; use Change product for an upgrade or downgrade)"}
+          <label className="f full" htmlFor="f-product">{isNew ? "Card type" : "Card type (to fix a mistake; use Upgrade / downgrade above for a product change)"}
             <select id="f-product" value={productChoice} onChange={(event) => {
               setProductChoice(event.target.value);
               const product = portfolio.products.find((item) => item.id === Number(event.target.value));
@@ -217,48 +343,9 @@ export function AccountDrawer(props: Props) {
               );
             })}
           </ul>
-          {account.status === "open" && !changing && (
+          {account.status === "open" && holdings.length > 1 && (
             <div className="inline-actions">
-              <button type="button" className="btn small" onClick={() => setChanging(true)}>Change product (upgrade or downgrade)</button>
-              {holdings.length > 1 && <button type="button" className="btn small" disabled={busy} onClick={() => void run(props.onUndoChange)}>Undo last change</button>}
-            </div>
-          )}
-          {changing && (
-            <div className="inline-form">
-              <div className="fields">
-                <label className="f" htmlFor="c-direction">Change
-                  <select id="c-direction" value={change.direction} onChange={(event) => setChange({ ...change, direction: event.target.value as ProductChange["direction"] })}>
-                    <option value="downgrade">Downgrade</option><option value="upgrade">Upgrade</option>
-                  </select>
-                </label>
-                <label className="f" htmlFor="c-date">On<input id="c-date" type="date" value={change.date} onChange={(event) => setChange({ ...change, date: event.target.value })} /></label>
-                <label className="f full" htmlFor="c-product">New card type
-                  <select id="c-product" value={String(change.productId)} onChange={(event) => {
-                    const value = event.target.value === "new" ? "new" : Number(event.target.value);
-                    const product = portfolio.products.find((item) => item.id === value);
-                    setChange({ ...change, productId: value, annualFeeCents: product?.annualFeeCents ?? change.annualFeeCents });
-                  }}>
-                    {products.map((product) => <option key={product.id} value={product.id}>{product.name}</option>)}
-                    <option value="new">+ New card type…</option>
-                  </select>
-                </label>
-                {change.productId === "new" && <NewProductFields value={changeProductDraft} onChange={setChangeProductDraft} idPrefix="c-new" />}
-                <label className="f" htmlFor="c-fee">Annual fee ($)<input id="c-fee" type="number" min="0" inputMode="numeric" value={toDollarsInput(change.annualFeeCents)} placeholder="0" onChange={(event) => setChange({ ...change, annualFeeCents: toCents(event.target.value) })} /></label>
-                <label className="f" htmlFor="c-last4">New last digits<input id="c-last4" inputMode="numeric" maxLength={5} placeholder="If the number changed" value={change.last4 ?? ""} onChange={(event) => setChange({ ...change, last4: event.target.value.replace(/\D/g, "") || null })} /></label>
-              </div>
-              <p className="hint">
-                {change.productId !== "new" && change.productId
-                  ? `Becomes ${shortName(portfolio.product(change.productId))} ${personCode(portfolio.person(account.personId))}${nextHoldingNumber(portfolio.holdings, account.personId, change.productId)}. `
-                  : ""}
-                The account keeps its opening date, so 5/24 doesn&apos;t change.
-              </p>
-              <div className="inline-actions">
-                <button type="button" className="btn small" onClick={() => setChanging(false)}>Cancel</button>
-                <button type="button" className="btn small primary" disabled={busy || change.productId === current.productId} onClick={() => {
-                  if (change.productId === "new" && !changeProductDraft.name.trim()) { setError("Name the new card type."); return; }
-                  void run(async () => { await props.onChangeProduct({ ...change, newProduct: change.productId === "new" ? { ...changeProductDraft, annualFeeCents: change.annualFeeCents } : undefined }); setChanging(false); });
-                }}>Save change</button>
-              </div>
+              <button type="button" className="btn small" disabled={busy} onClick={() => void run(props.onUndoChange)}>Undo last change</button>
             </div>
           )}
         </div>

@@ -237,14 +237,14 @@ export function Portfolio({ db, accessToken, onSignOut }: Props) {
   const selectedAccount = panel?.kind === "account" && panel.id !== null ? portfolio.account(panel.id) : undefined;
   const selectedCurrent = selectedAccount ? portfolio.current(selectedAccount.id) : undefined;
 
-  async function saveAccount(draft: data.AccountDraft, newProduct: data.ProductDraft | null) {
+  async function saveAccount(draft: data.AccountDraft, newProduct: data.ProductDraft | null, message?: string) {
     const problem = data.validateDraft(draft);
     if (problem) throw new Error(problem);
     await write(async (ctx) => {
       if (!selectedAccount || !selectedCurrent) return data.createAccount(ctx, draft, newProduct);
       const productId = newProduct ? await data.saveProduct(ctx, null, newProduct) : draft.productId;
       await data.updateAccount(ctx, selectedAccount, selectedCurrent, { ...draft, productId }, portfolio!.holdings);
-    }, { success: selectedAccount ? "Saved" : "Card added", rethrow: true });
+    }, { success: message ?? (selectedAccount ? "Saved" : "Card added"), rethrow: true });
     setPanel(null);
   }
 

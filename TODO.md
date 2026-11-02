@@ -189,8 +189,23 @@ done and move them to **Done** with the date.
 - [ ] Supabase security advisor: `is_cardfolio_member` / `is_cardfolio_owner` are callable
       via RPC (they only reveal the caller's own membership); consider revoking `anon`.
 
+- [ ] Disconnecting a login leaves its `securities` rows behind (they're household-wide); delete
+      securities no holding or investment transaction uses after a disconnect. 13 Sandbox
+      securities from testing on 2026-11-02 are still there; remove them with
+      `delete from securities s where not exists (select 1 from holdings h where h.security_id = s.id)
+      and not exists (select 1 from investment_transactions t where t.security_id = s.id)`.
+- [ ] Cash flow opens on the current month, which is nearly empty early in the month; consider
+      opening on last month or "Last 12 months" until the 10th or so.
+- [ ] Net worth chart's x-axis repeats the same date label when there's only a day or two of
+      history.
+
 ## Done
 
+- 2026-11-02: Tested the branch preview end to end with Plaid Sandbox (two fake logins): sync
+  pulled 434 transactions (all categorized), balances, a card due date, 13 holdings and
+  snapshots; Transactions, Cash flow, Accounts and Investments rendered on desktop and phone;
+  the test member saw no investment data until `hide_investments` was briefly turned off.
+  Fake logins disconnected afterwards. `PLAID_WEBHOOK_URL` set for Production.
 - 2026-11-02: Accounts and Investments pages. Accounts: net worth, assets and debts with a
   net worth chart (1M–All, change over the period) from `balance_snapshots`; accounts grouped
   Cash / Credit cards (short card name, statement balance, due date) / Investments /

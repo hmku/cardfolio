@@ -71,6 +71,22 @@ export function matchRule(target: RuleTarget, rules: RuleLike[]) {
   return matching[0] ?? null;
 }
 
+export type StoredRuleTarget = RuleTarget & { id: number; categoryId: number | null; categorySource: CategorySource | null; excluded: boolean };
+
+/**
+ * Applying `rule` to stored transactions: the ids of those it wins under matchRule (as at sync
+ * time, so a more specific rule keeps its matches) and that it would change. Transactions
+ * categorized by hand are left alone.
+ */
+export function transactionsForRule(rule: RuleLike, rules: RuleLike[], transactions: StoredRuleTarget[]) {
+  const all = [...rules.filter((item) => item.id !== rule.id), rule];
+  return transactions
+    .filter((transaction) => transaction.categorySource !== "manual" && matchRule(transaction, all)?.id === rule.id)
+    .filter((transaction) => transaction.categoryId !== rule.categoryId || transaction.categorySource !== "rule"
+      || (rule.setExcluded !== null && transaction.excluded !== rule.setExcluded))
+    .map((transaction) => transaction.id);
+}
+
 export type Categorized = { categoryId: number | null; source: CategorySource | null; excluded: boolean | null };
 
 /** A new transaction's category: the household's rules first, else Plaid's category mapped to a household category. */

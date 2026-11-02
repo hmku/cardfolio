@@ -1,7 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { FEE_LOOKBACK_DAYS, type CardPlaidData, type CardTransaction, type LinkedCard } from "./core/card-plaid.ts";
 import { addDays, isoDate, parseDate } from "./core/dates.ts";
-import type { CategoryKind, CategorySource, RuleField } from "./core/finance.ts";
+import { transactionsForRule, type CategoryKind, type CategorySource, type RuleField, type StoredRuleTarget } from "./core/finance.ts";
 
 /**
  * Browser data layer for the finance pages (Transactions, Cash flow, Investments, Accounts).
@@ -33,9 +33,12 @@ async function pageAll(build: (from: number, to: number) => PromiseLike<{ data: 
   }
 }
 
-/** Escapes % and _ for an ilike "contains" pattern. */
-function containsPattern(value: string) {
-  return `%${value.trim().toLowerCase().replace(/[\\%_]/g, (match) => `\\${match}`)}%`;
+/**
+ * An ilike "contains" pattern for PostgREST: escapes \, % and _, and turns * (which PostgREST
+ * rewrites to %, and which can't be escaped) into _, which matches it as one character.
+ */
+export function containsPattern(value: string) {
+  return `%${value.trim().toLowerCase().replace(/[\\%_]/g, (match) => `\\${match}`).replace(/\*/g, "_")}%`;
 }
 
 // ---------- categories and rules ----------
@@ -135,19 +138,44 @@ export async function deleteCategoryRule(context: FinanceContext, id: number) {
 }
 
 /**
- * Applies a rule to transactions already stored (new ones get it during sync). Never touches
- * transactions a person categorized by hand. Resolves to how many changed.
+ * Applies a rule to transactions already stored (new ones get it during sync). Matches the way
+ * the sync does (core matchRule), so a more specific rule keeps its transactions, and never
+ * touches transactions a person categorized by hand. Resolves to how many changed.
  */
 export async function applyRuleToExisting(context: FinanceContext, rule: CategoryRule) {
-  const column = rule.matchField === "merchant" ? "merchant_name" : rule.matchField === "name" ? "name" : "search_text";
-  let query = context.db.from("transactions")
-    .update({ category_id: rule.categoryId, category_source: "rule", ...(rule.setExcluded !== null && { excluded: rule.setExcluded }) })
-    .eq("household_id", context.householdId)
-    .ilike(column, containsPattern(rule.matchText))
-    .or("category_source.is.null,category_source.neq.manual");
-  if (rule.plaidAccountId !== null) query = query.eq("plaid_account_id", rule.plaidAccountId);
-  const rows = check(await query.select("id"), "apply the rule") || [];
-  return rows.length;
+  if (!rule.matchText.trim()) return 0;
+  const columns = rule.matchField === "merchant" ? ["merchant_name"] : rule.matchField === "name" ? ["name"] : ["merchant_name", "name"];
+  // Narrow down in the database, then let the core matcher pick the winning rule per transaction.
+  const [rules, ...matches] = await Promise.all([
+    loadCategoryRules(context),
+    ...columns.map((column) => pageAll((from, to) => {
+      let query = context.db.from("transactions")
+        .select("id, name, merchant_name, plaid_account_id, category_id, category_source, excluded")
+        .eq("household_id", context.householdId)
+        .ilike(column, containsPattern(rule.matchText))
+        .or("category_source.is.null,category_source.neq.manual");
+      if (rule.plaidAccountId !== null) query = query.eq("plaid_account_id", rule.plaidAccountId);
+      return query.order("id").range(from, to);
+    }, "apply the rule")),
+  ]);
+  const candidates = new Map<number, StoredRuleTarget>();
+  for (const row of matches.flat()) {
+    candidates.set(num(row.id), {
+      id: num(row.id),
+      name: String(row.name),
+      merchantName: text(row.merchant_name),
+      plaidAccountId: num(row.plaid_account_id),
+      categoryId: numOrNull(row.category_id),
+      categorySource: (row.category_source as CategorySource | null) ?? null,
+      excluded: Boolean(row.excluded),
+    });
+  }
+  const ids = transactionsForRule(rule, rules, [...candidates.values()]);
+  const values = { category_id: rule.categoryId, category_source: "rule", ...(rule.setExcluded !== null && { excluded: rule.setExcluded }) };
+  for (let index = 0; index < ids.length; index += 200) {
+    check(await context.db.from("transactions").update(values).eq("household_id", context.householdId).in("id", ids.slice(index, index + 200)), "apply the rule");
+  }
+  return ids.length;
 }
 
 // ---------- bank logins and accounts ----------
@@ -360,7 +388,8 @@ export type TransactionPatch = { categoryId?: number | null; notes?: string | nu
 function patchValues(patch: TransactionPatch) {
   return {
     // A person's category choice is never overwritten by later syncs or rules.
-    ...(patch.categoryId !== undefined && { category_id: patch.categoryId, category_source: patch.categoryId === null ? null : "manual" }),
+    // Clearing it ("Uncategorized") is a choice too, so it's recorded as manual as well.
+    ...(patch.categoryId !== undefined && { category_id: patch.categoryId, category_source: "manual" }),
     ...(patch.notes !== undefined && { notes: patch.notes?.trim() || null }),
     ...(patch.excluded !== undefined && { excluded: patch.excluded }),
     ...(patch.reviewed !== undefined && { reviewed: patch.reviewed }),
@@ -590,22 +619,6 @@ export async function loadBalanceSnapshots(context: FinanceContext, from?: strin
     return request.order("date").order("id").range(start, end);
   }, "load balance history");
   return rows.map((row) => ({ date: String(row.date), plaidAccountId: numOrNull(row.plaid_account_id), manualAccountId: numOrNull(row.manual_account_id), balanceCents: num(row.balance_cents) }));
-}
-
-// ---------- server calls ----------
-
-export type SyncSummary = { items: { itemId: number; institutionName: string | null; ok: boolean; error?: string; transactions: { added: number; modified: number; removed: number } }[] };
-
-/** Asks the server to sync now: one bank login, or all of them. */
-export async function syncNow(accessToken: string, itemId?: number): Promise<SyncSummary> {
-  const response = await fetch("/api/plaid/sync", {
-    method: "POST",
-    headers: { authorization: `Bearer ${accessToken}`, "content-type": "application/json" },
-    body: JSON.stringify(itemId ? { itemId } : {}),
-  });
-  const payload = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(payload.error || "Couldn't sync");
-  return payload as SyncSummary;
 }
 
 // ---------- card features (Cards and Credits tabs) ----------

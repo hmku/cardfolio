@@ -124,7 +124,7 @@ export function TransactionsPage({ context, portfolio, notify, onOpenSettings, t
         ...current,
         items: current.items.map((item) => (chosen.has(item.id) ? {
           ...item,
-          ...(patch.categoryId !== undefined && { categoryId: patch.categoryId, categorySource: patch.categoryId === null ? null : "manual" as const }),
+          ...(patch.categoryId !== undefined && { categoryId: patch.categoryId, categorySource: "manual" as const }),
           ...(patch.excluded !== undefined && { excluded: patch.excluded }),
           ...(patch.reviewed !== undefined && { reviewed: patch.reviewed }),
         } : item)),

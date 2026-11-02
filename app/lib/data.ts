@@ -24,11 +24,15 @@ type Row = Record<string, unknown>;
 const num = (value: unknown) => Number(value);
 const text = (value: unknown) => (value === null || value === undefined ? null : String(value));
 
-/** Supabase caps a response at 1,000 rows, so page through larger tables. */
-async function selectAll(db: SupabaseClient, table: string, householdId: string, order: string) {
+/**
+ * Supabase caps a response at 1,000 rows, so page through larger tables. Offset paging needs a
+ * stable order, so `order` must end in a unique key (most tables' "id").
+ */
+async function selectAll(db: SupabaseClient, table: string, householdId: string, order: string[]) {
   const rows: Row[] = [];
   for (let from = 0; ; from += 1000) {
-    const { data, error } = await db.from(table).select("*").eq("household_id", householdId).order(order).range(from, from + 999);
+    const query = order.reduce((built, column) => built.order(column), db.from(table).select("*").eq("household_id", householdId));
+    const { data, error } = await query.range(from, from + 999);
     if (error) throw new Error(`Couldn't load ${table.replace(/_/g, " ")}: ${error.message}`);
     rows.push(...(data as Row[]));
     if (!data || data.length < 1000) return rows;
@@ -47,14 +51,14 @@ function toBonus(row: Row): Bonus | null {
 
 export async function loadPortfolio(db: SupabaseClient, householdId: string): Promise<PortfolioData> {
   const [people, products, accounts, holdings, credits, uses, optOuts, rules] = await Promise.all([
-    selectAll(db, "people", householdId, "sort"),
-    selectAll(db, "products", householdId, "name"),
-    selectAll(db, "accounts", householdId, "id"),
-    selectAll(db, "account_products", householdId, "started_on"),
-    selectAll(db, "credits", householdId, "sort"),
-    selectAll(db, "credit_uses", householdId, "id"),
-    selectAll(db, "credit_opt_outs", householdId, "created_at"),
-    selectAll(db, "action_rules", householdId, "priority"),
+    selectAll(db, "people", householdId, ["sort", "id"]),
+    selectAll(db, "products", householdId, ["name", "id"]),
+    selectAll(db, "accounts", householdId, ["id"]),
+    selectAll(db, "account_products", householdId, ["started_on", "id"]),
+    selectAll(db, "credits", householdId, ["sort", "id"]),
+    selectAll(db, "credit_uses", householdId, ["id"]),
+    selectAll(db, "credit_opt_outs", householdId, ["created_at", "credit_id", "account_product_id"]),
+    selectAll(db, "action_rules", householdId, ["priority", "id"]),
   ]);
   return {
     people: people.map((row) => ({ id: num(row.id), name: String(row.name), code: text(row.code), email: text(row.email), sort: num(row.sort) })),
@@ -129,7 +133,6 @@ function check<T>(result: { data: T; error: { message: string; code?: string } |
 
 // ---------- credits ----------
 
-/** Replaces a card's usage of a credit for one period. `amountCents` null clears it. */
 /**
  * Sets (or with null clears) a credit's use for a period. `source: "plaid"` with the posting's
  * `usedOn` date records an accepted bank suggestion.
@@ -336,12 +339,18 @@ export type PersonDraft = { name: string; code?: string | null };
 
 const cleanCode = (code: string | null | undefined) => code?.trim().toUpperCase() || null;
 
+/** Initials feed short card names like "biz plat HK7", so keep them to 1-4 letters. */
+function checkCode(code: string | null | undefined) {
+  if (code?.trim() && !/^[A-Za-z]{1,4}$/.test(code.trim())) throw new Error("Initials should be 1 to 4 letters, like HK.");
+}
+
 export async function addPerson(context: Context, draft: PersonDraft, sort: number) {
+  checkCode(draft.code);
   const row = check(await context.db.from("people").insert({ household_id: context.householdId, name: draft.name.trim(), code: cleanCode(draft.code), sort }).select("id").single(), "add the person");
   return num((row as Row).id);
 }
 
 export async function savePerson(context: Context, id: number, draft: PersonDraft) {
-  if (draft.code && !/^[A-Za-z]{1,4}$/.test(draft.code.trim())) throw new Error("Initials should be 1 to 4 letters, like HK.");
+  checkCode(draft.code);
   check(await context.db.from("people").update({ name: draft.name.trim(), code: cleanCode(draft.code) }).eq("household_id", context.householdId).eq("id", id), "save the cardholder");
 }

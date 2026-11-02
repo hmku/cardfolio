@@ -72,9 +72,12 @@ export function useCardPlaid(context: FinanceContext | null, portfolio: Portfoli
     });
   }, []);
 
+  /** Reloads the bank details now, e.g. after linking a card or syncing in Settings. */
+  const refresh = useCallback(() => setVersion((value) => value + 1), []);
+
   const view = useMemo<CardPlaidView | null>(
     () => (data && portfolio && data.cards.length ? summarizeCardPlaid(portfolio, data, today, new Set(handled)) : null),
     [data, portfolio, today, handled],
   );
-  return { view, remember, forget };
+  return { view, remember, forget, refresh };
 }

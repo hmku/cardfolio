@@ -7,6 +7,7 @@ import { atNoon } from "../lib/core/dates";
 import { cardTag, holdingName, indexPortfolio, type Account, type PortfolioData } from "../lib/core/model";
 import { dueItems, personStats } from "../lib/core/stats";
 import * as data from "../lib/data";
+import { errorText, sessionApi } from "../lib/api";
 import { AccountDrawer, type ProductChange } from "./AccountDrawer";
 import { CardGroups, groupId } from "./CardGroups";
 import { DueList } from "./DueList";
@@ -27,7 +28,8 @@ import { CheckIcon, Dot, personTone, Toast, type ToastMessage } from "./ui";
 import { DEFAULT_TRANSACTION_FILTERS, type TransactionFilters } from "../lib/presentation/transaction-view";
 import { money, shortDate } from "../lib/presentation/format";
 
-type Props = { db: SupabaseClient; accessToken: string; onSignOut: () => Promise<void> };
+/** `userId` keys the session: token refreshes don't reload anything (API calls read the latest token). */
+type Props = { db: SupabaseClient; userId: string; onSignOut: () => Promise<void> };
 type FinanceView = "transactions" | "cashflow" | "investments" | "accounts";
 type View = "cards" | "credits" | FinanceView;
 // Top-level tabs. Cards and Credits share the to-do list and search; each finance tab is its own page component.
@@ -61,7 +63,7 @@ function readPrefs(): Prefs {
   } catch { return DEFAULT_PREFS; }
 }
 
-export function Portfolio({ db, accessToken, onSignOut }: Props) {
+export function Portfolio({ db, userId, onSignOut }: Props) {
   const [raw, setRaw] = useState<PortfolioData | null>(null);
   const [membership, setMembership] = useState<(Membership & { householdId: string }) | null>(null);
   const [loadError, setLoadError] = useState("");
@@ -78,8 +80,13 @@ export function Portfolio({ db, accessToken, onSignOut }: Props) {
   const syncTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const portfolio = useMemo(() => (raw ? indexPortfolio(raw) : null), [raw]);
-  const context = useMemo<data.Context | null>(() => (membership ? { db, householdId: membership.householdId, email: membership.email } : null), [db, membership]);
-  const financeContext = useMemo<FinanceContext | null>(() => (membership ? { db, householdId: membership.householdId } : null), [db, membership]);
+  const api = useMemo(() => sessionApi(db), [db]);
+  // Built from primitives so an invite (which updates the member list) doesn't rebuild them.
+  const householdId = membership?.householdId ?? null;
+  const email = membership?.email ?? "";
+  const googleSheet = membership?.googleSheet ?? false;
+  const context = useMemo<data.Context | null>(() => (householdId ? { db, householdId, email } : null), [db, householdId, email]);
+  const financeContext = useMemo<FinanceContext | null>(() => (householdId ? { db, householdId } : null), [db, householdId]);
 
   const updatePrefs = useCallback((patch: Partial<Prefs>) => {
     setPrefs((current) => {
@@ -104,47 +111,44 @@ export function Portfolio({ db, accessToken, onSignOut }: Props) {
   // Membership first (the server accepts invitations), then the data itself.
   useEffect(() => {
     let active = true;
-    fetch("/api/session", { headers: { authorization: `Bearer ${accessToken}` } })
-      .then(async (response) => {
-        const payload = await response.json();
-        if (!response.ok) throw new Error(payload.error || "Couldn't open Cardfolio.");
+    api<Membership & { householdId: string }>("/api/session", { fallback: "Couldn't open Cardfolio." })
+      .then(async (payload) => {
         if (!active) return;
         setMembership(payload);
         await reload(payload.householdId);
       })
-      .catch((reason) => active && setLoadError(reason instanceof Error ? reason.message : "Couldn't open Cardfolio."));
+      .catch((reason) => active && setLoadError(errorText(reason, "Couldn't open Cardfolio.")));
     return () => { active = false; };
-  }, [accessToken, reload]);
+  }, [api, userId, reload]);
 
   // Live updates: reload shortly after anyone in the household changes something.
   useEffect(() => {
-    if (!membership) return;
-    const channel = db.channel(`household-${membership.householdId}`);
+    if (!householdId) return;
+    const channel = db.channel(`household-${householdId}`);
     const onChange = () => {
       if (reloadTimer.current) clearTimeout(reloadTimer.current);
-      reloadTimer.current = setTimeout(() => void reload(membership.householdId), 400);
+      reloadTimer.current = setTimeout(() => void reload(householdId), 400);
     };
     for (const table of LIVE_TABLES) {
-      channel.on("postgres_changes", { event: "*", schema: "public", table, filter: `household_id=eq.${membership.householdId}` }, onChange);
+      channel.on("postgres_changes", { event: "*", schema: "public", table, filter: `household_id=eq.${householdId}` }, onChange);
     }
     channel.subscribe();
     const onFocus = () => {
       setToday(atNoon(new Date()));
-      void reload(membership.householdId);
+      void reload(householdId);
     };
     window.addEventListener("focus", onFocus);
     return () => { void db.removeChannel(channel); window.removeEventListener("focus", onFocus); };
-  }, [db, membership, reload]);
+  }, [db, householdId, reload]);
 
   const syncSheet = useCallback(async () => {
-    const response = await fetch("/api/export/google-sheet", { method: "POST", headers: { authorization: `Bearer ${accessToken}` } });
-    if (!response.ok) throw new Error((await response.json()).error || "Couldn't update the Google Sheet.");
-  }, [accessToken]);
+    await api("/api/export/google-sheet", { method: "POST", fallback: "Couldn't update the Google Sheet." });
+  }, [api]);
   const scheduleSync = useCallback(() => {
-    if (!membership?.googleSheet) return;
+    if (!googleSheet) return;
     if (syncTimer.current) clearTimeout(syncTimer.current);
-    syncTimer.current = setTimeout(() => { syncSheet().catch((reason) => notify(reason.message, undefined, true)); }, 6000);
-  }, [membership, notify, syncSheet]);
+    syncTimer.current = setTimeout(() => { syncSheet().catch((reason) => notify(errorText(reason, "Couldn't update the Google Sheet."), undefined, true)); }, 6000);
+  }, [googleSheet, notify, syncSheet]);
 
   /**
    * Runs a write, then reloads. Optional `optimistic` updates the page before the write finishes.
@@ -182,7 +186,7 @@ export function Portfolio({ db, accessToken, onSignOut }: Props) {
         ...value,
         uses: [
           ...value.uses.filter((use) => !(use.creditId === credit.id && use.holdingId === holding.id && use.periodKey === periodKey)),
-          ...(amountCents === null ? [] : [{ id: -Date.now(), creditId: credit.id, holdingId: holding.id, periodKey, amountCents, usedOn: null, recordedBy: membership?.email || null, source: "manual" as const }]),
+          ...(amountCents === null ? [] : [{ id: -Date.now(), creditId: credit.id, holdingId: holding.id, periodKey, amountCents, usedOn: null, recordedBy: email || null, source: "manual" as const }]),
         ],
       }),
       success: `${message} ${credit.name} on ${holdingLabel}`,
@@ -243,13 +247,14 @@ export function Portfolio({ db, accessToken, onSignOut }: Props) {
     if (state.kind === "off") return;
     const periodKey = state.period.key;
     const previous = state.usedCents || null;
+    // Hidden right away; shown again if the write fails, so the credit can still be recorded.
     cardPlaid.remember(key);
     void write((ctx) => data.setCreditUse(ctx, credit.id, holding.id, periodKey, recordCents, { source: "plaid", usedOn: transaction.date }), {
       optimistic: (value) => ({
         ...value,
         uses: [
           ...value.uses.filter((use) => !(use.creditId === credit.id && use.holdingId === holding.id && use.periodKey === periodKey)),
-          { id: -Date.now(), creditId: credit.id, holdingId: holding.id, periodKey, amountCents: recordCents, usedOn: transaction.date, recordedBy: membership?.email || null, source: "plaid" as const },
+          { id: -Date.now(), creditId: credit.id, holdingId: holding.id, periodKey, amountCents: recordCents, usedOn: transaction.date, recordedBy: email || null, source: "plaid" as const },
         ],
       }),
       success: `Recorded ${credit.name} on ${holdingName(portfolio, holding)}`,
@@ -257,7 +262,7 @@ export function Portfolio({ db, accessToken, onSignOut }: Props) {
         cardPlaid.forget(key);
         setUse({ credit, holding }, previous, "Restored");
       },
-    });
+    }).then((ok) => { if (!ok) cardPlaid.forget(key); });
   }
 
   function dismissSuggestion(suggestion: CreditSuggestion) {
@@ -350,7 +355,7 @@ export function Portfolio({ db, accessToken, onSignOut }: Props) {
           const stats = personStats(portfolio, person.id, today);
           return (
             <div key={person.id} className="person">
-              <Dot name={person.name} tone={personTone(person.sort)} large />
+              <Dot name={person.name} tone={personTone(person.sort)} />
               <strong>{person.name}</strong>
               <span className="facts">
                 <span><b className="num">{stats.open}</b> open</span>
@@ -380,7 +385,7 @@ export function Portfolio({ db, accessToken, onSignOut }: Props) {
             onSettings={() => setPanel({ kind: "settings" })} />
         ) : prefs.view === "cards" ? (
           <>
-            <CardList portfolio={portfolio} accounts={cardList} today={today} plaid={plaid} onOpenAccount={groupProps.onOpenAccount} />
+            <CardList portfolio={portfolio} accounts={cardList} today={today} plaid={plaid} searching={Boolean(search.trim())} onOpenAccount={groupProps.onOpenAccount} />
             {hiddenCount > 0 && (
               <button type="button" className="btn show-closed" aria-pressed={prefs.showClosed} onClick={() => updatePrefs({ showClosed: !prefs.showClosed })}>
                 {prefs.showClosed ? "Hide closed & declined" : `Show closed & declined (${hiddenCount})`}
@@ -438,7 +443,8 @@ export function Portfolio({ db, accessToken, onSignOut }: Props) {
 
       {panel?.kind === "settings" && (
         <SettingsDrawer
-          accessToken={accessToken}
+          api={api}
+          onBankChanged={cardPlaid.refresh}
           notify={settingsNotify}
           portfolio={portfolio}
           today={today}
@@ -451,20 +457,18 @@ export function Portfolio({ db, accessToken, onSignOut }: Props) {
           onToggleRule={(id, enabled) => write((ctx) => data.setRuleEnabled(ctx, id, enabled))}
           onAddPerson={(name) => write((ctx) => data.addPerson(ctx, { name }, people.length), { success: `Added ${name.trim()}` })}
           onSavePerson={(id, name, code) => write((ctx) => data.savePerson(ctx, id, { name, code }), { success: "Saved" })}
-          onInvite={async (email) => {
+          onInvite={async (invitee) => {
             try {
-              const response = await fetch("/api/session", { method: "POST", headers: { authorization: `Bearer ${accessToken}`, "content-type": "application/json" }, body: JSON.stringify({ action: "invite", email }) });
-              const payload = await response.json().catch(() => ({}));
-              if (!response.ok) throw new Error(payload.error || "Couldn't send the invitation.");
-              setMembership({ ...membership, ...payload });
-              notify(`Invited ${email}. They can sign in with that email now.`);
+              const payload = await api<Partial<Membership>>("/api/session", { method: "POST", body: { action: "invite", email: invitee }, fallback: "Couldn't send the invitation." });
+              setMembership((current) => current && { ...current, ...payload });
+              notify(`Invited ${invitee}. They can sign in with that email now.`);
               return true;
             } catch (reason) {
-              notify(reason instanceof Error ? reason.message : "Couldn't send the invitation.", undefined, true);
+              notify(errorText(reason, "Couldn't send the invitation."), undefined, true);
               return false;
             }
           }}
-          onSyncSheet={() => syncSheet().then(() => notify("Google Sheet updated"), (reason) => notify(reason.message, undefined, true))}
+          onSyncSheet={() => syncSheet().then(() => notify("Google Sheet updated"), (reason) => notify(errorText(reason, "Couldn't update the Google Sheet."), undefined, true))}
           onSignOut={onSignOut}
         />
       )}

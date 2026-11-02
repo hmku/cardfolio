@@ -21,3 +21,14 @@ export function bankAccountLabel(account: LabeledAccount | undefined, portfolio:
   const withInstitution = options.full && institution && !account.name.toLowerCase().startsWith(institution.toLowerCase());
   return `${withInstitution ? `${institution} ` : ""}${account.name}${mask}`;
 }
+
+const KIND_LABELS: Record<string, string> = {
+  ira: "IRA", hsa: "HSA", cd: "CD", "401k": "401(k)", "403b": "403(b)", "457b": "457(b)", "529": "529", roth: "Roth IRA", "roth 401k": "Roth 401(k)",
+  "sep ira": "SEP IRA", "simple ira": "SIMPLE IRA", auto: "Auto loan", student: "Student loan", "credit card": "Credit card", "money market": "Money market",
+};
+
+/** Plaid's subtype in words: "Checking", "401(k)", "Credit card". */
+export function bankAccountKind(account: { type: string | null; subtype: string | null }) {
+  const text = account.subtype || account.type || "account";
+  return KIND_LABELS[text] || text[0].toUpperCase() + text.slice(1);
+}

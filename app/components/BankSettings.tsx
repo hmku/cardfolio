@@ -1,7 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { errorText, type ApiCall } from "../lib/api";
 import { holdingName, type Portfolio } from "../lib/core/model";
+import { bankAccountKind } from "../lib/presentation/account-labels";
+import { ConfirmButton } from "./ui";
 
 type BankAccount = { id: number; name: string; mask: string | null; type: string | null; subtype: string | null; accountId: number | null; linkSource: "auto" | "manual" | null };
 type BankItem = { id: number; institutionName: string; status: "ok" | "reconnect"; errorCode: string | null; addedByEmail: string | null; personId: number | null; consentExpiresAt: string | null; lastSyncedAt: string | null; accounts: BankAccount[] };
@@ -28,17 +31,13 @@ function loadPlaid(): Promise<PlaidGlobal> {
   });
 }
 
-function accountKind(account: Pick<BankAccount, "type" | "subtype">) {
-  const text = account.subtype || account.type || "account";
-  const labels: Record<string, string> = { ira: "IRA", hsa: "HSA", cd: "CD", "401k": "401(k)", "403b": "403(b)", "529": "529", roth: "Roth IRA", auto: "Auto loan", student: "Student loan" };
-  return labels[text] || text[0].toUpperCase() + text.slice(1);
-}
-
-/** Settings → Bank connections: connect bank logins through Plaid and link their cards. */
-export function BankSettings({ portfolio, accessToken, notify }: { portfolio: Portfolio; accessToken: string; notify: (text: string, error?: boolean) => void }) {
+/**
+ * Settings → Bank connections: connect bank logins through Plaid and link their cards.
+ * `onChanged` runs after anything that changes the cards' bank details (connect, sync, links).
+ */
+export function BankSettings({ portfolio, api, notify, onChanged }: { portfolio: Portfolio; api: ApiCall; notify: (text: string, error?: boolean) => void; onChanged?: () => void }) {
   const [data, setData] = useState<Connections | null>(null);
   const [busy, setBusy] = useState<number | "bank" | "investments" | "sync" | null>(null);
-  const [confirm, setConfirm] = useState<number | null>(null);
   // Whose login the next connection is; remembered on this device.
   const [owner, setOwner] = useState<string>(() => {
     try { return localStorage.getItem("cardfolio.plaidOwner") || ""; } catch { return ""; }
@@ -48,44 +47,36 @@ export function BankSettings({ portfolio, accessToken, notify }: { portfolio: Po
     try { localStorage.setItem("cardfolio.plaidOwner", value); } catch { /* private mode */ }
   };
 
-  const call = useCallback(async (path: string, method: string, body?: unknown) => {
-    const response = await fetch(path, { method, headers: { authorization: `Bearer ${accessToken}`, "content-type": "application/json" }, body: body ? JSON.stringify(body) : undefined });
-    const payload = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(payload.error || "Something went wrong");
-    return payload;
-  }, [accessToken]);
-
-  const reload = useCallback(() => call("/api/plaid", "GET").then((value: Connections) => setData(value)), [call]);
+  const reload = useCallback(() => api<Connections>("/api/plaid").then(setData), [api]);
+  /** Reloads this list and tells the cards their bank details changed. */
+  const changed = () => {
+    onChanged?.();
+    return reload();
+  };
 
   useEffect(() => {
-    reload().catch((reason) => notify(reason instanceof Error ? reason.message : "Couldn't load bank connections", true));
+    reload().catch((reason) => notify(errorText(reason, "Couldn't load bank connections"), true));
   }, [reload, notify]);
-
-  useEffect(() => {
-    if (confirm === null) return;
-    const timer = setTimeout(() => setConfirm(null), 4000);
-    return () => clearTimeout(timer);
-  }, [confirm]);
 
   /** Opens Plaid Link: a new bank or brokerage login, or update mode for an existing item. */
   async function openLink(item?: BankItem, kind: "bank" | "investments" = "bank") {
     setBusy(item?.id ?? kind);
     try {
-      const [plaid, { linkToken }] = await Promise.all([loadPlaid(), call("/api/plaid/link-token", "POST", item ? { itemId: item.id } : { kind })]);
+      const [plaid, { linkToken }] = await Promise.all([loadPlaid(), api<{ linkToken: string }>("/api/plaid/link-token", { method: "POST", body: item ? { itemId: item.id } : { kind } })]);
       const handler = plaid.create({
         token: linkToken,
         onSuccess: (publicToken, metadata) => {
           handler.destroy();
           const finish = item
-            ? call("/api/plaid/items", "PATCH", { itemId: item.id })
-            : call("/api/plaid/items", "POST", { publicToken, personId: owner ? Number(owner) : null, institution: metadata.institution ? { id: metadata.institution.institution_id, name: metadata.institution.name } : null });
+            ? api<{ found: number; linked: number }>("/api/plaid/items", { method: "PATCH", body: { itemId: item.id } })
+            : api<{ found: number; linked: number }>("/api/plaid/items", { method: "POST", body: { publicToken, personId: owner ? Number(owner) : null, institution: metadata.institution ? { id: metadata.institution.institution_id, name: metadata.institution.name } : null } });
           finish
-            .then((result: { found: number; linked: number }) => {
+            .then((result) => {
               const unmatched = result.found - result.linked;
               notify(`${item ? "Reconnected" : "Connected"}: ${result.found} account${result.found === 1 ? "" : "s"} found${result.linked ? `, ${result.linked} matched by last digits` : ""}${unmatched > 0 && !item ? `. Pick the card for ${unmatched === 1 ? "the other one" : `the other ${unmatched}`} below.` : ""}`);
-              return reload();
+              return changed();
             })
-            .catch((reason) => notify(reason instanceof Error ? reason.message : "Couldn't connect that bank", true))
+            .catch((reason) => notify(errorText(reason, "Couldn't connect that bank"), true))
             .finally(() => setBusy(null));
         },
         onExit: (error) => {
@@ -97,7 +88,7 @@ export function BankSettings({ portfolio, accessToken, notify }: { portfolio: Po
       handler.open();
     } catch (reason) {
       setBusy(null);
-      notify(reason instanceof Error ? reason.message : "Couldn't start connecting a bank", true);
+      notify(errorText(reason, "Couldn't start connecting a bank"), true);
     }
   }
 
@@ -105,14 +96,14 @@ export function BankSettings({ portfolio, accessToken, notify }: { portfolio: Po
   async function syncNow(item?: BankItem) {
     setBusy(item ? item.id : "sync");
     try {
-      const result = await call("/api/plaid/sync", "POST", item ? { itemId: item.id } : {}) as { items: { ok: boolean; error?: string; transactions: { added: number } }[] };
+      const result = await api<{ items: { ok: boolean; error?: string; transactions: { added: number } }[] }>("/api/plaid/sync", { method: "POST", body: item ? { itemId: item.id } : {} });
       const failed = result.items.filter((row) => !row.ok);
       const added = result.items.reduce((sum, row) => sum + (row.transactions?.added || 0), 0);
       if (failed.length) notify(`Synced with problems: ${failed.map((row) => row.error).filter(Boolean).join("; ") || "check the connections below"}`, true);
       else notify(`Synced${added ? `: ${added} new transaction${added === 1 ? "" : "s"}` : ""}`);
-      await reload();
+      await changed();
     } catch (reason) {
-      notify(reason instanceof Error ? reason.message : "Couldn't sync", true);
+      notify(errorText(reason, "Couldn't sync"), true);
     } finally {
       setBusy(null);
     }
@@ -121,25 +112,24 @@ export function BankSettings({ portfolio, accessToken, notify }: { portfolio: Po
   async function setItemOwner(item: BankItem, value: string) {
     setBusy(item.id);
     try {
-      const { linked } = await call("/api/plaid/items", "PATCH", { itemId: item.id, personId: value ? Number(value) : null }) as { linked: number };
+      const { linked } = await api<{ linked: number }>("/api/plaid/items", { method: "PATCH", body: { itemId: item.id, personId: value ? Number(value) : null } });
       notify(linked ? `Matched ${linked} more card${linked === 1 ? "" : "s"}` : "Saved");
-      await reload();
+      await changed();
     } catch (reason) {
-      notify(reason instanceof Error ? reason.message : "Couldn't save that", true);
+      notify(errorText(reason, "Couldn't save that"), true);
     } finally {
       setBusy(null);
     }
   }
 
   async function disconnect(item: BankItem) {
-    setConfirm(null);
     setBusy(item.id);
     try {
-      await call("/api/plaid/items", "DELETE", { itemId: item.id });
+      await api("/api/plaid/items", { method: "DELETE", body: { itemId: item.id } });
       notify(`Disconnected ${item.institutionName}`);
-      await reload();
+      await changed();
     } catch (reason) {
-      notify(reason instanceof Error ? reason.message : "Couldn't disconnect that bank", true);
+      notify(errorText(reason, "Couldn't disconnect that bank"), true);
     } finally {
       setBusy(null);
     }
@@ -149,9 +139,10 @@ export function BankSettings({ portfolio, accessToken, notify }: { portfolio: Po
     const accountId = value ? Number(value) : null;
     setData((current) => current && { ...current, items: current.items.map((item) => ({ ...item, accounts: item.accounts.map((row) => (row.id === account.id ? { ...row, accountId, linkSource: "manual" } : row)) })) });
     try {
-      await call("/api/plaid/accounts", "PATCH", { id: account.id, accountId });
+      await api("/api/plaid/accounts", { method: "PATCH", body: { id: account.id, accountId } });
+      onChanged?.();
     } catch (reason) {
-      notify(reason instanceof Error ? reason.message : "Couldn't link that card", true);
+      notify(errorText(reason, "Couldn't link that card"), true);
       await reload().catch(() => undefined);
     }
   }
@@ -193,10 +184,7 @@ export function BankSettings({ portfolio, accessToken, notify }: { portfolio: Po
             {item.status === "reconnect" && <span className="tag alert" title={item.errorCode || undefined}>Needs reconnecting</span>}
             {item.status !== "reconnect" && <button type="button" className="btn small" disabled={busy !== null} onClick={() => void syncNow(item)}>{busy === item.id ? "Syncing…" : "Sync"}</button>}
             <button type="button" className={`btn small${item.status === "reconnect" ? " primary" : ""}`} disabled={busy !== null} onClick={() => void openLink(item)}>Reconnect</button>
-            <button type="button" className="btn small danger" disabled={busy !== null} aria-label={confirm === item.id ? `Confirm disconnect ${item.institutionName}` : `Disconnect ${item.institutionName}`}
-              onClick={() => (confirm === item.id ? void disconnect(item) : setConfirm(item.id))}>
-              {confirm === item.id ? "Sure?" : "Disconnect"}
-            </button>
+            <ConfirmButton disabled={busy !== null} label={`Disconnect ${item.institutionName}`} onConfirm={() => void disconnect(item)}>Disconnect</ConfirmButton>
           </div>
           {item.accounts.map((account) => {
             const taken = linkedElsewhere(account);
@@ -204,7 +192,7 @@ export function BankSettings({ portfolio, accessToken, notify }: { portfolio: Po
               return (
                 <div key={account.id} className="settings-row">
                   <span className="grow">{account.name}{account.mask && <span className="last4 num"> ··{account.mask}</span>}</span>
-                  <span className="tag">{accountKind(account)}</span>
+                  <span className="tag">{bankAccountKind(account)}</span>
                 </div>
               );
             }

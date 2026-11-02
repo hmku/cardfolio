@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useEffectEvent, useRef, type ReactNode } from "react";
+import { useEffect, useEffectEvent, useId, useRef, useState, type CSSProperties, type ReactNode } from "react";
 
 import { useDialogFocus } from "./useDialogFocus";
 
@@ -11,8 +11,30 @@ export function personTone(sort: number) {
   return PERSON_TONES[sort % PERSON_TONES.length];
 }
 
-export function Dot({ name, tone, large }: { name: string; tone: string; large?: boolean }) {
-  return <span className={`dot ${tone}`} aria-hidden="true" style={large ? { width: 32, height: 32, fontSize: 14 } : undefined}>{name.slice(0, 1).toUpperCase()}</span>;
+export function Dot({ name, tone }: { name: string; tone: string }) {
+  return <span className={`dot ${tone}`} aria-hidden="true">{name.slice(0, 1).toUpperCase()}</span>;
+}
+
+/**
+ * A two-press button for destructive actions: the first press asks (`confirmText`), the second
+ * runs `onConfirm`. The question resets after a few seconds. `label` is the accessible name,
+ * like "Delete Hilton".
+ */
+export function ConfirmButton({ label, onConfirm, children = "Delete", confirmText = "Sure?", className = "btn small danger", disabled, style }: {
+  label: string; onConfirm: () => void; children?: ReactNode; confirmText?: string; className?: string; disabled?: boolean; style?: CSSProperties;
+}) {
+  const [confirm, setConfirm] = useState(false);
+  useEffect(() => {
+    if (!confirm) return;
+    const timer = setTimeout(() => setConfirm(false), 4000);
+    return () => clearTimeout(timer);
+  }, [confirm]);
+  return (
+    <button type="button" className={className} style={style} disabled={disabled} aria-label={confirm ? `Confirm ${label.charAt(0).toLowerCase()}${label.slice(1)}` : label}
+      onClick={() => { if (!confirm) { setConfirm(true); return; } setConfirm(false); onConfirm(); }}>
+      {confirm ? confirmText : children}
+    </button>
+  );
 }
 
 export function Tag({ tone, title, children }: { tone?: "alert" | "due" | "ok" | "info" | "kept"; title?: string; children: ReactNode }) {
@@ -25,6 +47,7 @@ export const CheckIcon = () => (
 
 export function Drawer({ title, onClose, children, footer }: { title: string; onClose: () => void; children: ReactNode; footer?: ReactNode }) {
   const panel = useRef<HTMLElement>(null);
+  const titleId = useId();
   useDialogFocus(panel, onClose);
   useEffect(() => {
     const previous = document.body.style.overflow;
@@ -34,8 +57,8 @@ export function Drawer({ title, onClose, children, footer }: { title: string; on
   return (
     <>
       <div className="scrim" onClick={onClose} />
-      <aside className="drawer" role="dialog" aria-modal="true" aria-label={title} ref={panel} tabIndex={-1}>
-        <div className="drawer-head"><h2>{title}</h2><button type="button" className="btn small" onClick={onClose}>Close</button></div>
+      <aside className="drawer" role="dialog" aria-modal="true" aria-labelledby={titleId} ref={panel} tabIndex={-1}>
+        <div className="drawer-head"><h2 id={titleId}>{title}</h2><button type="button" className="btn small" onClick={onClose}>Close</button></div>
         <div className="drawer-body">{children}</div>
         {footer && <div className="drawer-foot">{footer}</div>}
       </aside>

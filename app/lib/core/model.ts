@@ -180,6 +180,10 @@ export function nextHoldingNumber(holdings: Holding[], personId: number, product
     .reduce((highest, holding) => Math.max(highest, holding.number || 0), 0) + 1;
 }
 
+/** A card's last digits as the issuer prints them: 4 or 5 numbers. */
+export const isLast4 = (value: string) => /^\d{4,5}$/.test(value);
+export const LAST4_ERROR = "Last digits should be 4 or 5 numbers.";
+
 /** Who holds the card and which one it is: "HK7" (Harrison's 7th of this card type). */
 export function cardTag(portfolio: Portfolio, holding: Holding) {
   return holding.number ? `${personCode(portfolio.person(holding.personId))}${holding.number}` : "";

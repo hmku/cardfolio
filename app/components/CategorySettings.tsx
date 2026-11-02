@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type FormEvent } from "react";
+import { useState, type FormEvent } from "react";
 import type { CategoryKind, RuleField } from "../lib/core/finance";
 import type { Portfolio } from "../lib/core/model";
 import {
@@ -9,7 +9,7 @@ import {
 } from "../lib/finance-data";
 import { bankAccountLabel } from "../lib/presentation/account-labels";
 import { CategoryPicker, categoryLabel, KIND_LABELS } from "./CategoryPicker";
-import { Drawer } from "./ui";
+import { ConfirmButton, Drawer } from "./ui";
 
 const KINDS: CategoryKind[] = ["expense", "income", "transfer"];
 const FIELD_LABELS: Record<RuleField, string> = { any: "Merchant or description", merchant: "Merchant", name: "Description" };
@@ -27,21 +27,6 @@ type Props = {
 };
 
 const message = (reason: unknown) => (reason instanceof Error ? reason.message : "Something went wrong.");
-
-/** Two presses to delete: the first asks "Sure?" and resets after a few seconds. */
-function ConfirmDelete({ label, onDelete }: { label: string; onDelete: () => void }) {
-  const [confirm, setConfirm] = useState(false);
-  useEffect(() => {
-    if (!confirm) return;
-    const timer = setTimeout(() => setConfirm(false), 4000);
-    return () => clearTimeout(timer);
-  }, [confirm]);
-  return (
-    <button type="button" className="btn small danger" aria-label={confirm ? `Confirm delete ${label}` : `Delete ${label}`} onClick={() => (confirm ? onDelete() : setConfirm(true))}>
-      {confirm ? "Sure?" : "Delete"}
-    </button>
-  );
-}
 
 type Run = (work: () => Promise<unknown>, success?: string, transactionsChanged?: boolean) => Promise<boolean>;
 
@@ -61,7 +46,7 @@ function CategoryRow({ category, context, run }: { category: Category; context: 
       <select aria-label={`${category.name} kind`} value={category.kind} onChange={(event) => void run(() => saveCategory(context, category.id, { kind: event.target.value as CategoryKind }), "Saved")}>
         {KINDS.map((kind) => <option key={kind} value={kind}>{kind === "expense" ? "Spending" : kind === "income" ? "Income" : "Transfer"}</option>)}
       </select>
-      <ConfirmDelete label={category.name} onDelete={() => void run(() => deleteCategory(context, category.id), `Deleted ${category.name}`)} />
+      <ConfirmButton label={`Delete ${category.name}`} onConfirm={() => void run(() => deleteCategory(context, category.id), `Deleted ${category.name}`)} />
     </div>
   );
 }
@@ -160,7 +145,7 @@ export function CategorySettings({ context, portfolio, categories, rules, accoun
                   const changed = await applyRuleToExisting(context, rule);
                   notify(`${changed} transaction${changed === 1 ? "" : "s"} updated`);
                 }, undefined, true)}>Apply to past</button>
-                <ConfirmDelete label={`rule ${rule.matchText}`} onDelete={() => void run(() => deleteCategoryRule(context, rule.id), "Rule deleted")} />
+                <ConfirmButton label={`Delete rule ${rule.matchText}`} onConfirm={() => void run(() => deleteCategoryRule(context, rule.id), "Rule deleted")} />
               </div>
             );
           })}

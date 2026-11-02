@@ -22,15 +22,16 @@ export function AuthGate() {
     let unsubscribe = () => {};
     fetch("/api/auth-config")
       .then(async (response) => {
-        const config = await response.json() as AuthConfig & { error?: string };
-        if (!response.ok) throw new Error(config.error || "Authentication is not configured");
+        const config = await response.json().catch(() => ({})) as Partial<AuthConfig> & { error?: string };
+        if (!response.ok || !config.url || !config.anonKey) throw new Error(config.error || "Authentication is not configured");
+        // Unmounted (or React's development double run) before the config arrived: make no client.
+        if (!active) return;
         const client = createClient(config.url, config.anonKey);
-        if (active) setClient(client);
+        setClient(client);
         const { data } = await client.auth.getSession();
-        if (active) {
-          setSession(data.session);
-          setChecking(false);
-        }
+        if (!active) return;
+        setSession(data.session);
+        setChecking(false);
         const listener = client.auth.onAuthStateChange((_event, nextSession) => {
           if (active) setSession(nextSession);
         });
@@ -112,5 +113,5 @@ export function AuthGate() {
     );
   }
 
-  return <Portfolio db={client} accessToken={session.access_token} onSignOut={signOut} />;
+  return <Portfolio db={client} userId={session.user.id} onSignOut={signOut} />;
 }

@@ -1,6 +1,8 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { isoDate } from "./core/dates.ts";
 import {
+  isLast4,
+  LAST4_ERROR,
   nextHoldingNumber,
   type Account,
   type AccountStatus,
@@ -251,7 +253,7 @@ export function validateDraft(draft: AccountDraft) {
   if (!draft.personId) return "Add a cardholder in Settings first, then add the card.";
   if (draft.status !== "pending" && draft.status !== "declined" && !draft.approvedOn) return "Enter the approval date, or set the status to Pending.";
   if (draft.status === "closed" && !draft.closedOn) return "Enter the date the card was closed.";
-  if (draft.last4 && !/^\d{4,5}$/.test(draft.last4)) return "Last digits should be 4 or 5 numbers.";
+  if (draft.last4 && !isLast4(draft.last4)) return LAST4_ERROR;
   if (draft.number !== null && (!Number.isInteger(draft.number) || draft.number < 1)) return "Card number should be a whole number, 1 or more.";
   return null;
 }

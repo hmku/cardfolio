@@ -16,15 +16,18 @@ export function CreditSuggestions({ portfolio, suggestions, onAccept, onDismiss,
   suggestions: CreditSuggestion[];
   onAccept: (suggestion: CreditSuggestion) => void;
   onDismiss: (suggestion: CreditSuggestion) => void;
-  /** Off inside a card's drawer, where the card is already the heading. */
+  /** Off inside a card's drawer, where the card is already the heading and "From your bank" the section. */
   showCard?: boolean;
 }) {
   const [showAll, setShowAll] = useState(false);
   if (!suggestions.length) return null;
   const shown = showAll ? suggestions : suggestions.slice(0, PREVIEW);
+  const count = suggestions.length === 1 ? "1 credit to confirm" : `${suggestions.length} credits to confirm`;
   return (
     <section className="suggestions" aria-label="Suggested credit uses">
-      <div className="todo-head"><h2>From your bank</h2><span className="meta">{suggestions.length === 1 ? "1 credit to confirm" : `${suggestions.length} credits to confirm`}</span></div>
+      {showCard
+        ? <div className="todo-head"><h2>From your bank</h2><span className="meta">{count}</span></div>
+        : <h4 className="suggestions-count">{count}</h4>}
       <ul className="suggestion-list">
         {shown.map((suggestion) => {
           const { credit, transaction, holding } = suggestion;

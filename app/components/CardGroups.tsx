@@ -1,9 +1,8 @@
 "use client";
 
-import { creditIsDue, creditState, creditSummary, eligibleHoldings, periodFor, DUE_WINDOW_DAYS } from "../lib/core/credits";
-import { daysBetween } from "../lib/core/dates";
+import { creditColumn, creditIsDue, creditState, eligibleHoldings, DUE_WINDOW_DAYS } from "../lib/core/credits";
 import type { CardPlaidView } from "../lib/core/card-plaid";
-import { holdingName, shortName, type Account, type Credit, type Holding, type Portfolio } from "../lib/core/model";
+import { holdingName, shortName, type Account, type Credit, type Portfolio } from "../lib/core/model";
 import { CreditCell, type CellTarget } from "./CreditCell";
 import { StatusTags, WhoLabel } from "./CardDetails";
 import { inDays, money, monthYear, shortDate } from "../lib/presentation/format";
@@ -27,13 +26,14 @@ type GroupProps = Handlers & {
   plaid?: CardPlaidView | null;
 };
 
+/** A card type's heading; the button inside the h2 toggles the group and covers the whole row. */
 function GroupHead({ id, title, meta, collapsed, onToggle }: { id: string; title: string; meta: string; collapsed: boolean; onToggle: (key: string) => void }) {
   return (
-    <button type="button" className="group-head" aria-expanded={!collapsed} onClick={() => onToggle(id)}>
+    <div className="group-head collapsible">
       <span className="caret" aria-hidden="true">▾</span>
-      <h2>{title}</h2>
+      <h2><button type="button" aria-expanded={!collapsed} onClick={() => onToggle(id)}>{title}</button></h2>
       <span className="meta">{meta}</span>
-    </button>
+    </div>
   );
 }
 
@@ -68,8 +68,9 @@ export function CardGroups(props: GroupProps) {
       const rightOpen = portfolio.current(right.accountId)?.id === right.id && portfolio.account(right.accountId)?.status === "open";
       return Number(rightOpen) - Number(leftOpen) || left.startedOn.localeCompare(right.startedOn);
     });
-    const columns = credits.filter((credit) => rows.some((holding) => eligible.get(credit.id)!.has(holding.id)));
-    return { product, credits: columns, eligible, rows };
+    const columns = credits.filter((credit) => rows.some((holding) => eligible.get(credit.id)!.has(holding.id)))
+      .map((credit) => ({ credit, ...creditColumn(portfolio, credit, rows.filter((holding) => eligible.get(credit.id)!.has(holding.id)), today) }));
+    return { product, columns, eligible, rows };
   }).filter((group) => group.rows.length)
     .sort((left, right) => right.rows.length - left.rows.length || left.product.name.localeCompare(right.product.name));
 
@@ -78,7 +79,7 @@ export function CardGroups(props: GroupProps) {
       {groups.length === 0 && (
         <div className="empty">No cards with credits match.{notUsing > 0 && " Credits marked “Not using” are in Settings → Card types and credits."}</div>
       )}
-      {groups.map(({ product, credits, eligible, rows }) => {
+      {groups.map(({ product, columns, eligible, rows }) => {
         const key = `product-${product.id}`;
         const isCollapsed = Boolean(collapsed[key]);
         const openRows = rows.filter((holding) => portfolio.account(holding.accountId)?.status === "open" && portfolio.current(holding.accountId)?.id === holding.id);
@@ -94,7 +95,7 @@ export function CardGroups(props: GroupProps) {
                   <tr>
                     <th className="sticky">Card</th>
                     <th>Opened</th>
-                    {credits.map((credit) => <CreditHeader key={credit.id} portfolio={portfolio} credit={credit} rows={rows.filter((holding) => eligible.get(credit.id)!.has(holding.id))} today={today} />)}
+                    {columns.map((column) => <CreditHeader key={column.credit.id} {...column} />)}
                     <th className="status-cell">Status</th>
                   </tr>
                 </thead>
@@ -106,7 +107,7 @@ export function CardGroups(props: GroupProps) {
                       <tr key={holding.id} className={`row ${dim ? "dim" : ""}`} onClick={() => props.onOpenAccount(account.id)}>
                         <td className="sticky"><button type="button" className="card-link" onClick={(event) => { event.stopPropagation(); props.onOpenAccount(account.id); }}><WhoLabel portfolio={portfolio} holding={holding} /></button></td>
                         <td className="num">{monthYear(holding.startedOn)}</td>
-                        {credits.map((credit) => {
+                        {columns.map(({ credit }) => {
                           if (!eligible.get(credit.id)!.has(holding.id)) return <td key={credit.id} className="credit" />;
                           const state = creditState(portfolio, credit, holding, today);
                           return (
@@ -121,18 +122,12 @@ export function CardGroups(props: GroupProps) {
                     );
                   })}
                 </tbody>
-                {credits.length > 0 && (
+                {columns.length > 0 && (
                   <tfoot>
                     <tr>
                       <td className="sticky">Used this period</td>
                       <td />
-                      {credits.map((credit) => {
-                        const holdings = rows.filter((holding) => eligible.get(credit.id)!.has(holding.id));
-                        const summary = creditSummary(portfolio, credit, holdings, today);
-                        const period = periodFor(portfolio, credit, null, today);
-                        const due = credit.mode === "track" && credit.remind && credit.cadence !== "card_year" && summary.used < summary.enrolled && daysBetween(today, period.end) <= DUE_WINDOW_DAYS;
-                        return <td key={credit.id} className={`credit num ${due ? "due-col" : ""}`}>{summary.used}/{summary.enrolled}</td>;
-                      })}
+                      {columns.map(({ credit, summary, due }) => <td key={credit.id} className={`credit num ${due ? "due-col" : ""}`}>{summary.used}/{summary.enrolled}</td>)}
                       <td className="status-cell" />
                     </tr>
                   </tfoot>
@@ -151,13 +146,9 @@ export function CardGroups(props: GroupProps) {
   );
 }
 
-function CreditHeader({ portfolio, credit, rows, today }: { portfolio: Portfolio; credit: Credit; rows: Holding[]; today: Date }) {
-  const period = periodFor(portfolio, credit, null, today);
-  const daysLeft = daysBetween(today, period.end);
+function CreditHeader({ credit, period, daysLeft, due }: { credit: Credit } & Pick<ReturnType<typeof creditColumn>, "period" | "daysLeft" | "due">) {
   const cardYear = credit.cadence === "card_year";
-  const summary = creditSummary(portfolio, credit, rows, today);
   const auto = credit.mode === "auto";
-  const due = !auto && credit.remind && !cardYear && daysLeft <= DUE_WINDOW_DAYS && summary.used < summary.enrolled;
   const meta = auto ? "Always used" : cardYear ? "per card year" : `${period.label} · ${daysLeft <= DUE_WINDOW_DAYS ? `ends ${inDays(daysLeft)}` : `ends ${shortDate(period.end)}`}`;
   const title = auto ? "Always used: counted as used every period without ticking. Change it in Settings." : credit.remind ? undefined : "Tracked quietly: left out of To do";
   return (

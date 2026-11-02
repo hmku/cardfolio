@@ -9,7 +9,11 @@ import { OPENED_VIA_LABELS } from "../lib/presentation/labels";
 import { fullDate, money, monthYear } from "../lib/presentation/format";
 import { BonusPill, StatusTagList, WhoLabel } from "./CardDetails";
 
-type Props = { portfolio: Portfolio; accounts: Account[]; today: Date; onOpenAccount: (id: number) => void; plaid?: CardPlaidView | null };
+type Props = {
+  portfolio: Portfolio; accounts: Account[]; today: Date; onOpenAccount: (id: number) => void; plaid?: CardPlaidView | null;
+  /** Whether a search is filtering the list (changes the empty message). */
+  searching?: boolean;
+};
 
 function History({ portfolio, account }: { portfolio: Portfolio; account: Account }) {
   const holdings = portfolio.holdingsOf(account.id);
@@ -28,13 +32,14 @@ function BalanceCell({ bank }: { bank: CardPlaidSummary | null }) {
   </>;
 }
 
-const openedLabel =(account: Account) => (account.approvedOn ? monthYear(account.approvedOn) : account.appliedOn ? `Applied ${fullDate(account.appliedOn)}` : "—");
+/** Month opened. Pending cards show "—": the Applied column and the pending tag carry the date. */
+const openedLabel = (account: Account) => (account.approvedOn ? monthYear(account.approvedOn) : "—");
 
 /**
  * The main list of accounts, newest first. A table on wide screens and stacked tiles on
  * phones (both are rendered; CSS shows one). Rows that need something are shaded.
  */
-export function CardList({ portfolio, accounts, today, onOpenAccount, plaid }: Props) {
+export function CardList({ portfolio, accounts, today, onOpenAccount, plaid, searching }: Props) {
   const [only, setOnly] = useState<CardTone | null>(null);
   const all = accounts.map((account) => {
     const holding = portfolio.current(account.id)!;
@@ -46,7 +51,7 @@ export function CardList({ portfolio, accounts, today, onOpenAccount, plaid }: P
   for (const row of all) if (row.status.tone) counts[row.status.tone] += 1;
   const filter = only && counts[only] ? only : null;
   const rows = filter ? all.filter((row) => row.status.tone === filter) : all;
-  if (!rows.length) return <div className="empty">No cards match.</div>;
+  if (!rows.length) return <div className="empty">{searching ? "No cards match." : "No open or pending cards."}</div>;
   const keyItem = (tone: CardTone, label: string) => counts[tone] > 0 && (
     <button type="button" className={`flag-key-item ${tone}`} aria-pressed={filter === tone} onClick={() => setOnly(filter === tone ? null : tone)}><i />{label}</button>
   );
@@ -67,7 +72,7 @@ export function CardList({ portfolio, accounts, today, onOpenAccount, plaid }: P
         <div className="card-table table-wrap">
           <table>
             <thead>
-              <tr><th className="sticky">Card</th><th>Opened</th><th>Status</th><th>Bonus</th>{showBalance && <th className="num">Balance</th>}<th className="num">Fee</th><th>How</th><th>Applied</th><th>Closed</th></tr>
+              <tr><th className="sticky">Card</th><th>Opened</th><th>Status</th><th>Bonus</th>{showBalance && <th className="r">Balance</th>}<th className="r">Fee</th><th>How</th><th>Applied</th><th>Closed</th></tr>
             </thead>
             <tbody>
               {rows.map(({ account, holding, bank, status }) => (
@@ -78,9 +83,9 @@ export function CardList({ portfolio, accounts, today, onOpenAccount, plaid }: P
                   </td>
                   <td className="opened num">{openedLabel(account)}</td>
                   <td><div className="status"><StatusTagList tags={status.tags} /></div></td>
-                  <td><BonusPill account={account} today={today} progress={bank?.bonus} /></td>
-                  {showBalance && <td className="num balance-cell"><BalanceCell bank={bank} /></td>}
-                  <td className="num">{holding.annualFeeCents ? money(holding.annualFeeCents) : "—"}</td>
+                  <td className="bonus-cell">{!status.bonusInProgress && <BonusPill account={account} today={today} />}</td>
+                  {showBalance && <td className="num r balance-cell"><BalanceCell bank={bank} /></td>}
+                  <td className="num r">{holding.annualFeeCents ? money(holding.annualFeeCents) : "—"}</td>
                   <td>{OPENED_VIA_LABELS[account.openedVia]}</td>
                   <td className="num">{fullDate(account.appliedOn)}</td>
                   <td className="num">{account.status === "closed" || account.status === "declined" ? fullDate(account.closedOn) : "—"}</td>
@@ -96,7 +101,7 @@ export function CardList({ portfolio, accounts, today, onOpenAccount, plaid }: P
               <button type="button" className={`tile ${rowClass(account, status.tone)}`} onClick={() => onOpenAccount(account.id)}>
                 <span className="tile-title">
                   <WhoLabel portfolio={portfolio} holding={holding} withProduct />
-                  <span className="opened num">{openedLabel(account)}</span>
+                  {account.approvedOn && <span className="opened num">{openedLabel(account)}</span>}
                 </span>
                 <span className="tile-facts">{[holding.annualFeeCents ? `${money(holding.annualFeeCents)} fee` : "No fee", OPENED_VIA_LABELS[account.openedVia], ...(bank && account.status === "open" ? [balanceText(bank.payment), bank.payment.overdue ? null : paymentText(bank.payment)] : [])].filter(Boolean).join(" · ")}</span>
                 {(account.bonus || status.tags.length > 0) && <span className="status">{!status.bonusInProgress && <BonusPill account={account} today={today} />}<StatusTagList tags={status.tags} /></span>}

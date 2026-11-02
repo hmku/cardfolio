@@ -6,12 +6,12 @@ import type { CardPlaidSummary, CreditSuggestion } from "../lib/core/card-plaid"
 import { daysBetween, isoDate } from "../lib/core/dates";
 import { bonusHistoryWarning, bonusProgressText, feePostingText } from "../lib/presentation/card-plaid";
 import { CreditSuggestions } from "./CreditSuggestions";
-import { holdingName, nextHoldingNumber, personCode, shortName, type Account, type BonusUnit, type Holding, type Kind, type OpenedVia, type Portfolio } from "../lib/core/model";
+import { holdingName, isLast4, LAST4_ERROR, nextHoldingNumber, personCode, shortName, type Account, type BonusUnit, type Holding, type Kind, type OpenedVia, type Portfolio } from "../lib/core/model";
 import { OPENED_VIA_LABELS } from "../lib/presentation/labels";
 import type { AccountDraft, ProductDraft } from "../lib/data";
 import type { CellTarget } from "./CreditCell";
 import { CreditCell } from "./CreditCell";
-import { Drawer } from "./ui";
+import { ConfirmButton, Drawer } from "./ui";
 import { fullDate, inDays, money, shortDate, toCents, toDollarsInput } from "../lib/presentation/format";
 
 export type ProductChange = { productId: number | "new"; newProduct?: ProductDraft; date: string; annualFeeCents: number; last4: string | null; direction: "upgrade" | "downgrade" };
@@ -116,7 +116,6 @@ export function AccountDrawer(props: Props) {
   const [newProduct, setNewProduct] = useState<ProductDraft>(emptyProduct);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const [confirmDelete, setConfirmDelete] = useState(false);
   const [action, setAction] = useState<QuickAction | null>(null);
   const [actionDate, setActionDate] = useState(isoDate(today));
   const [actionLast4, setActionLast4] = useState<string | null>(null);
@@ -178,7 +177,7 @@ export function AccountDrawer(props: Props) {
     } else if (action === "decline") {
       save({ status: "declined", closedOn: actionDate }, `${short} declined`);
     } else {
-      if (actionLast4 && !/^\d{4,5}$/.test(actionLast4)) { setError("Last digits should be 4 or 5 numbers."); return; }
+      if (actionLast4 && !isLast4(actionLast4)) { setError(LAST4_ERROR); return; }
       save({ status: "open", approvedOn: actionDate, closedOn: null, last4: actionLast4 }, `${shortName(portfolio.product(current.productId))} approved`);
     }
   }
@@ -194,10 +193,8 @@ export function AccountDrawer(props: Props) {
       footer={
         <>
           {!isNew && (
-            <button type="button" className="btn danger" style={{ marginRight: "auto" }} disabled={busy}
-              onClick={() => (confirmDelete ? void run(props.onDelete) : setConfirmDelete(true))}>
-              {confirmDelete ? "Tap again to delete" : "Delete"}
-            </button>
+            <ConfirmButton className="btn danger" style={{ marginRight: "auto" }} disabled={busy} label="Delete card" confirmText="Tap again to delete"
+              onConfirm={() => void run(props.onDelete)} />
           )}
           <button type="button" className="btn" onClick={props.onClose}>Cancel</button>
           <button type="button" className="btn primary" onClick={() => save()} disabled={busy}>{busy ? "Saving…" : isNew ? "Add card" : "Save"}</button>
@@ -225,7 +222,7 @@ export function AccountDrawer(props: Props) {
           {action === "change" && (
             <div className="inline-form action-panel" role="group" aria-labelledby="a-title">
               <h4 id="a-title">Upgrade or downgrade {holdingName(portfolio, current)}</h4>
-              <div className="seg" aria-label="Upgrade or downgrade">
+              <div className="seg" role="group" aria-label="Upgrade or downgrade">
                 {(["downgrade", "upgrade"] as const).map((direction) => (
                   <button key={direction} type="button" aria-pressed={change.direction === direction}
                     onClick={() => setChange({ ...change, direction })}>{direction === "upgrade" ? "Upgrade" : "Downgrade"}</button>
@@ -258,6 +255,7 @@ export function AccountDrawer(props: Props) {
                 <button type="button" className="btn small primary" disabled={busy || change.productId === current.productId} onClick={() => {
                   if (!change.date) { setError("Pick the date of the change."); return; }
                   if (change.productId === "new" && !changeProductDraft.name.trim()) { setError("Name the new card type."); return; }
+                  if (change.last4 && !isLast4(change.last4)) { setError(LAST4_ERROR); return; }
                   void run(async () => { await props.onChangeProduct({ ...change, newProduct: change.productId === "new" ? { ...changeProductDraft, annualFeeCents: change.annualFeeCents } : undefined }); setAction(null); });
                 }}>{busy ? "Saving…" : change.direction === "upgrade" ? "Save upgrade" : "Save downgrade"}</button>
               </div>
@@ -359,7 +357,7 @@ export function AccountDrawer(props: Props) {
 
       <div className="fieldset">
         <h3>Notes</h3>
-        <label className="f" htmlFor="f-note"><input id="f-note" placeholder="Retention offers, recon notes, anything else" value={draft.note ?? ""} onChange={(event) => set({ note: event.target.value || null })} /></label>
+        <label className="f" htmlFor="f-note"><input id="f-note" aria-label="Notes" placeholder="Retention offers, recon notes, anything else" value={draft.note ?? ""} onChange={(event) => set({ note: event.target.value || null })} /></label>
       </div>
 
       {account && current && (

@@ -100,6 +100,15 @@ button { cursor: pointer; }
 .group-head .meta { color: var(--muted); font-size: 13px; }
 .group-head .caret { color: var(--faint); width: 14px; transition: transform .15s; }
 .group.collapsed .caret { transform: rotate(-90deg); }
+/* Collapsible card-type heading: caret, title and meta; the meta wraps under the title on phones. */
+.group-head.collapsible { display: grid; grid-template-columns: 14px auto minmax(0, 1fr); align-items: baseline; column-gap: 10px; row-gap: 2px; position: relative; }
+.group-head.collapsible h2 button { border: 0; background: transparent; padding: 0; font: inherit; color: inherit; text-align: left; }
+.group-head.collapsible h2 button::after { content: ""; position: absolute; inset: 0; }
+.group-head.collapsible:hover h2 { text-decoration: underline; }
+@media (max-width: 600px) {
+  .group-head.collapsible { grid-template-columns: 14px minmax(0, 1fr); }
+  .group-head.collapsible .meta { grid-column: 2; }
+}
 .group.collapsed .table-wrap { display: none; }
 .table-wrap { overflow-x: auto; border-top: 1px solid var(--line-soft); }
 table { border-collapse: separate; border-spacing: 0; width: 100%; }
@@ -112,8 +121,13 @@ thead .sticky, tfoot .sticky { background: var(--surface-2); }
 tr.row { cursor: pointer; }
 tr.row:hover td { background: var(--surface-2); }
 tr.row.dim td:not(.credit) { color: var(--faint); }
-.who { display: inline-flex; align-items: center; gap: 7px; font-weight: 500; }
-.card-link { border: 0; padding: 0; background: transparent; text-align: left; }
+/* A card's identity (dot, name, last digits) is one line that never wraps: a long name gets an
+   ellipsis and the digits stay on the same baseline. */
+.who { display: inline-flex; align-items: baseline; gap: 6px; font-weight: 500; min-width: 0; max-width: 100%; flex-wrap: nowrap; white-space: nowrap; }
+.who .dot { align-self: center; }
+.who-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.who .last4 { flex: none; white-space: nowrap; }
+.card-link { border: 0; padding: 0; background: transparent; text-align: left; display: inline-flex; min-width: 0; max-width: 100%; }
 .card-link:hover .who { text-decoration: underline; }
 .who .dot { width: 20px; height: 20px; font-size: 10px; }
 .status { display: flex; gap: 6px; flex-wrap: wrap; white-space: normal; min-width: 200px; }
@@ -172,7 +186,7 @@ th.credit.auto-col .cmeta:last-child { font-style: italic; }
 label.f { display: grid; gap: 4px; font-size: 12px; color: var(--muted); min-width: 0; }
 label.f input, label.f select { border: 1px solid var(--line); border-radius: 7px; padding: 7px 9px; background: var(--surface); color: var(--ink); font-size: 14px; min-width: 0; width: 100%; }
 label.check { display: flex; gap: 8px; align-items: center; font-size: 14px; }
-.hint { font-size: 12px; color: var(--faint); margin: 0; }
+.hint { font-size: 12px; color: var(--muted); margin: 0; }
 .inline-credits { display: grid; gap: 6px; }
 .inline-credit { display: flex; align-items: center; gap: 10px; padding: 6px 0; border-bottom: 1px solid var(--line-soft); }
 .inline-credit span.grow { flex: 1; min-width: 0; }
@@ -183,6 +197,8 @@ label.check { display: flex; gap: 8px; align-items: center; font-size: 14px; }
 .settings-row small { display: block; color: var(--muted); }
 .bank-item { margin-bottom: 14px; }
 .bank-item select { max-width: 100%; min-width: 0; }
+/* Selects that sit next to small buttons in Settings rows: same height, border and radius. */
+.settings-row select, .inline-actions select { border: 1px solid var(--line); border-radius: 7px; padding: 4px 8px; font-size: 13px; line-height: 1.45; min-height: calc(1.45em + 10px); background: var(--surface); color: var(--ink); min-width: 0; max-width: 100%; }
 
 /* Toast */
 .toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(18px + env(safe-area-inset-bottom, 0px)); z-index: 50; background: var(--primary); color: var(--primary-ink); padding: 10px 14px; border-radius: 9px; display: flex; gap: 14px; align-items: center; box-shadow: var(--shadow); max-width: calc(100% - 32px); }
@@ -219,7 +235,7 @@ button:disabled { opacity: .55; cursor: default; }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .btn.danger-fill { color: var(--primary-ink); } }
 :root[data-theme="dark"] .btn.danger-fill { color: var(--primary-ink); }
 .sub { color: var(--muted); font-size: 12px; font-weight: 400; }
-.last4 { color: var(--faint); font-size: 12px; }
+.last4 { color: var(--muted); font-size: 12px; font-weight: 400; }
 .product-card { border: 1px solid var(--line-soft); border-radius: 10px; background: var(--surface); }
 .product-card[open] { border-color: var(--line); }
 .product-card summary { cursor: pointer; display: flex; flex-wrap: wrap; gap: 2px 10px; align-items: baseline; justify-content: space-between; list-style: none; padding: 10px 12px; }
@@ -265,8 +281,7 @@ button:disabled { opacity: .55; cursor: default; }
 
 /* The pinned first column must never grow wider than the screen, or it hides the rest. */
 td.sticky, th.sticky { max-width: min(15rem, 46vw); }
-td.sticky { white-space: normal; overflow-wrap: break-word; min-width: 6.5rem; }
-td.sticky .who { flex-wrap: wrap; }
+td.sticky { white-space: normal; overflow-wrap: break-word; min-width: 8.5rem; }
 
 /* To-do list (top of both tabs) */
 .todo { display: grid; gap: 6px; }
@@ -291,7 +306,8 @@ td.sticky .who { flex-wrap: wrap; }
 .card-table .sub, .tile .sub { display: block; }
 .opened { font-weight: 600; color: var(--ink); white-space: nowrap; }
 .tile-title .opened { font-size: 13px; }
-.tile-title .who { min-width: 0; flex-wrap: wrap; font-weight: 600; }
+.tile-title .who { flex: 1 1 auto; min-width: 0; font-weight: 600; }
+.tile-title .opened { flex: none; }
 .portfolio-views { display: grid; gap: 14px; }
 .inline-actions .search { margin-left: 0; }
 .person-code-input { margin-left: 0; width: 4.5rem; flex: none; }
@@ -305,22 +321,23 @@ td.sticky .who { flex-wrap: wrap; }
 .flag-key-item.info[aria-pressed="true"] { background: var(--info-bg); border-color: var(--info); color: var(--info); }
 .flag-key-item.kept[aria-pressed="true"] { background: var(--kept-bg); border-color: var(--kept); color: var(--kept); }
 .flag-key-item.kept i { background: var(--kept); opacity: .7; }
-tr.row.flag-kept td, .tile.flag-kept { background: color-mix(in srgb, var(--kept-bg) 45%, var(--surface)); }
-tr.row.flag-kept td.sticky, .tile.flag-kept { box-shadow: inset 3px 0 0 color-mix(in srgb, var(--kept) 60%, transparent); }
 .flag-key-clear { border: 0; background: transparent; color: var(--muted); text-decoration: underline; padding: 4px 2px; }
 .flag-key-item i { width: 10px; height: 10px; border-radius: 3px; }
 .flag-key-item.alert i { background: var(--alert); }
 .flag-key-item.due i { background: var(--due); }
 .flag-key-item.info i { background: var(--info); }
-tr.row.flag-alert td, .tile.flag-alert { background: color-mix(in srgb, var(--alert-bg) 60%, var(--surface)); }
-tr.row.flag-due td, .tile.flag-due { background: color-mix(in srgb, var(--due-bg) 60%, var(--surface)); }
-tr.row.flag-info td, .tile.flag-info { background: color-mix(in srgb, var(--info-bg) 60%, var(--surface)); }
-tr.row.flag-alert td.sticky, .tile.flag-alert { box-shadow: inset 4px 0 0 var(--alert); }
-tr.row.flag-due td.sticky, .tile.flag-due { box-shadow: inset 4px 0 0 var(--due); }
-tr.row.flag-info td.sticky, .tile.flag-info { box-shadow: inset 4px 0 0 var(--info); }
-tr.row[class*="flag-"]:hover td { filter: brightness(.98); }
+tr.row.flag-alert, .tile.flag-alert { --row-bg: color-mix(in srgb, var(--alert-bg) 60%, var(--surface)); --row-bar: var(--alert); }
+tr.row.flag-due, .tile.flag-due { --row-bg: color-mix(in srgb, var(--due-bg) 60%, var(--surface)); --row-bar: var(--due); }
+tr.row.flag-info, .tile.flag-info { --row-bg: color-mix(in srgb, var(--info-bg) 60%, var(--surface)); --row-bar: var(--info); }
+tr.row.flag-kept, .tile.flag-kept { --row-bg: color-mix(in srgb, var(--kept-bg) 45%, var(--surface)); --row-bar: color-mix(in srgb, var(--kept) 70%, var(--surface)); }
+tr.row[class*="flag-"] td, .tile[class*="flag-"] { background: var(--row-bg); }
+tr.row[class*="flag-"] td.sticky, .tile[class*="flag-"] { box-shadow: inset 4px 0 0 var(--row-bar); }
+/* Hover and press: nudge the wash toward the text color, which reads in both themes. */
+tr.row[class*="flag-"]:hover td, .tile[class*="flag-"]:active { background: color-mix(in srgb, var(--row-bg) 94%, var(--ink)); }
 .card-table td { white-space: nowrap; }
-.card-table td.sticky { white-space: normal; }
+/* The card column is one line (its identity truncates); only the "was …" history line wraps. */
+.card-table td.sticky { white-space: nowrap; }
+.card-table td.sticky .sub { white-space: normal; }
 .show-closed { justify-self: center; }
 @media (max-width: 720px) {
   .card-table { display: none; }
@@ -561,6 +578,7 @@ button.cf-flow-label:hover, button.cf-flow-label:focus-visible { background: var
 /* Card bank details from Plaid: suggested credit uses, balances, the drawer's bank section */
 .suggestions { display: grid; gap: 6px; }
 .suggestions .todo-head .meta { color: var(--used); }
+.suggestions-count { margin: 4px 0 0; font-size: 13px; font-weight: 600; color: var(--used); }
 .suggestion-list { list-style: none; margin: 0; padding: 6px 10px; display: grid; background: var(--surface); border: 1px solid var(--used); border-radius: 10px; }
 .drawer .suggestion-list { padding: 0; border: 0; background: transparent; }
 .suggestion { display: flex; align-items: center; gap: 10px; padding: 7px 0; }
@@ -574,6 +592,7 @@ button.cf-flow-label:hover, button.cf-flow-label:focus-visible { background: var
 }
 .cell.suggested { box-shadow: 0 0 0 2px var(--used-bg); border-color: var(--used); border-style: dashed; }
 .balance-cell { white-space: nowrap; }
+.bonus-cell .tag { white-space: nowrap; }
 .balance-cell .sub.alert { color: var(--alert); font-weight: 600; }
 .bank-facts { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; margin: 0; font-size: 13px; }
 .bank-facts dt { color: var(--muted); }

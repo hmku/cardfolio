@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { formatMoney, indexPortfolio, type Account, type Holding } from "../app/lib/core/model.ts";
+import { formatMoney, indexPortfolio, isLast4, type Account, type Holding } from "../app/lib/core/model.ts";
+import { bankAccountKind } from "../app/lib/presentation/account-labels.ts";
 import { cardStatus } from "../app/lib/presentation/card-status.ts";
 
 const today = new Date(2026, 8, 29, 12);
@@ -87,4 +88,19 @@ test("formatMoney shows whole dollars or two decimals, with the sign before the 
   assert.equal(formatMoney(-1234), "−$12.34");
   assert.equal(formatMoney(-50000), "−$500");
   assert.equal(formatMoney(0), "$0");
+});
+
+test("last digits are 4 or 5 numbers", () => {
+  assert.equal(isLast4("1234"), true);
+  assert.equal(isLast4("21005"), true);
+  assert.equal(isLast4("12"), false);
+  assert.equal(isLast4("123456"), false);
+  assert.equal(isLast4("12a4"), false);
+});
+
+test("bank account kinds read the same in Settings and on Accounts", () => {
+  assert.equal(bankAccountKind({ type: "investment", subtype: "roth 401k" }), "Roth 401(k)");
+  assert.equal(bankAccountKind({ type: "investment", subtype: "sep ira" }), "SEP IRA");
+  assert.equal(bankAccountKind({ type: "depository", subtype: "checking" }), "Checking");
+  assert.equal(bankAccountKind({ type: null, subtype: null }), "Account");
 });

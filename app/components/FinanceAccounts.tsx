@@ -5,23 +5,14 @@ import { RANGES } from "../lib/core/investments";
 import type { Person, Portfolio } from "../lib/core/model";
 import type { BankAccount } from "../lib/finance-data";
 
+export { bankAccountKind } from "../lib/presentation/account-labels";
+
 /** Shared pieces of the Accounts and Investments pages: owners, account kinds and the filter row. */
 
 /** The account's owner: set on the bank account, else the linked card's cardholder. */
 export function bankAccountOwner(portfolio: Portfolio, account: BankAccount) {
   if (account.personId !== null) return account.personId;
   return account.cardAccountId !== null ? portfolio.account(account.cardAccountId)?.personId ?? null : null;
-}
-
-const KIND_LABELS: Record<string, string> = {
-  ira: "IRA", hsa: "HSA", cd: "CD", "401k": "401(k)", "403b": "403(b)", "457b": "457(b)", "529": "529", roth: "Roth IRA", "roth 401k": "Roth 401(k)",
-  "sep ira": "SEP IRA", "simple ira": "SIMPLE IRA", auto: "Auto loan", student: "Student loan", "credit card": "Credit card", "money market": "Money market",
-};
-
-/** Plaid's subtype in words: "Checking", "401(k)", "Credit card". */
-export function bankAccountKind(account: Pick<BankAccount, "type" | "subtype">) {
-  const text = account.subtype || account.type || "account";
-  return KIND_LABELS[text] || text[0].toUpperCase() + text.slice(1);
 }
 
 /** Everyone (null) or one person's id. */

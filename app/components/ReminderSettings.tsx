@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { errorText, type ApiCall } from "../lib/api";
 
 type Status = "checking" | "unsupported" | "install" | "denied" | "off" | "on";
 
@@ -24,7 +25,7 @@ async function registration() {
 }
 
 /** Turns reminder notifications on or off for this browser or phone. */
-export function ReminderSettings({ accessToken, notify }: { accessToken: string; notify: (text: string, error?: boolean) => void }) {
+export function ReminderSettings({ api, notify }: { api: ApiCall; notify: (text: string, error?: boolean) => void }) {
   const [status, setStatus] = useState<Status>("checking");
   const [busy, setBusy] = useState(false);
 
@@ -41,13 +42,6 @@ export function ReminderSettings({ accessToken, notify }: { accessToken: string;
     return () => { active = false; };
   }, []);
 
-  const call = async (path: string, method: string, body?: unknown) => {
-    const response = await fetch(path, { method, headers: { authorization: `Bearer ${accessToken}`, "content-type": "application/json" }, body: body ? JSON.stringify(body) : undefined });
-    const payload = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(payload.error || "Something went wrong");
-    return payload;
-  };
-
   async function turnOn() {
     setBusy(true);
     try {
@@ -56,11 +50,11 @@ export function ReminderSettings({ accessToken, notify }: { accessToken: string;
       if (permission !== "granted") { setStatus(permission === "denied" ? "denied" : "off"); return; }
       const reg = await registration();
       const subscription = (await reg.pushManager.getSubscription()) || await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: keyBytes(VAPID_KEY) });
-      await call("/api/push/subscribe", "POST", subscription.toJSON());
+      await api("/api/push/subscribe", { method: "POST", body: subscription.toJSON() });
       setStatus("on");
       notify("Reminders are on for this device");
     } catch (reason) {
-      notify(reason instanceof Error ? reason.message : "Couldn't turn on reminders", true);
+      notify(errorText(reason, "Couldn't turn on reminders"), true);
     } finally {
       setBusy(false);
     }
@@ -71,13 +65,13 @@ export function ReminderSettings({ accessToken, notify }: { accessToken: string;
     try {
       const subscription = await (await registration()).pushManager.getSubscription();
       if (subscription) {
-        await call("/api/push/subscribe", "DELETE", { endpoint: subscription.endpoint });
+        await api("/api/push/subscribe", { method: "DELETE", body: { endpoint: subscription.endpoint } });
         await subscription.unsubscribe();
       }
       setStatus("off");
       notify("Reminders are off for this device");
     } catch (reason) {
-      notify(reason instanceof Error ? reason.message : "Couldn't turn off reminders", true);
+      notify(errorText(reason, "Couldn't turn off reminders"), true);
     } finally {
       setBusy(false);
     }
@@ -86,10 +80,10 @@ export function ReminderSettings({ accessToken, notify }: { accessToken: string;
   async function test() {
     setBusy(true);
     try {
-      const { delivered } = await call("/api/push/test", "POST");
+      const { delivered } = await api<{ delivered: number }>("/api/push/test", { method: "POST" });
       notify(delivered ? "Test sent. It should appear in a few seconds." : "No device received it. Try turning reminders off and on.", !delivered);
     } catch (reason) {
-      notify(reason instanceof Error ? reason.message : "Couldn't send a test", true);
+      notify(errorText(reason, "Couldn't send a test"), true);
     } finally {
       setBusy(false);
     }

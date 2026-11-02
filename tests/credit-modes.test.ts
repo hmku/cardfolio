@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { createClient } from "@supabase/supabase-js";
-import { creditIsDue, creditState, creditSummary, eligibleHoldings } from "../app/lib/core/credits.ts";
+import { creditColumn, creditIsDue, creditState, creditSummary, eligibleHoldings } from "../app/lib/core/credits.ts";
 import { exportTables } from "../app/lib/core/export.ts";
 import { indexPortfolio, type Credit, type CreditMode } from "../app/lib/core/model.ts";
 import { dailyReminder } from "../app/lib/core/reminders.ts";
@@ -65,6 +65,22 @@ test("always-used credits count as used every period without ticking", () => {
   // Not enrolled on a card still wins.
   const optedOut = withMode("auto", {}, { ...data, optOuts: [...data.optOuts, { creditId: credit.id, holdingId: holding.id }] });
   assert.equal(creditState(optedOut, hilton(optedOut), holding, today).kind, "off");
+});
+
+test("a Credits grid column is due only for reminded, tracked credits with unused cards near the end", () => {
+  const holdings = eligibleHoldings(portfolio, credit, today);
+  const column = creditColumn(portfolio, credit, holdings, today);
+  assert.equal(column.daysLeft, 2);
+  assert.deepEqual(column.summary, creditSummary(portfolio, credit, holdings, today));
+  assert.equal(column.due, column.summary.used < column.summary.enrolled);
+  assert.equal(column.due, true, "the snapshot has unused Hilton credits this quarter");
+  const quiet = withMode("track", { remind: false });
+  assert.equal(creditColumn(quiet, hilton(quiet), holdings, today).due, false, "tracked quietly");
+  const auto = withMode("auto", { remind: true });
+  assert.equal(creditColumn(auto, hilton(auto), holdings, today).due, false, "always used");
+  const cardYear = withMode("track", { remind: true, cadence: "card_year" });
+  assert.equal(creditColumn(cardYear, hilton(cardYear), holdings, today).due, false, "card-year columns have no shared deadline");
+  assert.equal(creditColumn(portfolio, credit, holdings, new Date(2026, 6, 1, 12)).due, false, "early in the quarter");
 });
 
 test("saveCredit changes the mode in one household-scoped request and leaves Remind alone", async () => {

@@ -3,7 +3,7 @@ import { bonusLabel, holdingName, type Account, type Holding, type Portfolio } f
 import { accountAction } from "../core/rules.ts";
 import { bonusStatus, feeStatus } from "../core/stats.ts";
 import type { CardPlaidSummary } from "../core/card-plaid.ts";
-import { bonusProgressText, feePostingText, paymentText } from "./card-plaid.ts";
+import { bonusHistoryWarning, bonusProgressText, feePostingText, paymentText } from "./card-plaid.ts";
 import { inDays, money, monthYear, shortDate } from "./format.ts";
 
 export type CardTone = "alert" | "due" | "info" | "kept";
@@ -55,9 +55,10 @@ export function cardStatus(portfolio: Portfolio, account: Account, holding: Hold
     const overdue = bonus.daysLeft < 0;
     tones.push(overdue ? "alert" : "due");
     const spend = account.bonus.spendCents ? `spend ${money(account.bonus.spendCents)}` : "earn";
-    tags.push({ key: "bonus", tone: overdue ? "alert" : "due", text: overdue
+    const warning = !overdue && plaid?.bonus ? bonusHistoryWarning(plaid.bonus) : null;
+    tags.push({ key: "bonus", tone: overdue ? "alert" : "due", title: warning ?? undefined, text: overdue
       ? `Bonus deadline passed ${shortDate(bonus.deadline)}: earned it?`
-      : plaid?.bonus ? `${bonusLabel(account.bonus)}: ${bonusProgressText(plaid.bonus)}`
+      : plaid?.bonus ? `${bonusLabel(account.bonus)}: ${bonusProgressText(plaid.bonus)}${warning ? " *" : ""}`
       : `${bonusLabel(account.bonus)}: ${spend} by ${shortDate(bonus.deadline)} · ${bonus.daysLeft}d left` });
   }
   if (plaid && account.status === "open") {

@@ -97,3 +97,16 @@ export function creditSummary(portfolio: Portfolio, credit: Credit, holdings: Ho
     remainingCents: enrolled.reduce((total, state) => total + ("usedCents" in state ? Math.max(0, credit.amountCents - state.usedCents) : 0), 0),
   };
 }
+
+/**
+ * One credit column of a card type's Credits grid: the shared period (card-year credits use
+ * January 1 since each card has its own), days left, how many cards used it, and whether the
+ * column is due (a reminded, tracked credit with unused cards near the end of its period).
+ */
+export function creditColumn(portfolio: Portfolio, credit: Credit, holdings: Holding[], today: Date) {
+  const period = periodFor(portfolio, credit, null, today);
+  const daysLeft = daysBetween(today, period.end);
+  const summary = creditSummary(portfolio, credit, holdings, today);
+  const due = credit.mode === "track" && credit.remind && credit.cadence !== "card_year" && summary.used < summary.enrolled && daysLeft <= DUE_WINDOW_DAYS;
+  return { period, daysLeft, summary, due };
+}

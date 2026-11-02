@@ -1,14 +1,15 @@
 "use client";
 
-import { useEffect, useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useState, type Dispatch, type FormEvent, type ReactNode, type SetStateAction } from "react";
 import { CADENCE_LABELS } from "../lib/core/credits";
 import { exportTables, toCsv } from "../lib/core/export";
 import { personCode, shortName, type Cadence, type Credit, type Kind, type Person, type Portfolio, type Product } from "../lib/core/model";
 import { describeRule, DEFAULT_ACTION_RULES } from "../lib/core/rules";
+import type { ApiCall } from "../lib/api";
 import type { CreditDraft, ProductDraft } from "../lib/data";
 import { BankSettings } from "./BankSettings";
 import { ReminderSettings } from "./ReminderSettings";
-import { Drawer } from "./ui";
+import { ConfirmButton, Drawer } from "./ui";
 import { toCents, toDollarsInput } from "../lib/presentation/format";
 
 export type Membership = {
@@ -35,7 +36,10 @@ type Props = {
   onInvite: (email: string) => Promise<boolean>;
   onSyncSheet: () => Promise<void>;
   onSignOut: () => Promise<void>;
-  accessToken: string;
+  /** Calls the server routes (bank connections, reminders) as the signed-in person. */
+  api: ApiCall;
+  /** Bank connections or card links changed: refresh the cards' bank details. */
+  onBankChanged: () => void;
   notify: (text: string, error?: boolean) => void;
 };
 
@@ -71,19 +75,20 @@ function download(name: string, text: string) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-/** A two-step delete button: the first press asks "Sure?", which resets after a few seconds. */
-function DeleteButton({ label, onDelete }: { label: string; onDelete: () => void }) {
-  const [confirm, setConfirm] = useState(false);
-  useEffect(() => {
-    if (!confirm) return;
-    const timer = setTimeout(() => setConfirm(false), 4000);
-    return () => clearTimeout(timer);
-  }, [confirm]);
-  return (
-    <button type="button" className="btn small danger credit-delete" aria-label={confirm ? `Confirm delete ${label}` : `Delete ${label}`} onClick={() => (confirm ? onDelete() : setConfirm(true))}>
-      {confirm ? "Sure?" : "Delete"}
-    </button>
-  );
+/**
+ * Local edits of saved values. When a saved value changes (another member's edit arriving, or
+ * our own save coming back), that field takes the new value; fields that didn't change keep
+ * whatever is being typed. `reset` puts every field back to the saved values (after a failed save).
+ */
+function useSyncedDraft<T extends Record<string, unknown>>(saved: T): [T, Dispatch<SetStateAction<T>>, () => void] {
+  const [draft, setDraft] = useState(saved);
+  const [base, setBase] = useState(saved);
+  const changedKeys = (Object.keys(saved) as (keyof T)[]).filter((key) => base[key] !== saved[key]);
+  if (changedKeys.length) {
+    setBase(saved);
+    setDraft((current) => ({ ...current, ...Object.fromEntries(changedKeys.map((key) => [key, saved[key]])) }));
+  }
+  return [draft, setDraft, () => setDraft(saved)];
 }
 
 /** A small form that keeps what was typed if the save fails and ignores repeat presses while saving. */
@@ -112,26 +117,29 @@ function DollarInput({ label, value, onChange, onBlur, placeholder }: { label: s
 }
 
 function CreditRow({ credit, onSave, onDelete }: { credit: Credit; onSave: Props["onSaveCredit"]; onDelete: Props["onDeleteCredit"] }) {
-  const [name, setName] = useState(credit.name);
-  const [amount, setAmount] = useState(toDollarsInput(credit.amountCents));
+  const [draft, setDraft, reset] = useSyncedDraft({ name: credit.name, amount: toDollarsInput(credit.amountCents) });
   const saveText = () => {
-    const amountCents = toCents(amount);
-    const nextName = name.trim() || credit.name;
+    const amountCents = toCents(draft.amount);
+    const nextName = draft.name.trim() || credit.name;
     const nextAmount = amountCents > 0 ? amountCents : credit.amountCents;
     // Put back anything that can't be saved (a blank name or a zero amount).
-    setName(nextName);
-    setAmount(toDollarsInput(nextAmount));
-    if (nextName !== credit.name || nextAmount !== credit.amountCents) void onSave(credit.id, { name: nextName, amountCents: nextAmount });
+    setDraft({ name: nextName, amount: toDollarsInput(nextAmount) });
+    // Only the fields that changed, so a stale value never overwrites someone else's edit.
+    const patch: Partial<CreditDraft> = {
+      ...(nextName !== credit.name && { name: nextName }),
+      ...(nextAmount !== credit.amountCents && { amountCents: nextAmount }),
+    };
+    if (Object.keys(patch).length) void onSave(credit.id, patch).then((ok) => { if (!ok) reset(); });
   };
   return (
     <div className="credit-edit">
-      <input className="credit-name" aria-label="Credit name" value={name} onChange={(event) => setName(event.target.value)} onBlur={saveText} />
-      <DollarInput label={`${credit.name} amount in dollars`} value={amount} onChange={setAmount} onBlur={saveText} />
+      <input className="credit-name" aria-label="Credit name" value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} onBlur={saveText} />
+      <DollarInput label={`${credit.name} amount in dollars`} value={draft.amount} onChange={(amount) => setDraft({ ...draft, amount })} onBlur={saveText} />
       <select aria-label={`How often ${credit.name} resets`} value={credit.cadence} onChange={(event) => void onSave(credit.id, { cadence: event.target.value as Cadence })}>
         {CADENCES.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
       </select>
       <TrackingSelect label={`How ${credit.name} is tracked`} value={trackingOf(credit)} onChange={(value) => void onSave(credit.id, trackingPatch(value))} />
-      <DeleteButton label={credit.name} onDelete={() => void onDelete(credit.id)} />
+      <ConfirmButton className="btn small danger credit-delete" label={`Delete ${credit.name}`} onConfirm={() => void onDelete(credit.id)} />
     </div>
   );
 }
@@ -141,8 +149,9 @@ const EMPTY_CREDIT = { name: "", amount: "", cadence: "calendar_year" as Cadence
 function ProductSettings({ portfolio, product, open, onSaveProduct, onSaveCredit, onDeleteCredit }: { portfolio: Portfolio; product: Product; open: number } & Pick<Props, "onSaveProduct" | "onSaveCredit" | "onDeleteCredit">) {
   const credits = portfolio.credits.filter((credit) => credit.productId === product.id).sort((left, right) => left.sort - right.sort);
   const saved: ProductDraft = { name: product.name, shortName: product.shortName ?? "", issuer: product.issuer, kind: product.kind, annualFeeCents: product.annualFeeCents };
-  const [draft, setDraft] = useState<ProductDraft>(saved);
-  const [fee, setFee] = useState(toDollarsInput(product.annualFeeCents));
+  const [draft, setDraft, resetDraft] = useSyncedDraft<ProductDraft>(saved);
+  const [{ fee }, setFeeDraft, resetFee] = useSyncedDraft({ fee: toDollarsInput(product.annualFeeCents) });
+  const setFee = (value: string) => setFeeDraft({ fee: value });
   const [newCredit, setNewCredit] = useState(EMPTY_CREDIT);
   const saveProduct = (patch: Partial<ProductDraft> = {}) => {
     const next = { ...draft, ...patch, annualFeeCents: patch.annualFeeCents ?? toCents(fee) };
@@ -150,7 +159,7 @@ function ProductSettings({ portfolio, product, open, onSaveProduct, onSaveCredit
     setDraft(next);
     setFee(toDollarsInput(next.annualFeeCents));
     const changed = (Object.keys(saved) as (keyof ProductDraft)[]).some((key) => String(next[key] ?? "").trim() !== String(saved[key] ?? "").trim());
-    if (changed) void onSaveProduct(product.id, next);
+    if (changed) void onSaveProduct(product.id, next).then((ok) => { if (!ok) { resetDraft(); resetFee(); } });
   };
   const addCredit = () => onSaveCredit(null, { productId: product.id, name: newCredit.name, amountCents: toCents(newCredit.amount), cadence: newCredit.cadence, remind: true, ...trackingPatch(newCredit.tracking) })
     .then((ok) => { if (ok) setNewCredit(EMPTY_CREDIT); return ok; });
@@ -198,14 +207,15 @@ function ProductSettings({ portfolio, product, open, onSaveProduct, onSaveCredit
 }
 
 function PersonRow({ person, onSave }: { person: Person; onSave: Props["onSavePerson"] }) {
-  const [name, setName] = useState(person.name);
-  const [code, setCode] = useState(person.code ?? "");
+  const [{ name, code }, setDraft, reset] = useSyncedDraft({ name: person.name, code: person.code ?? "" });
+  const setName = (value: string) => setDraft((current) => ({ ...current, name: value }));
+  const setCode = (value: string) => setDraft((current) => ({ ...current, code: value }));
   const save = () => {
     const nextName = name.trim() || person.name;
     const nextCode = code.trim().toUpperCase();
     setName(nextName);
     if (nextName !== person.name || nextCode !== (person.code ?? "")) {
-      void onSave(person.id, nextName, nextCode).then((ok) => { if (!ok) { setName(person.name); setCode(person.code ?? ""); } });
+      void onSave(person.id, nextName, nextCode).then((ok) => { if (!ok) reset(); });
     }
   };
   return (
@@ -288,9 +298,9 @@ export function SettingsDrawer(props: Props) {
         </div>
       </Section>
 
-      <ReminderSettings accessToken={props.accessToken} notify={props.notify} />
+      <ReminderSettings api={props.api} notify={props.notify} />
 
-      <BankSettings portfolio={portfolio} accessToken={props.accessToken} notify={props.notify} />
+      <BankSettings portfolio={portfolio} api={props.api} notify={props.notify} onChanged={props.onBankChanged} />
 
       <Section id="settings-people" title="Cardholders" hint={<>Initials label each card, like your 1Password entries: biz plat HK7 is that person&apos;s 7th biz plat.</>}>
         <div className="settings-list">

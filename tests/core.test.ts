@@ -1,10 +1,16 @@
 import assert from "node:assert/strict";
+import { createHash, generateKeyPairSync, sign } from "node:crypto";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { creditPeriod, creditState, creditSummary, eligibleHoldings } from "../app/lib/core/credits.ts";
 import { addMonths, isoDate, parseDate } from "../app/lib/core/dates.ts";
 import { bonusLabel, holdingName, indexPortfolio, nextHoldingNumber, type Portfolio } from "../app/lib/core/model.ts";
+import {
+  cashFlowByMonth, categorize, defaultCategoryFor, matchRule, monthsBefore, netWorthCents, netWorthSeries, planTransactionWrites,
+  plaidAmountToCents, snapshotRows, webhookAction, type CategoryLike, type PlaidTransaction, type RuleLike,
+} from "../app/lib/core/finance.ts";
 import { matchPlaidAccounts } from "../app/lib/core/plaid.ts";
+import { verifyPlaidWebhook } from "../db/plaid-webhook.ts";
 import { accountAction } from "../app/lib/core/rules.ts";
 import { parseOffer, planSheetImport, planToPortfolioData } from "../app/lib/core/sheet-import.ts";
 import { bonusStatus, dueItems, feeStatus, fiveTwentyFour, personStats } from "../app/lib/core/stats.ts";
@@ -186,4 +192,162 @@ test("Plaid accounts link to cards by last digits only when the match is unique"
   // Already-linked cards aren't offered again, and two Plaid accounts can't claim one card.
   assert.deepEqual([...matchPlaidAccounts([{ id: 11, mask: "7145" }], cards, [3])], []);
   assert.deepEqual([...matchPlaidAccounts([{ id: 20, mask: "7145" }, { id: 21, mask: "7145" }], cards)], []);
+});
+
+// ---------- finance ----------
+
+const financeCategories: (CategoryLike & { name: string })[] = [
+  { id: 1, name: "Paychecks", kind: "income", plaidCategories: ["INCOME_SALARY", "INCOME_WAGES"] },
+  { id: 2, name: "Other income", kind: "income", plaidCategories: ["INCOME"] },
+  { id: 3, name: "Groceries", kind: "expense", plaidCategories: ["FOOD_AND_DRINK_GROCERIES"] },
+  { id: 4, name: "Restaurants", kind: "expense", plaidCategories: ["FOOD_AND_DRINK"] },
+  { id: 5, name: "Card payments", kind: "transfer", plaidCategories: ["LOAN_PAYMENTS_CREDIT_CARD_PAYMENT"] },
+  { id: 6, name: "Loan payments", kind: "expense", plaidCategories: ["LOAN_PAYMENTS"] },
+  { id: 7, name: "Coffee", kind: "expense", plaidCategories: [] },
+];
+
+test("Plaid amounts flip sign into cents (positive = money in)", () => {
+  assert.equal(plaidAmountToCents(4.5), -450);
+  assert.equal(plaidAmountToCents(-1200), 120000);
+  assert.equal(plaidAmountToCents(0.1 + 0.2), -30);
+  assert.ok(Object.is(plaidAmountToCents(0), 0));
+  assert.equal(netWorthCents("credit", 12345), -12345);
+  assert.equal(netWorthCents("loan", 100), -100);
+  assert.equal(netWorthCents("depository", 100), 100);
+  assert.equal(netWorthCents("investment", 100), 100);
+});
+
+test("Plaid categories map to household categories, detailed before primary", () => {
+  assert.equal(defaultCategoryFor("FOOD_AND_DRINK", "FOOD_AND_DRINK_GROCERIES", financeCategories)?.id, 3);
+  assert.equal(defaultCategoryFor("FOOD_AND_DRINK", "FOOD_AND_DRINK_COFFEE", financeCategories)?.id, 4);
+  assert.equal(defaultCategoryFor("LOAN_PAYMENTS", "LOAN_PAYMENTS_CREDIT_CARD_PAYMENT", financeCategories)?.id, 5);
+  assert.equal(defaultCategoryFor("LOAN_PAYMENTS", "LOAN_PAYMENTS_CAR_PAYMENT", financeCategories)?.id, 6);
+  assert.equal(defaultCategoryFor("INCOME", "INCOME_WAGES", financeCategories)?.id, 1, "PFC v1 detailed code");
+  assert.equal(defaultCategoryFor("TRAVEL", "TRAVEL_FLIGHTS", financeCategories), null);
+  assert.equal(defaultCategoryFor(null, null, financeCategories), null);
+});
+
+test("category rules: account-specific first, then longest text; rules beat Plaid's category", () => {
+  const rule = (id: number, matchText: string, categoryId: number, extra: Partial<RuleLike> = {}): RuleLike => ({ id, matchText, matchField: "any", plaidAccountId: null, categoryId, setExcluded: null, ...extra });
+  const rules = [rule(1, "star", 4), rule(2, "starbucks", 7), rule(3, "STAR", 3, { plaidAccountId: 9 }), rule(4, "payroll", 1, { matchField: "merchant" })];
+  const target = (name: string, merchantName: string | null, plaidAccountId = 1) => ({ name, merchantName, plaidAccountId });
+  assert.equal(matchRule(target("STARBUCKS #123", "Starbucks"), rules)?.id, 2);
+  assert.equal(matchRule(target("STARBUCKS #123", "Starbucks", 9), rules)?.id, 3);
+  assert.equal(matchRule(target("Stardust Diner", null), rules)?.id, 1);
+  assert.equal(matchRule(target("ACME PAYROLL", null), rules), null, "merchant-only rule ignores the description");
+  assert.equal(matchRule(target("ACME", "Acme Payroll"), rules)?.id, 4);
+
+  const coffee = categorize({ ...target("STARBUCKS", "Starbucks"), plaidPrimary: "FOOD_AND_DRINK", plaidDetailed: "FOOD_AND_DRINK_COFFEE" }, financeCategories, rules);
+  assert.deepEqual(coffee, { categoryId: 7, source: "rule", excluded: null });
+  const fallback = categorize({ ...target("Whole Foods", "Whole Foods"), plaidPrimary: "FOOD_AND_DRINK", plaidDetailed: "FOOD_AND_DRINK_GROCERIES" }, financeCategories, rules);
+  assert.deepEqual(fallback, { categoryId: 3, source: "plaid", excluded: null });
+  // A rule pointing at a deleted category falls through to Plaid's mapping.
+  assert.equal(categorize({ ...target("starbucks", null), plaidPrimary: null, plaidDetailed: null }, financeCategories, [rule(5, "starbucks", 99)]).categoryId, null);
+});
+
+test("transaction sync keeps people's edits and carries pending edits to the posted transaction", () => {
+  const tx = (id: string, extra: Partial<PlaidTransaction> = {}): PlaidTransaction => ({
+    transaction_id: id, account_id: "plaid-acc", date: "2026-11-01", amount: 12.34, name: "WHOLE FOODS", merchant_name: "Whole Foods",
+    personal_finance_category: { primary: "FOOD_AND_DRINK", detailed: "FOOD_AND_DRINK_GROCERIES" }, pending: false, iso_currency_code: "USD", ...extra,
+  });
+  const existing = new Map([
+    ["kept", { plaidTransactionId: "kept", categoryId: 7, categorySource: "manual" as const, notes: "for the party", excluded: true, reviewed: true }],
+    ["auto", { plaidTransactionId: "auto", categoryId: 4, categorySource: "plaid" as const, notes: null, excluded: false, reviewed: false }],
+    ["pend", { plaidTransactionId: "pend", categoryId: 7, categorySource: "manual" as const, notes: "split with Sophia", excluded: false, reviewed: true }],
+  ]);
+  const plan = planTransactionWrites({
+    householdId: "h",
+    added: [tx("new", { amount: -2500, name: "ACME PAYROLL", merchant_name: null, personal_finance_category: { primary: "INCOME", detailed: "INCOME_SALARY" } }), tx("posted", { pending_transaction_id: "pend" }), tx("elsewhere", { account_id: "unknown" }), tx("gone")],
+    modified: [tx("kept", { amount: 20 }), tx("auto")],
+    removed: [{ transaction_id: "pend" }, { transaction_id: "gone" }],
+    accountIds: new Map([["plaid-acc", 42]]),
+    existing,
+    categories: financeCategories,
+    rules: [],
+  });
+  const byId = new Map(plan.upserts.map((row) => [row.plaid_transaction_id, row]));
+  assert.deepEqual([...byId.keys()].sort(), ["auto", "kept", "new", "posted"]);
+  assert.equal(plan.skipped, 1);
+  assert.deepEqual(plan.removeIds.sort(), ["gone", "pend"]);
+  assert.equal(byId.get("new")!.amount_cents, 250000);
+  assert.equal(byId.get("new")!.category_id, 1);
+  assert.equal(byId.get("new")!.plaid_account_id, 42);
+  const kept = byId.get("kept")!;
+  assert.deepEqual([kept.category_id, kept.category_source, kept.notes, kept.excluded, kept.amount_cents], [7, "manual", "for the party", true, -2000]);
+  assert.deepEqual([byId.get("auto")!.category_id, byId.get("auto")!.category_source], [3, "plaid"], "non-manual categories are recomputed");
+  assert.deepEqual([byId.get("posted")!.category_id, byId.get("posted")!.notes, byId.get("posted")!.reviewed], [7, "split with Sophia", true]);
+});
+
+test("snapshots and net worth carry balances forward", () => {
+  const rows = snapshotRows({
+    householdId: "h", date: "2026-11-02",
+    plaidAccounts: [
+      { id: 1, type: "credit", currentCents: 50000, availableCents: 950000, currency: "USD" },
+      { id: 2, type: "depository", currentCents: null, availableCents: 300000, currency: "USD" },
+      { id: 3, type: "investment", currentCents: null, availableCents: null, currency: "USD" },
+    ],
+    manualAccounts: [
+      { id: 1, balanceCents: 10000000, liability: false, archived: false, currency: "USD" },
+      { id: 2, balanceCents: 500000, liability: true, archived: false, currency: "USD" },
+      { id: 3, balanceCents: 1, liability: false, archived: true, currency: "USD" },
+    ],
+  });
+  assert.deepEqual(rows.map((row) => [row.plaid_account_id, row.manual_account_id, row.balance_cents]), [[1, null, -50000], [2, null, 300000], [null, 1, 10000000], [null, 2, -500000]]);
+  const series = netWorthSeries([
+    { date: "2026-11-01", plaidAccountId: 1, manualAccountId: null, balanceCents: -100 },
+    { date: "2026-11-01", plaidAccountId: null, manualAccountId: 1, balanceCents: 1000 },
+    { date: "2026-11-02", plaidAccountId: 1, manualAccountId: null, balanceCents: -300 },
+  ]);
+  assert.deepEqual(series, [{ date: "2026-11-01", netWorthCents: 900 }, { date: "2026-11-02", netWorthCents: 700 }]);
+});
+
+test("cash flow skips transfers and excluded transactions; refunds reduce spending", () => {
+  const months = cashFlowByMonth([
+    { date: "2026-10-03", amountCents: 500000, categoryId: 1, excluded: false },
+    { date: "2026-10-04", amountCents: -12000, categoryId: 3, excluded: false },
+    { date: "2026-10-05", amountCents: 2000, categoryId: 3, excluded: false },
+    { date: "2026-10-06", amountCents: -90000, categoryId: 5, excluded: false },
+    { date: "2026-10-07", amountCents: -4000, categoryId: null, excluded: false },
+    { date: "2026-10-08", amountCents: -7777, categoryId: 4, excluded: true },
+    { date: "2026-11-01", amountCents: 300, categoryId: null, excluded: false },
+  ], financeCategories);
+  assert.deepEqual(months, [
+    { month: "2026-11", incomeCents: 300, expenseCents: 0, netCents: 300 },
+    { month: "2026-10", incomeCents: 500000, expenseCents: 14000, netCents: 486000 },
+  ]);
+  assert.equal(monthsBefore("2026-11-02", 24), "2024-11-02");
+  assert.equal(monthsBefore("2026-03-31", 1), "2026-02-28");
+});
+
+test("Plaid webhooks map to syncs or login status", () => {
+  assert.deepEqual(webhookAction({ webhook_type: "TRANSACTIONS", webhook_code: "SYNC_UPDATES_AVAILABLE" }), { kind: "sync", products: ["transactions"] });
+  assert.deepEqual(webhookAction({ webhook_type: "HOLDINGS", webhook_code: "DEFAULT_UPDATE" }), { kind: "sync", products: ["holdings"] });
+  assert.deepEqual(webhookAction({ webhook_type: "INVESTMENTS_TRANSACTIONS", webhook_code: "HISTORICAL_UPDATE" }), { kind: "sync", products: ["investment_transactions"] });
+  assert.deepEqual(webhookAction({ webhook_type: "ITEM", webhook_code: "ERROR", error: { error_code: "ITEM_LOGIN_REQUIRED" } }), { kind: "status", status: "reconnect", errorCode: "ITEM_LOGIN_REQUIRED" });
+  assert.deepEqual(webhookAction({ webhook_type: "ITEM", webhook_code: "PENDING_EXPIRATION" }), { kind: "status", status: "reconnect", errorCode: "PENDING_EXPIRATION" });
+  assert.deepEqual(webhookAction({ webhook_type: "ITEM", webhook_code: "LOGIN_REPAIRED" }), { kind: "status", status: "ok", errorCode: null });
+  assert.deepEqual(webhookAction({ webhook_type: "ITEM", webhook_code: "WEBHOOK_UPDATE_ACKNOWLEDGED" }), { kind: "ignore" });
+});
+
+test("Plaid webhook signatures are checked: key, age and body hash", async () => {
+  const { privateKey, publicKey } = generateKeyPairSync("ec", { namedCurve: "P-256" });
+  const jwk = { ...publicKey.export({ format: "jwk" }), kid: "k1", alg: "ES256", use: "sig", expired_at: null };
+  const now = Date.UTC(2026, 10, 2, 12);
+  const body = JSON.stringify({ webhook_type: "TRANSACTIONS", webhook_code: "SYNC_UPDATES_AVAILABLE", item_id: "abc" }, null, 2);
+  const jwt = (claims: object, header: object = { alg: "ES256", kid: "k1", typ: "JWT" }) => {
+    const encode = (value: object) => Buffer.from(JSON.stringify(value)).toString("base64url");
+    const input = `${encode(header)}.${encode(claims)}`;
+    return `${input}.${sign("sha256", Buffer.from(input), { key: privateKey, dsaEncoding: "ieee-p1363" }).toString("base64url")}`;
+  };
+  const hash = createHash("sha256").update(body).digest("hex");
+  const fetchKey = async (kid: string) => (kid === "k1" ? jwk : null);
+  const fresh = now / 1000 - 60;
+  assert.deepEqual(await verifyPlaidWebhook(body, jwt({ iat: fresh, request_body_sha256: hash }), fetchKey, now), { ok: true });
+  assert.equal((await verifyPlaidWebhook(`${body} `, jwt({ iat: fresh, request_body_sha256: hash }), fetchKey, now)).ok, false, "body changed");
+  assert.equal((await verifyPlaidWebhook(body, jwt({ iat: now / 1000 - 600, request_body_sha256: hash }), fetchKey, now)).ok, false, "too old");
+  assert.equal((await verifyPlaidWebhook(body, jwt({ iat: fresh, request_body_sha256: hash }, { alg: "HS256", kid: "k1" }), fetchKey, now)).ok, false, "wrong algorithm");
+  assert.equal((await verifyPlaidWebhook(body, jwt({ iat: fresh, request_body_sha256: hash }, { alg: "ES256", kid: "k2" }), fetchKey, now)).ok, false, "unknown key");
+  const other = generateKeyPairSync("ec", { namedCurve: "P-256" }).publicKey.export({ format: "jwk" });
+  assert.equal((await verifyPlaidWebhook(body, jwt({ iat: fresh, request_body_sha256: hash }), async () => ({ ...other, kid: "k1" }), now)).ok, false, "wrong key");
+  assert.equal((await verifyPlaidWebhook(body, null, fetchKey, now)).ok, false);
 });

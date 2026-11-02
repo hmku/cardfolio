@@ -8,7 +8,7 @@ export async function GET(request: Request) {
   try {
     const context = await requireHousehold(request);
     const [items, accounts] = await Promise.all([
-      context.db.from("plaid_items").select("id, institution_name, status, error_code, added_by_email, consent_expires_at, created_at").eq("household_id", context.householdId).order("created_at"),
+      context.db.from("plaid_items").select("id, institution_name, status, error_code, added_by_email, consent_expires_at, last_synced_at, created_at").eq("household_id", context.householdId).order("created_at"),
       context.db.from("plaid_accounts").select("id, item_id, name, official_name, mask, type, subtype, account_id, link_source").eq("household_id", context.householdId).order("name"),
     ]);
     if (items.error) throw items.error;
@@ -23,6 +23,7 @@ export async function GET(request: Request) {
         errorCode: item.error_code,
         addedByEmail: item.added_by_email,
         consentExpiresAt: item.consent_expires_at,
+        lastSyncedAt: item.last_synced_at,
         createdAt: item.created_at,
         accounts: (accounts.data || []).filter((account) => account.item_id === item.id).map((account) => ({
           id: account.id,

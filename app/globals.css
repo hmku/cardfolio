@@ -339,3 +339,27 @@ input[type="date"]::-webkit-datetime-edit { padding: 0; }
 .getting-started li { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; justify-content: space-between; }
 .getting-started .step-text { flex: 1 1 260px; }
 .getting-started li.done { color: var(--muted); }
+
+/* Top-level tabs: one row that scrolls sideways on phones instead of wrapping. */
+.tabs { display: flex; gap: 2px; overflow-x: auto; scrollbar-width: none; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); padding: 2px; -webkit-overflow-scrolling: touch; }
+.tabs::-webkit-scrollbar { display: none; }
+.tabs button { flex: none; border: 0; background: transparent; padding: 6px 12px; border-radius: 6px; color: var(--muted); font-weight: 500; white-space: nowrap; }
+.tabs button[aria-pressed="true"] { background: var(--surface-2); color: var(--ink); box-shadow: inset 0 0 0 1px var(--line); }
+@media (min-width: 721px) { .tabs { align-self: start; justify-self: start; max-width: 100%; } }
+
+/* Finance pages (shared frame; each page styles its own content further). */
+.finance-page { display: grid; gap: 10px; }
+.finance-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.finance-head h2 { margin: 0 auto 0 0; font-size: 17px; }
+.finance-total { font-size: 17px; font-weight: 600; }
+.finance-empty { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 16px 18px; display: grid; gap: 10px; justify-items: start; }
+.finance-empty p { margin: 0; color: var(--muted); }
+.finance-list { list-style: none; margin: 0; padding: 0; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+.finance-row { display: flex; align-items: center; gap: 12px; padding: 9px 14px; border-bottom: 1px solid var(--line-soft); min-width: 0; }
+.finance-row:last-child { border-bottom: 0; }
+.finance-row.dim { color: var(--faint); }
+.finance-row .when { color: var(--muted); font-size: 13px; width: 52px; flex: none; }
+.finance-row .grow { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.finance-row small { display: block; color: var(--muted); font-size: 12px; }
+.finance-row .amount { white-space: nowrap; font-weight: 500; }
+.finance-row .amount.in { color: var(--used); }

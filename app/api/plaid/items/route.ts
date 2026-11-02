@@ -1,7 +1,24 @@
 import { encryptToken, exchangePublicToken, getAccounts, loadItem, noteItemError, PlaidApiError, removeItem, syncItemAccounts } from "@/db/plaid";
-import { errorResponse, requireHousehold } from "@/db/storage";
+import { syncItem, type ItemSyncResult } from "@/db/plaid-sync";
+import { errorResponse, requireHousehold, type HouseholdContext } from "@/db/storage";
 
 export const runtime = "nodejs";
+// Connecting runs a first sync; Plaid may still be gathering history, which later syncs pick up.
+export const maxDuration = 60;
+
+/**
+ * The first sync after connecting or reconnecting: balances, whatever transactions are ready,
+ * card statement details and holdings. Investment transactions can take Plaid a minute or two
+ * the first time, so they wait for the webhook or the daily sync. A failure here doesn't undo
+ * the connection.
+ */
+async function firstSync(context: HouseholdContext, itemId: number): Promise<ItemSyncResult | { ok: false; error: string }> {
+  try {
+    return await syncItem(context, itemId, { products: ["transactions", "liabilities", "holdings"] });
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : "Couldn't sync yet" };
+  }
+}
 
 type Body = { publicToken?: string; institution?: { id?: string; name?: string } | null; itemId?: number };
 
@@ -27,7 +44,8 @@ export async function POST(request: Request) {
       await removeItem(accessToken).catch(() => undefined);
       throw error;
     }
-    return Response.json(await syncItemAccounts(context, data.id as number, accounts));
+    const linked = await syncItemAccounts(context, data.id as number, accounts);
+    return Response.json({ ...linked, sync: await firstSync(context, data.id as number) });
   } catch (error) {
     return await errorResponse(error, "Couldn't connect that bank");
   }
@@ -43,7 +61,8 @@ export async function PATCH(request: Request) {
       const { accounts, item: details } = await getAccounts(item.accessToken);
       const { error } = await context.db.from("plaid_items").update({ status: "ok", error_code: null, consent_expires_at: details.consent_expiration_time || null, updated_at: new Date().toISOString() }).eq("id", item.id);
       if (error) throw error;
-      return Response.json(await syncItemAccounts(context, item.id, accounts));
+      const linked = await syncItemAccounts(context, item.id, accounts);
+      return Response.json({ ...linked, sync: await firstSync(context, item.id) });
     } catch (error) {
       await noteItemError(context, item.id, error);
       throw error;

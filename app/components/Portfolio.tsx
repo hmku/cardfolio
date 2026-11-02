@@ -1,7 +1,7 @@
 "use client";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { creditState } from "../lib/core/credits";
 import { atNoon } from "../lib/core/dates";
 import { cardTag, holdingName, indexPortfolio, type Account, type PortfolioData } from "../lib/core/model";
@@ -14,11 +14,33 @@ import { CardList } from "./CardList";
 import { CreditMenu, type CellTarget } from "./CreditCell";
 import { SettingsDrawer, type Membership } from "./SettingsDrawer";
 import { GettingStarted } from "./GettingStarted";
+import { AccountsPage } from "./AccountsPage";
+import { CashFlowPage } from "./CashFlowPage";
+import type { FinancePageProps } from "./FinanceShared";
+import { InvestmentsPage } from "./InvestmentsPage";
+import { TransactionsPage } from "./TransactionsPage";
+import type { FinanceContext } from "../lib/finance-data";
 import { CheckIcon, Dot, personTone, Toast, type ToastMessage } from "./ui";
 import { money, shortDate } from "../lib/presentation/format";
 
 type Props = { db: SupabaseClient; accessToken: string; onSignOut: () => Promise<void> };
-type View = "cards" | "credits";
+type FinanceView = "transactions" | "cashflow" | "investments" | "accounts";
+type View = "cards" | "credits" | FinanceView;
+// Top-level tabs. Cards and Credits share the to-do list and search; each finance tab is its own page component.
+const TABS: { view: View; label: string }[] = [
+  { view: "cards", label: "Cards" },
+  { view: "credits", label: "Credits" },
+  { view: "transactions", label: "Transactions" },
+  { view: "cashflow", label: "Cash flow" },
+  { view: "investments", label: "Investments" },
+  { view: "accounts", label: "Accounts" },
+];
+const FINANCE_PAGES: Record<FinanceView, (props: FinancePageProps) => ReactNode> = {
+  transactions: TransactionsPage,
+  cashflow: CashFlowPage,
+  investments: InvestmentsPage,
+  accounts: AccountsPage,
+};
 type Prefs = { view: View; collapsed: Record<string, boolean>; showClosed: boolean; creditsShowClosed: boolean };
 type Panel = { kind: "account"; id: number | null } | { kind: "settings"; focus?: "people" } | null;
 type Menu = { target: CellTarget; anchor: DOMRect } | null;
@@ -29,7 +51,10 @@ const DEFAULT_PREFS: Prefs = { view: "cards", collapsed: {}, showClosed: false, 
 
 function readPrefs(): Prefs {
   if (typeof window === "undefined") return DEFAULT_PREFS;
-  try { return { ...DEFAULT_PREFS, ...JSON.parse(localStorage.getItem(PREFS_KEY) || "{}") }; } catch { return DEFAULT_PREFS; }
+  try {
+    const prefs = { ...DEFAULT_PREFS, ...JSON.parse(localStorage.getItem(PREFS_KEY) || "{}") } as Prefs;
+    return TABS.some((tab) => tab.view === prefs.view) ? prefs : { ...prefs, view: "cards" };
+  } catch { return DEFAULT_PREFS; }
 }
 
 export function Portfolio({ db, accessToken, onSignOut }: Props) {
@@ -49,6 +74,7 @@ export function Portfolio({ db, accessToken, onSignOut }: Props) {
 
   const portfolio = useMemo(() => (raw ? indexPortfolio(raw) : null), [raw]);
   const context = useMemo<data.Context | null>(() => (membership ? { db, householdId: membership.householdId, email: membership.email } : null), [db, membership]);
+  const financeContext = useMemo<FinanceContext | null>(() => (membership ? { db, householdId: membership.householdId } : null), [db, membership]);
 
   const updatePrefs = useCallback((patch: Partial<Prefs>) => {
     setPrefs((current) => {
@@ -216,7 +242,7 @@ export function Portfolio({ db, accessToken, onSignOut }: Props) {
       </main>
     );
   }
-  if (!portfolio || !membership || !context) return <main className="loading-screen" aria-live="polite"><p>Opening Cardfolio…</p></main>;
+  if (!portfolio || !membership || !context || !financeContext) return <main className="loading-screen" aria-live="polite"><p>Opening Cardfolio…</p></main>;
 
   const people = [...portfolio.people].sort((left, right) => left.sort - right.sort);
   const viewerPerson = people.find((person) => person.email && person.email.toLowerCase() === membership.email.toLowerCase()) || people[0];
@@ -236,6 +262,7 @@ export function Portfolio({ db, accessToken, onSignOut }: Props) {
   const menuState = menu ? creditState(portfolio, menu.target.credit, menu.target.holding, today) : null;
   const selectedAccount = panel?.kind === "account" && panel.id !== null ? portfolio.account(panel.id) : undefined;
   const selectedCurrent = selectedAccount ? portfolio.current(selectedAccount.id) : undefined;
+  const FinancePage = prefs.view === "cards" || prefs.view === "credits" ? null : FINANCE_PAGES[prefs.view];
 
   async function saveAccount(draft: data.AccountDraft, newProduct: data.ProductDraft | null, message?: string) {
     const problem = data.validateDraft(draft);
@@ -268,6 +295,17 @@ export function Portfolio({ db, accessToken, onSignOut }: Props) {
 
       {loadError && <div className="error-banner" role="alert"><span>{loadError}</span><button type="button" className="btn small" onClick={() => void reload(membership.householdId)}>Retry</button></div>}
 
+      <nav className="tabs" aria-label="Sections">
+        {TABS.map((tab) => (
+          <button key={tab.view} type="button" aria-pressed={prefs.view === tab.view} onClick={() => updatePrefs({ view: tab.view })}>{tab.label}</button>
+        ))}
+      </nav>
+
+      {FinancePage ? (
+        <main className="portfolio-views">
+          <FinancePage context={financeContext} accessToken={accessToken} portfolio={portfolio} notify={settingsNotify} onOpenSettings={() => setPanel({ kind: "settings" })} />
+        </main>
+      ) : <>
       <section className="people" aria-label="Cardholders">
         {people.map((person) => {
           const stats = personStats(portfolio, person.id, today);
@@ -292,10 +330,6 @@ export function Portfolio({ db, accessToken, onSignOut }: Props) {
       }} />
 
       {portfolio.accounts.length > 0 && <div className="toolbar" role="toolbar" aria-label="View options">
-        <div className="seg" aria-label="View">
-          <button type="button" aria-pressed={prefs.view === "cards"} onClick={() => updatePrefs({ view: "cards" })}>Cards</button>
-          <button type="button" aria-pressed={prefs.view === "credits"} onClick={() => updatePrefs({ view: "credits" })}>Credits</button>
-        </div>
         <input className="search" type="search" placeholder="Search cards, notes, last digits" aria-label="Search cards, notes, or last digits" value={search} onChange={(event) => setSearch(event.target.value)} />
       </div>}
 
@@ -328,6 +362,7 @@ export function Portfolio({ db, accessToken, onSignOut }: Props) {
           </>
         )}
       </main>
+      </>}
 
       {panel?.kind === "account" && (
         <AccountDrawer

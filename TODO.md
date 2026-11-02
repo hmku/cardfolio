@@ -86,9 +86,33 @@ done and move them to **Done** with the date.
         her own. Check each card's match in Settings → Bank connections.
   - [ ] Check OAuth banks (Chase, Capital One, Citi…) on the iPhone home-screen app: Link may
         need a `redirect_uri` registered in the Plaid dashboard for that.
-- [ ] Plaid Phase 2: `/transactions/sync` (cursor already in `plaid_items`), webhooks, card due
-      dates and statement balances from Liabilities. Phase 3: suggest credit uses, bonus spend
-      progress, annual fee postings.
+- [ ] **Finance backbone follow-ups** (built 2026-11-02 on branch `claude/gracious-mccarthy-z3tj8l`):
+  - [ ] Apply `supabase/migrations/20261102000002_finance.sql` to the Supabase project
+        **before** deploying this code: the existing connect flow now writes balance
+        columns that only exist after it.
+  - [ ] Set `PLAID_WEBHOOK_URL=https://cardfolio.harrisonku.com/api/plaid/webhook` in Vercel
+        (Production) and redeploy; existing logins switch to it on their next sync. Check in
+        Plaid's dashboard (Developers → Webhooks/Logs) that deliveries return 200.
+  - [ ] Check the second cron (`/api/cron/sync`, 10:00 UTC) shows in Vercel → Settings → Cron
+        Jobs and that `maxDuration = 300` is allowed on the plan (Hobby with Fluid compute allows
+        300s; otherwise lower it in `app/api/cron/sync/route.ts` and `app/api/plaid/sync/route.ts`).
+  - [ ] Add the manual account "Edgar Street Capital" (kind private investment) with its
+        current value and owner once the Accounts page can edit manual accounts.
+  - [ ] Try a Sandbox sync end to end ("Sync now" with First Platypus Bank; Sandbox
+        `user_transactions_dynamic` gives changing transactions) and look at the tabs.
+  - [ ] Pages to build on `app/lib/finance-data.ts`: Transactions (search, filters,
+        categorize, bulk edit, rules incl. `applyRuleToExisting`), Cash flow (by month and
+        category), Investments (holdings by account, investment transactions), Accounts
+        (balances, card statements and due dates, manual accounts, net worth chart from
+        `balance_snapshots` + `netWorthSeries`). Settings for categories and rules.
+  - [ ] Disconnecting a login deletes its accounts, transactions, holdings and snapshots
+        (cascade). Consider keeping history (soft-delete the item) before connecting real banks.
+  - [ ] Guesses to check with real data: default category mapping (Plaid PFC v2 codes in
+        `cardfolio_seed_categories`), and that Amex/Chase return Liabilities for every card.
+  - [ ] Supabase security advisor will flag the `plaid_item_status` view (it filters by
+        `is_cardfolio_member` itself rather than using security_invoker); that's intended.
+- [ ] Plaid Phase 3: suggest credit uses from transactions, bonus spend progress, annual fee
+      postings, link card payments between accounts.
 - [ ] Plaid background (Harrison and Sophia each connect their own bank logins). Research from 2026-10-07 (plaid.com was unreachable from
       the agent's container, so check these on the Plaid Dashboard):
   - Sign up as a new team for the free **Trial plan** (teams created after 2026-04-15; no
@@ -121,6 +145,16 @@ done and move them to **Done** with the date.
 
 ## Done
 
+- 2026-11-02: Finance backbone (Plaid Phase 2). New migration `20261102000002_finance.sql`:
+  balances and card statement details on `plaid_accounts` (now readable by members),
+  `transactions` (cents, positive = money in), `categories` (default set seeded from Plaid's
+  categories), `category_rules`, `securities`, `holdings`, `investment_transactions`,
+  `manual_accounts` and daily `balance_snapshots`; checked on an empty Postgres (PGlite) with
+  RLS tests, not yet applied to Supabase. Sync (`db/plaid-sync.ts`) runs after connecting,
+  on "Sync now" in Settings → Bank connections, on verified Plaid webhooks and daily
+  (`/api/cron/sync`). New tabs Transactions, Cash flow, Investments and Accounts with
+  placeholder lists; the to-do list and search stay on Cards and Credits. Not run against
+  Plaid yet.
 - 2026-11-02: Plaid Phase 1 tested in Sandbox on production as devtest068: Link opened,
   First Platypus Bank connected with its two fake credit cards (no auto-match, as expected),
   a manual link saved and greyed that card out in the other dropdown, and Disconnect removed

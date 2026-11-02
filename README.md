@@ -1,6 +1,8 @@
 # Cardfolio
 
-Cardfolio is a private household credit card tracker. Everything is on one page:
+Cardfolio is a private household credit card tracker, growing into a household finance app
+(transactions, cash flow, investments and net worth from Plaid). Tabs along the top: Cards,
+Credits, Transactions, Cash flow, Investments and Accounts. The card tabs:
 
 - **Cardholder stats**: open and closed cards, 5/24 count and when it next drops.
 - **To do**, above both tabs: credits ending within a month, annual fee reviews, bonus
@@ -35,7 +37,18 @@ everyone signed in.
 | `credit_uses` | A credit used on a specific card in a specific period. Partial amounts add up. `source` is `manual`, `import` or (later) `plaid`. |
 | `credit_opt_outs` | Credits not tracked on a specific card ("not enrolled"). |
 | `action_rules` | Review rules (annual fee window, NLL, Ink Cash, RedCard). |
-| `plaid_items`, `plaid_accounts` | Bank logins connected through Plaid (access token encrypted) and the cards found in each, linked to `accounts`. Server-only: browsers can't read them. |
+| `plaid_items` | Bank logins connected through Plaid (access token encrypted), with sync status and the `/transactions/sync` cursor. Server-only; browsers see the token-free view `plaid_item_status`. |
+| `plaid_accounts` | The accounts in each login (cards, checking, brokerage…), a card's link to `accounts`, balances (current, available, limit, as Plaid reports them: a card's balance is the positive amount owed), card statement details from Liabilities (last statement, minimum payment, due date, last payment) and an optional owner (`person_id`). Members can read it and set `person_id`. |
+| `transactions` | One row per Plaid transaction. `amount_cents` is **positive for money in, negative for money out** (Plaid's sign flipped). Plaid's merchant, logo and personal finance category are kept; members may change `category_id` (with `category_source = 'manual'`), `notes`, `excluded` (hide from cash flow) and `reviewed`. `search_text` (merchant, description, notes, lower-cased, trigram-indexed) backs search. |
+| `categories` | The household's categories: name, `kind` (`income`, `expense`, `transfer`; transfers never count in cash flow), emoji, color, sort, and the Plaid category codes (`plaid_categories`) that map to it by default. A default set is added for each household. |
+| `category_rules` | "Merchant or description contains …" (optionally on one account) → category, optionally also excluded. Account-specific rules win, then the longest text. |
+| `securities`, `holdings`, `investment_transactions` | Investments from Plaid: securities, current positions per account (quantity, cost basis, institution price and value) and the last 24 months of buys, sells, dividends and fees (`amount_cents` positive = cash into the account). |
+| `manual_accounts` | Accounts Plaid can't see (private investments like Edgar Street Capital, real estate, vehicles, loans): kind, balance, `liability`, optional owner. Managed in the browser. |
+| `balance_snapshots` | One balance per account per day (Plaid or manual), as the account's contribution to net worth: assets positive, debts negative. Drives the net worth history. |
+
+Synced Plaid data is written only by the server; browsers read it under row-level security.
+Pages read it through `app/lib/finance-data.ts`; the pure logic (sign handling, categories,
+rules, snapshots, cash flow) is in `app/lib/core/finance.ts`.
 
 Rules that follow from this:
 
@@ -214,7 +227,26 @@ numbers, CVVs, expiry dates or cardholder names.
 
 Settings → Bank connections connects bank logins with Plaid Link and links each card Plaid
 finds to a Cardfolio card (automatically when exactly one open card ends in Plaid's last
-digits). For now it only lists the cards; transactions and due dates come later.
+digits). Synced data fills the Transactions, Cash flow, Investments and Accounts tabs.
+
+How a sync works (`db/plaid-sync.ts`):
+
+- **When**: right after a login is connected or reconnected (balances, transactions that are
+  ready, card statements, holdings), on "Sync now" in Settings (`POST /api/plaid/sync`), when
+  Plaid sends a webhook (`/api/plaid/webhook`, if `PLAID_WEBHOOK_URL` is set), and every day
+  at 10:00 UTC (`/api/cron/sync` in `vercel.json`).
+- **What**: accounts and balances from `/accounts/get` (Plaid's cached balances; the paid
+  `/accounts/balance/get` isn't used), then only the products the login has: transactions via
+  `/transactions/sync` (cursor saved only after a complete pass; restarts if Plaid's data
+  changes mid-pass), card statement details via `/liabilities/get`, holdings via
+  `/investments/holdings/get` and 24 months of `/investments/transactions/get`. A product the
+  bank doesn't offer is skipped; a login error marks the connection "Needs reconnecting".
+- **Categories**: a new transaction gets the first matching household rule, else the
+  category mapped from Plaid's personal finance category. Later syncs never change a
+  category someone picked by hand, and a posted transaction keeps the notes and category of
+  the pending one it replaces.
+- **Snapshots**: every sync writes today's balance for each account; the daily job also
+  carries manual accounts forward, so net worth history has a point per day.
 
 1. Sign up at [dashboard.plaid.com](https://dashboard.plaid.com). A new team gets the free
    Trial plan (real banks, 10 connections for good).
@@ -225,6 +257,12 @@ digits). For now it only lists the cards; transactions and due dates come later.
    - `PLAID_ENV`: `sandbox` or `production`, which of the two to use
    - `PLAID_TOKEN_KEY`: `openssl rand -base64 32`. Encrypts Plaid access tokens in the
      database; changing it means reconnecting every bank.
+   - `PLAID_WEBHOOK_URL` (optional): `https://<your-site>/api/plaid/webhook`. Plaid then
+     tells Cardfolio when new transactions or holdings are ready, so they arrive within
+     minutes instead of at the next daily sync. New logins get it at Link; existing ones are
+     switched to it on their next sync. Webhooks are verified with Plaid's signed
+     `Plaid-Verification` header.
+   - `CRON_SECRET` (see Reminders) also protects the daily sync.
 3. Redeploy. In Sandbox, connect "First Platypus Bank" with `user_good` / `pass_good`.
 
 ## Google Sheet copy (optional)

@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { holdingName, type Portfolio } from "../lib/core/model";
 
 type BankAccount = { id: number; name: string; mask: string | null; type: string | null; subtype: string | null; accountId: number | null; linkSource: "auto" | "manual" | null };
-type BankItem = { id: number; institutionName: string; status: "ok" | "reconnect"; errorCode: string | null; addedByEmail: string | null; consentExpiresAt: string | null; accounts: BankAccount[] };
+type BankItem = { id: number; institutionName: string; status: "ok" | "reconnect"; errorCode: string | null; addedByEmail: string | null; consentExpiresAt: string | null; lastSyncedAt: string | null; accounts: BankAccount[] };
 type Connections = { configured: boolean; sandbox: boolean; items: BankItem[] };
 
 type LinkMetadata = { institution?: { institution_id?: string; name?: string } | null };
@@ -36,7 +36,7 @@ function accountKind(account: Pick<BankAccount, "type" | "subtype">) {
 /** Settings → Bank connections: connect bank logins through Plaid and link their cards. */
 export function BankSettings({ portfolio, accessToken, notify }: { portfolio: Portfolio; accessToken: string; notify: (text: string, error?: boolean) => void }) {
   const [data, setData] = useState<Connections | null>(null);
-  const [busy, setBusy] = useState<number | "bank" | "investments" | null>(null);
+  const [busy, setBusy] = useState<number | "bank" | "investments" | "sync" | null>(null);
   const [confirm, setConfirm] = useState<number | null>(null);
 
   const call = useCallback(async (path: string, method: string, body?: unknown) => {
@@ -89,6 +89,23 @@ export function BankSettings({ portfolio, accessToken, notify }: { portfolio: Po
     } catch (reason) {
       setBusy(null);
       notify(reason instanceof Error ? reason.message : "Couldn't start connecting a bank", true);
+    }
+  }
+
+  /** Pulls new balances and transactions now, for one login or all of them. */
+  async function syncNow(item?: BankItem) {
+    setBusy(item ? item.id : "sync");
+    try {
+      const result = await call("/api/plaid/sync", "POST", item ? { itemId: item.id } : {}) as { items: { ok: boolean; error?: string; transactions: { added: number } }[] };
+      const failed = result.items.filter((row) => !row.ok);
+      const added = result.items.reduce((sum, row) => sum + (row.transactions?.added || 0), 0);
+      if (failed.length) notify(`Synced with problems: ${failed.map((row) => row.error).filter(Boolean).join("; ") || "check the connections below"}`, true);
+      else notify(`Synced${added ? `: ${added} new transaction${added === 1 ? "" : "s"}` : ""}`);
+      await reload();
+    } catch (reason) {
+      notify(reason instanceof Error ? reason.message : "Couldn't sync", true);
+    } finally {
+      setBusy(null);
     }
   }
 
@@ -145,9 +162,10 @@ export function BankSettings({ portfolio, accessToken, notify }: { portfolio: Po
           <div className="settings-row">
             <span className="grow">
               {item.institutionName}
-              <small>{item.addedByEmail ? `Added by ${item.addedByEmail}` : ""}{item.consentExpiresAt ? ` · access ends ${new Date(item.consentExpiresAt).toLocaleDateString()}` : ""}</small>
+              <small>{item.addedByEmail ? `Added by ${item.addedByEmail}` : ""}{item.consentExpiresAt ? ` · access ends ${new Date(item.consentExpiresAt).toLocaleDateString()}` : ""}{item.lastSyncedAt ? ` · synced ${new Date(item.lastSyncedAt).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}` : ""}</small>
             </span>
             {item.status === "reconnect" && <span className="tag alert" title={item.errorCode || undefined}>Needs reconnecting</span>}
+            {item.status !== "reconnect" && <button type="button" className="btn small" disabled={busy !== null} onClick={() => void syncNow(item)}>{busy === item.id ? "Syncing…" : "Sync"}</button>}
             <button type="button" className={`btn small${item.status === "reconnect" ? " primary" : ""}`} disabled={busy !== null} onClick={() => void openLink(item)}>Reconnect</button>
             <button type="button" className="btn small danger" disabled={busy !== null} aria-label={confirm === item.id ? `Confirm disconnect ${item.institutionName}` : `Disconnect ${item.institutionName}`}
               onClick={() => (confirm === item.id ? void disconnect(item) : setConfirm(item.id))}>
@@ -181,6 +199,7 @@ export function BankSettings({ portfolio, accessToken, notify }: { portfolio: Po
         <div className="inline-actions">
           <button type="button" className="btn small primary" disabled={busy !== null} onClick={() => void openLink(undefined, "bank")}>{busy === "bank" ? "Connecting…" : "Connect a bank or card"}</button>
           <button type="button" className="btn small" disabled={busy !== null} onClick={() => void openLink(undefined, "investments")}>{busy === "investments" ? "Connecting…" : "Connect investments"}</button>
+          {!!data.items.length && <button type="button" className="btn small" disabled={busy !== null} onClick={() => void syncNow()}>{busy === "sync" ? "Syncing…" : "Sync now"}</button>}
         </div>
       )}
     </section>

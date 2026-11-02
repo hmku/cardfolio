@@ -1,4 +1,5 @@
 import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
+import { balanceColumns, RECONNECT_ERRORS, type PlaidBalances } from "@/app/lib/core/finance";
 import { matchPlaidAccounts } from "@/app/lib/core/plaid";
 import type { HouseholdContext } from "./storage";
 
@@ -38,7 +39,7 @@ export class PlaidApiError extends Error {
   }
 }
 
-async function plaid<T>(path: string, body: Record<string, unknown>): Promise<T> {
+export async function plaid<T>(path: string, body: Record<string, unknown>): Promise<T> {
   const { env, clientId, secret } = credentials();
   const response = await fetch(`https://${env}.plaid.com${path}`, {
     method: "POST",
@@ -74,7 +75,7 @@ export function decryptToken(stored: string) {
   return Buffer.concat([decipher.update(data.subarray(28)), decipher.final()]).toString("utf8");
 }
 
-export type PlaidAccount = { account_id: string; name: string; official_name: string | null; mask: string | null; type: string; subtype: string | null };
+export type PlaidAccount = { account_id: string; name: string; official_name: string | null; mask: string | null; type: string; subtype: string | null; balances?: PlaidBalances | null };
 
 export type LinkKind = "bank" | "investments";
 
@@ -86,7 +87,10 @@ export type LinkKind = "bank" | "investments";
  * transactions where supported. Transactions go back the full two years Plaid allows.
  */
 export async function createLinkToken(userId: string, options: { accessToken?: string; kind?: LinkKind } = {}) {
-  const base = { client_name: "Cardfolio", language: "en", country_codes: ["US"], user: { client_user_id: userId } };
+  // PLAID_WEBHOOK_URL (e.g. https://cardfolio.example.com/api/plaid/webhook) makes Plaid
+  // notify Cardfolio when new data is ready; without it the daily sync and "Sync now" do.
+  const webhook = process.env.PLAID_WEBHOOK_URL?.trim();
+  const base = { client_name: "Cardfolio", language: "en", country_codes: ["US"], user: { client_user_id: userId }, ...(webhook ? { webhook } : {}) };
   const body = options.accessToken
     ? { ...base, access_token: options.accessToken }
     : options.kind === "investments"
@@ -101,8 +105,18 @@ export async function exchangePublicToken(publicToken: string) {
   return { accessToken: access_token, itemId: item_id };
 }
 
+export type PlaidItemInfo = {
+  institution_id?: string | null;
+  consent_expiration_time?: string | null;
+  webhook?: string | null;
+  /** Products added to the login (what Link asked for and the bank supports). */
+  products?: string[] | null;
+  billed_products?: string[] | null;
+};
+
+/** The login's accounts with Plaid's cached balances (free, unlike /accounts/balance/get). */
 export async function getAccounts(accessToken: string) {
-  const payload = await plaid<{ accounts: PlaidAccount[]; item: { institution_id?: string | null; consent_expiration_time?: string | null } }>("/accounts/get", { access_token: accessToken });
+  const payload = await plaid<{ accounts: PlaidAccount[]; item: PlaidItemInfo }>("/accounts/get", { access_token: accessToken });
   return { accounts: payload.accounts, item: payload.item };
 }
 
@@ -111,13 +125,14 @@ export async function removeItem(accessToken: string) {
 }
 
 /** Saves Plaid's accounts for an item and links new credit cards to Cardfolio cards by last digits. */
-export async function syncItemAccounts(context: HouseholdContext, itemId: number, accounts: PlaidAccount[]) {
+export async function syncItemAccounts(context: Pick<HouseholdContext, "db" | "householdId">, itemId: number, accounts: PlaidAccount[]) {
   const { db, householdId } = context;
+  const now = new Date().toISOString();
   const { data: existing, error: existingError } = await db.from("plaid_accounts").select("id, plaid_account_id").eq("item_id", itemId);
   if (existingError) throw existingError;
   const known = new Set((existing || []).map((row) => row.plaid_account_id as string));
   for (const account of accounts) {
-    const row = { name: account.name, official_name: account.official_name, mask: account.mask, type: account.type, subtype: account.subtype };
+    const row = { name: account.name, official_name: account.official_name, mask: account.mask, type: account.type, subtype: account.subtype, ...balanceColumns(account.balances, now) };
     const { error } = known.has(account.account_id)
       ? await db.from("plaid_accounts").update(row).eq("plaid_account_id", account.account_id)
       : await db.from("plaid_accounts").insert({ ...row, household_id: householdId, item_id: itemId, plaid_account_id: account.account_id });
@@ -154,8 +169,8 @@ export async function loadItem(context: HouseholdContext, id: unknown) {
 }
 
 /** Marks an item for reconnecting when Plaid says the bank login needs attention. */
-export async function noteItemError(context: HouseholdContext, itemId: number, error: unknown) {
+export async function noteItemError(context: Pick<HouseholdContext, "db">, itemId: number, error: unknown) {
   if (!(error instanceof PlaidApiError)) return;
-  const reconnect = ["ITEM_LOGIN_REQUIRED", "PENDING_EXPIRATION", "PENDING_DISCONNECT", "ACCESS_NOT_GRANTED"].includes(error.code);
+  const reconnect = RECONNECT_ERRORS.has(error.code);
   await context.db.from("plaid_items").update({ status: reconnect ? "reconnect" : "ok", error_code: error.code, updated_at: new Date().toISOString() }).eq("id", itemId);
 }

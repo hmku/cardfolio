@@ -11,6 +11,7 @@ import {
   plaidAmountToCents,
   RECONNECT_ERRORS,
   snapshotRows,
+  syncProductsOf,
   toCents,
   type CategoryKind,
   type CategoryLike,
@@ -49,12 +50,16 @@ export type ItemSyncResult = {
   holdings: number;
   investmentTransactions: number;
   transactionsStatus: string | null;
+  /** Set when nothing ran because another sync of this login was already running. */
+  skipped?: string;
 };
 
 const TIME_ZONE = process.env.REMINDER_TIME_ZONE || "America/New_York";
 const CHUNK = 500;
 const PAGE = 500;
 const MAX_SYNC_RESTARTS = 3;
+/** A sync lease older than this is treated as abandoned (a function that crashed or timed out). */
+const LEASE_MS = 5 * 60 * 1000;
 
 /** Today's date (YYYY-MM-DD) in the household's time zone, for snapshots. */
 export function syncDate() {
@@ -74,12 +79,28 @@ function must<T>(result: { data: T; error: { message: string } | null }, what: s
 
 /** Which of our sync steps each Plaid product enables. */
 function productsFor(itemProducts: string[] | null | undefined): Set<SyncProduct> {
-  if (!itemProducts) return new Set(ALL_SYNC_PRODUCTS);
-  const available = new Set<SyncProduct>();
-  if (itemProducts.includes("transactions")) available.add("transactions");
-  if (itemProducts.includes("liabilities")) available.add("liabilities");
-  if (itemProducts.includes("investments")) { available.add("holdings"); available.add("investment_transactions"); }
-  return available;
+  return new Set(itemProducts ? syncProductsOf(itemProducts) : ALL_SYNC_PRODUCTS);
+}
+
+/**
+ * Claims the login's sync lease (plaid_items.sync_started_at), so two syncs of one login never
+ * overlap: both would pull from the same cursor, and an older pass could re-add a pending
+ * transaction a newer one removed. Returns the claim's timestamp, or null when another sync
+ * holds a fresh lease.
+ */
+async function claimSyncLease(context: SyncContext, itemId: number) {
+  const startedAt = new Date().toISOString();
+  const staleBefore = new Date(Date.now() - LEASE_MS).toISOString();
+  const claimed = must(await context.db.from("plaid_items").update({ sync_started_at: startedAt })
+    .eq("household_id", context.householdId).eq("id", itemId)
+    .or(`sync_started_at.is.null,sync_started_at.lt.${staleBefore}`)
+    .select("id"), "start the sync") || [];
+  return claimed.length ? startedAt : null;
+}
+
+async function releaseSyncLease(context: SyncContext, itemId: number, startedAt: string) {
+  // Only our own lease: if it went stale and another sync took over, leave theirs alone.
+  await context.db.from("plaid_items").update({ sync_started_at: null }).eq("id", itemId).eq("sync_started_at", startedAt);
 }
 
 type LoadedItem = { id: number; institutionName: string | null; accessToken: string; cursor: string | null };
@@ -399,8 +420,29 @@ export type SyncOptions = {
   today?: string;
 };
 
-/** Syncs one bank login. Never throws for Plaid errors: they're recorded on the item and in the result. */
+/**
+ * Syncs one bank login. Never throws for Plaid errors: they're recorded on the item and in the
+ * result. When another sync of the login is already running, does nothing and says so
+ * (`skipped`); that sync, or Plaid's next webhook, picks up anything new.
+ */
 export async function syncItem(context: SyncContext, itemId: number, options: SyncOptions = {}): Promise<ItemSyncResult> {
+  const lease = await claimSyncLease(context, itemId);
+  if (!lease) {
+    const { data } = await context.db.from("plaid_items").select("id, institution_name").eq("household_id", context.householdId).eq("id", itemId).maybeSingle();
+    if (!data) throw new Response("That bank connection wasn't found", { status: 404 });
+    return {
+      itemId, institutionName: (data.institution_name as string | null) ?? null, ok: true, skipped: "already syncing", accounts: 0, products: {},
+      transactions: { added: 0, modified: 0, removed: 0, skipped: 0 }, holdings: 0, investmentTransactions: 0, transactionsStatus: null,
+    };
+  }
+  try {
+    return await syncLeasedItem(context, itemId, options);
+  } finally {
+    await releaseSyncLease(context, itemId, lease).catch(() => undefined);
+  }
+}
+
+async function syncLeasedItem(context: SyncContext, itemId: number, options: SyncOptions): Promise<ItemSyncResult> {
   const item = await loadSyncItem(context, itemId);
   const today = options.today || syncDate();
   const now = new Date().toISOString();
@@ -439,6 +481,7 @@ export async function syncItem(context: SyncContext, itemId: number, options: Sy
     ["investment_transactions", async () => { result.investmentTransactions = await syncInvestmentTransactions(context, item, today, now); }],
   ];
   let errorCode: string | null = null;
+  let failed = false;
   for (const [product, run] of steps) {
     if (!wanted.includes(product)) continue;
     if (!available.has(product)) { result.products[product] = "not_available"; continue; }
@@ -449,6 +492,7 @@ export async function syncItem(context: SyncContext, itemId: number, options: Sy
       if (error instanceof PlaidApiError && isSkippableProductError(error.code)) { result.products[product] = "skipped"; continue; }
       result.products[product] = "error";
       result.ok = false;
+      failed = true;
       result.error = error instanceof Error ? error.message : `Couldn't sync ${product}`;
       if (error instanceof PlaidApiError) {
         errorCode = error.code;
@@ -459,9 +503,12 @@ export async function syncItem(context: SyncContext, itemId: number, options: Sy
 
   // Read the status now, not at the start: a webhook may have flagged the login meanwhile.
   const current = must(await context.db.from("plaid_items").select("status, error_code, synced_products").eq("id", item.id).maybeSingle(), "load the bank connection");
-  const next = nextItemStatus({ status: (current?.status as string | null) ?? null, errorCode: (current?.error_code as string | null) ?? null }, { kind: "synced", errorCode });
+  const previous = { status: (current?.status as string | null) ?? null, errorCode: (current?.error_code as string | null) ?? null };
+  // A step that failed for a reason other than Plaid's (a database write, a timeout) says nothing
+  // about the login: keep its status and error, and don't call it synced.
+  const next = failed && !errorCode ? previous : nextItemStatus(previous, { kind: "synced", errorCode });
   must(await context.db.from("plaid_items").update({
-    last_synced_at: now,
+    ...(failed && !errorCode ? {} : { last_synced_at: now }),
     status: next.status,
     error_code: next.errorCode,
     updated_at: now,

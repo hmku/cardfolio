@@ -58,6 +58,21 @@ export async function verifyPlaidWebhook(
   return { ok: true };
 }
 
+/**
+ * Looks up a verification key, answering null only when Plaid says the kid is invalid (an
+ * INVALID_INPUT error, or a 400 with an error code). Everything else, including a 5xx without
+ * a JSON body or a timeout, is rethrown so webhookKeyCache doesn't remember a real kid as unknown.
+ */
+export async function lookupWebhookKey(kid: string, get: (kid: string) => Promise<WebhookKey>): Promise<WebhookKey | null> {
+  try {
+    return await get(kid);
+  } catch (error) {
+    const { status, type, code } = (error || {}) as { status?: unknown; type?: unknown; code?: unknown };
+    if (type === "INVALID_INPUT" || (status === 400 && typeof code === "string" && code !== "UNKNOWN")) return null;
+    throw error;
+  }
+}
+
 const KEY_TTL_MS = 24 * 60 * 60 * 1000;
 const UNKNOWN_KID_TTL_MS = 5 * 60 * 1000;
 const MAX_UNKNOWN_KIDS = 1000;

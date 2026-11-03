@@ -1,8 +1,8 @@
 import { after } from "next/server";
 import { nextItemStatus, webhookAction } from "@/app/lib/core/finance";
-import { plaid, PlaidApiError, plaidConfigured } from "@/db/plaid";
+import { plaid, plaidConfigured } from "@/db/plaid";
 import { syncItem } from "@/db/plaid-sync";
-import { verifyPlaidWebhook, webhookKeyCache, type WebhookKey } from "@/db/plaid-webhook";
+import { lookupWebhookKey, verifyPlaidWebhook, webhookKeyCache, type WebhookKey } from "@/db/plaid-webhook";
 import { adminClient } from "@/db/storage";
 
 export const runtime = "nodejs";
@@ -10,18 +10,17 @@ export const runtime = "nodejs";
 // within this budget. A new login's first sync can pull two years of transactions.
 export const maxDuration = 300;
 
-// Plaid errors that say nothing about the key (try again later rather than remember the kid as unknown).
-const TRANSIENT_ERRORS = new Set(["RATE_LIMIT_EXCEEDED", "INTERNAL_SERVER_ERROR", "PLANNED_MAINTENANCE"]);
+// While another sync of the login runs, retry every 20s for up to about 4 minutes (within maxDuration).
+const BUSY_RETRY_MS = 20_000;
+const BUSY_RETRIES = 12;
 
-const fetchKey = webhookKeyCache(async (kid) => {
-  try {
-    const { key } = await plaid<{ key: WebhookKey }>("/webhook_verification_key/get", { key_id: kid });
-    return key;
-  } catch (error) {
-    if (error instanceof PlaidApiError && !TRANSIENT_ERRORS.has(error.code)) return null;
-    throw error;
-  }
-});
+// Plaid wants a webhook answered within about 10s, so the key lookup gets a short timeout.
+const KEY_TIMEOUT_MS = 5_000;
+
+const fetchKey = webhookKeyCache((kid) => lookupWebhookKey(kid, async (id) => {
+  const { key } = await plaid<{ key: WebhookKey }>("/webhook_verification_key/get", { key_id: id }, { timeoutMs: KEY_TIMEOUT_MS });
+  return key;
+}));
 
 type Payload = { webhook_type?: string; webhook_code?: string; item_id?: string; error?: { error_code?: string } | null; consent_expiration_time?: string | null };
 
@@ -61,7 +60,13 @@ export async function POST(request: Request) {
 
   after(async () => {
     try {
-      await syncItem({ db, householdId: item.household_id as string }, item.id as number, { products: action.products });
+      // If another sync of this login is running (e.g. the first sync after connecting), it may
+      // have read its last page before this update arrived, so wait for it and sync once more.
+      for (let attempt = 0; ; attempt += 1) {
+        const result = await syncItem({ db, householdId: item.household_id as string }, item.id as number, { products: action.products });
+        if (!result.skipped || attempt >= BUSY_RETRIES) break;
+        await new Promise((resolve) => setTimeout(resolve, BUSY_RETRY_MS));
+      }
     } catch (reason) {
       console.error("Plaid webhook sync failed", reason);
     }

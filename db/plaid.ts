@@ -1,5 +1,5 @@
 import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
-import { balanceColumns, nextItemStatus, type PlaidBalances } from "@/app/lib/core/finance";
+import { balanceColumns, hiddenLoginIds, nextItemStatus, type PlaidBalances } from "@/app/lib/core/finance";
 import { matchPlaidAccounts } from "@/app/lib/core/plaid";
 import type { HouseholdContext } from "./storage";
 
@@ -37,28 +37,29 @@ export function plaidConfigured() {
   }
 }
 
-type PlaidError = { error_code?: string; error_message?: string; display_message?: string | null };
+type PlaidError = { error_type?: string; error_code?: string; error_message?: string; display_message?: string | null };
 
 export class PlaidApiError extends Error {
-  constructor(readonly code: string, message: string) {
+  /** `status` is the HTTP status; `type` is Plaid's error_type (e.g. INVALID_INPUT), when the answer had one. */
+  constructor(readonly code: string, message: string, readonly status: number | null = null, readonly type: string | null = null) {
     super(message);
   }
 }
 
 const PLAID_TIMEOUT_MS = 60_000;
 
-export async function plaid<T>(path: string, body: Record<string, unknown>): Promise<T> {
+export async function plaid<T>(path: string, body: Record<string, unknown>, options: { timeoutMs?: number } = {}): Promise<T> {
   const { env, clientId, secret } = credentials();
   const response = await fetch(`https://${env}.plaid.com${path}`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ client_id: clientId, secret, ...body }),
     // One hung request shouldn't use up a route's whole time budget.
-    signal: AbortSignal.timeout(PLAID_TIMEOUT_MS),
+    signal: AbortSignal.timeout(options.timeoutMs ?? PLAID_TIMEOUT_MS),
   });
   const payload = await response.json().catch(() => ({})) as T & PlaidError;
   if (!response.ok) {
-    throw new PlaidApiError(payload.error_code || "UNKNOWN", payload.display_message || payload.error_message || `Plaid ${path} failed (${response.status})`);
+    throw new PlaidApiError(payload.error_code || "UNKNOWN", payload.display_message || payload.error_message || `Plaid ${path} failed (${response.status})`, response.status, payload.error_type || null);
   }
   return payload;
 }
@@ -134,10 +135,18 @@ export async function removeItem(accessToken: string) {
   await plaid("/item/remove", { access_token: accessToken });
 }
 
-/** Saves Plaid's accounts for an item, then links new credit cards to Cardfolio cards (see autoLinkItem). */
-export async function syncItemAccounts(context: Pick<HouseholdContext, "db" | "householdId">, itemId: number, accounts: PlaidAccount[]) {
+/**
+ * Saves Plaid's accounts for an item, then links new credit cards to Cardfolio cards (see
+ * autoLinkItem). Accounts in the item's ignored_accounts (carried by another connection of the
+ * same login, see planLoginConnect) are left out.
+ */
+export async function syncItemAccounts(context: Pick<HouseholdContext, "db" | "householdId">, itemId: number, allAccounts: PlaidAccount[]) {
   const { db, householdId } = context;
   const now = new Date().toISOString();
+  const { data: item, error: itemError } = await db.from("plaid_items").select("person_id, ignored_accounts").eq("id", itemId).single();
+  if (itemError) throw itemError;
+  const ignored = new Set((item.ignored_accounts as string[] | null) || []);
+  const accounts = allAccounts.filter((account) => !ignored.has(account.account_id));
   const { data: existing, error: existingError } = await db.from("plaid_accounts").select("id, plaid_account_id").eq("item_id", itemId);
   if (existingError) throw existingError;
   const known = new Set((existing || []).map((row) => row.plaid_account_id as string));
@@ -150,8 +159,6 @@ export async function syncItemAccounts(context: Pick<HouseholdContext, "db" | "h
   }
 
   // New accounts default to the login's owner.
-  const { data: item, error: itemError } = await db.from("plaid_items").select("person_id").eq("id", itemId).single();
-  if (itemError) throw itemError;
   if (item.person_id) {
     const { error } = await db.from("plaid_accounts").update({ person_id: item.person_id }).eq("item_id", itemId).is("person_id", null);
     if (error) throw error;
@@ -204,19 +211,12 @@ export async function autoLinkItem(context: Pick<HouseholdContext, "db" | "house
 }
 
 
-/**
- * Logins hidden from a member with hideInvestments: those with investment accounts and no
- * other account (the same rule GET /api/plaid uses). Empty for everyone else.
- */
+/** Logins hidden from a member with hideInvestments (see hiddenLoginIds). Empty for everyone else. */
 export async function hiddenItemIds(context: Pick<HouseholdContext, "db" | "householdId" | "hideInvestments">) {
-  const hidden = new Set<number>();
-  if (!context.hideInvestments) return hidden;
+  if (!context.hideInvestments) return new Set<number>();
   const { data, error } = await context.db.from("plaid_accounts").select("item_id, type").eq("household_id", context.householdId);
   if (error) throw error;
-  const visible = new Set<number>();
-  for (const row of data || []) (row.type === "investment" ? hidden : visible).add(row.item_id as number);
-  for (const id of visible) hidden.delete(id);
-  return hidden;
+  return hiddenLoginIds((data || []) as { item_id: number; type: string | null }[], true);
 }
 
 /** A 404, as if the login didn't exist, when it's hidden from this member. */

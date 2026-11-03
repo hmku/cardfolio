@@ -1,5 +1,5 @@
-import { isDuplicateLogin } from "@/app/lib/core/finance";
-import { assertItemVisible, autoLinkItem, encryptToken, exchangePublicToken, getAccounts, loadItem, noteItemError, PlaidApiError, removeItem, syncItemAccounts } from "@/db/plaid";
+import { planLoginConnect, syncProductsOf } from "@/app/lib/core/finance";
+import { assertItemVisible, autoLinkItem, encryptToken, exchangePublicToken, getAccounts, hiddenItemIds, loadItem, noteItemError, PlaidApiError, removeItem, syncItemAccounts, type PlaidAccount } from "@/db/plaid";
 import { syncItem, type ItemSyncResult } from "@/db/plaid-sync";
 import { errorResponse, requireHousehold, type HouseholdContext } from "@/db/storage";
 
@@ -33,18 +33,55 @@ async function householdPerson(context: HouseholdContext, personId: unknown) {
   return data.id as number;
 }
 
-/** Whether the household already has this login (same institution and accounts), e.g. connected by the other person. */
-async function alreadyConnected(context: HouseholdContext, institutionId: string | null, accounts: { mask: string | null; subtype: string | null }[]) {
-  if (!institutionId) return false;
-  const { data: items, error } = await context.db.from("plaid_items").select("id, institution_id").eq("household_id", context.householdId).eq("institution_id", institutionId);
+/**
+ * Whether the household already has this login (same institution and accounts), e.g. connected
+ * by the other person, and if so whether the new connection brings products it lacks (see
+ * planLoginConnect).
+ */
+async function connectPlan(context: HouseholdContext, institutionId: string | null, accounts: PlaidAccount[], products: string[] | null | undefined) {
+  if (!institutionId) return { kind: "new" } as const;
+  const { data: items, error } = await context.db.from("plaid_items").select("id, institution_id, synced_products").eq("household_id", context.householdId).eq("institution_id", institutionId);
   if (error) throw error;
-  if (!items?.length) return false;
-  const { data: rows, error: accountsError } = await context.db.from("plaid_accounts").select("item_id, mask, subtype").in("item_id", items.map((item) => item.id));
+  if (!items?.length) return { kind: "new" } as const;
+  const { data: rows, error: accountsError } = await context.db.from("plaid_accounts").select("id, item_id, plaid_account_id, mask, subtype, type").in("item_id", items.map((item) => item.id));
   if (accountsError) throw accountsError;
-  return isDuplicateLogin(institutionId, accounts, items.map((item) => ({
-    institutionId: item.institution_id as string | null,
-    accounts: (rows || []).filter((row) => row.item_id === item.id).map((row) => ({ mask: row.mask as string | null, subtype: row.subtype as string | null })),
-  })));
+  return planLoginConnect(
+    institutionId,
+    accounts.map((account) => ({ plaidAccountId: account.account_id, mask: account.mask, subtype: account.subtype, type: account.type })),
+    products,
+    items.map((item) => ({
+      id: item.id as number,
+      institutionId: item.institution_id as string | null,
+      syncedProducts: item.synced_products as string[] | null,
+      accounts: (rows || []).filter((row) => row.item_id === item.id).map((row) => ({
+        rowId: row.id as number, plaidAccountId: row.plaid_account_id as string, mask: row.mask as string | null, subtype: row.subtype as string | null, type: row.type as string | null,
+      })),
+    })),
+  );
+}
+
+/**
+ * Hands the accounts the new connection carries over from the stored one (keeping their
+ * links, owners, rules and history) and makes the stored one skip them from now on.
+ */
+async function shareLogin(context: HouseholdContext, newItemId: number, plan: { itemId: number; move: { rowId: number; plaidAccountId: string }[]; release: string[] }, products: string[]) {
+  const { db } = context;
+  for (const { rowId, plaidAccountId } of plan.move) {
+    const { error } = await db.from("plaid_accounts").update({ item_id: newItemId, plaid_account_id: plaidAccountId }).eq("household_id", context.householdId).eq("id", rowId);
+    if (error) throw error;
+  }
+  // The new connection pulls these accounts' transactions again under its own ids.
+  if (plan.move.length && syncProductsOf(products).includes("transactions")) {
+    const { error } = await db.from("transactions").delete().eq("household_id", context.householdId).in("plaid_account_id", plan.move.map((row) => row.rowId));
+    if (error) throw error;
+  }
+  if (plan.release.length) {
+    const { data, error } = await db.from("plaid_items").select("ignored_accounts").eq("id", plan.itemId).single();
+    if (error) throw error;
+    const ignored = [...new Set([...((data.ignored_accounts as string[] | null) || []), ...plan.release])];
+    const { error: updateError } = await db.from("plaid_items").update({ ignored_accounts: ignored, updated_at: new Date().toISOString() }).eq("id", plan.itemId);
+    if (updateError) throw updateError;
+  }
 }
 
 /** Finishes connecting a bank: swaps Link's public token, stores the item and its cards. */
@@ -57,10 +94,13 @@ export async function POST(request: Request) {
     const { accessToken, itemId } = await exchangePublicToken(body.publicToken);
     const { accounts, item } = await getAccounts(accessToken);
     const institutionId = item.institution_id || body.institution?.id || null;
-    if (await alreadyConnected(context, institutionId, accounts)) {
+    const plan = await connectPlan(context, institutionId, accounts, item.products);
+    if (plan.kind === "duplicate") {
       // Don't keep (and pay for) a second copy: every transaction would be counted twice.
       await removeItem(accessToken).catch(() => undefined);
-      throw new Response("This bank login is already connected; use Reconnect on it instead.", { status: 409 });
+      // Don't point a member at a login that's hidden from them (or confirm it exists).
+      const hidden = (await hiddenItemIds(context)).has(plan.itemId);
+      throw new Response(hidden ? "This login is already connected in Cardfolio." : "This bank login is already connected; use Reconnect on it instead.", { status: 409 });
     }
     const { data, error } = await context.db.from("plaid_items").insert({
       household_id: context.householdId,
@@ -72,11 +112,13 @@ export async function POST(request: Request) {
       added_by_email: context.user.email,
       consent_expires_at: item.consent_expiration_time || null,
       person_id: personId,
+      ignored_accounts: plan.kind === "share" ? plan.ignore : [],
     }).select("id").single();
     if (error) {
       await removeItem(accessToken).catch(() => undefined);
       throw error;
     }
+    if (plan.kind === "share") await shareLogin(context, data.id as number, plan, item.products || []);
     const linked = await syncItemAccounts(context, data.id as number, accounts);
     return Response.json({ ...linked, sync: await firstSync(context, data.id as number) });
   } catch (error) {

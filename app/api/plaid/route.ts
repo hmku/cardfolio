@@ -1,3 +1,4 @@
+import { hiddenLoginIds } from "@/app/lib/core/finance";
 import { plaidConfigured, plaidEnvironment } from "@/db/plaid";
 import { errorResponse, requireHousehold } from "@/db/storage";
 
@@ -13,10 +14,11 @@ export async function GET(request: Request) {
     ]);
     if (items.error) throw items.error;
     if (accounts.error) throw accounts.error;
-    // Members with hideInvestments don't see investment accounts, or logins that only have those.
+    // Members with hideInvestments don't see investment accounts, or logins that only have those
+    // (the same rule hiddenItemIds applies to sync, link and disconnect).
     const visible = (accounts.data || []).filter((account) => !context.hideInvestments || account.type !== "investment");
-    const hiddenItems = new Set((accounts.data || []).filter((account) => !visible.includes(account)).map((account) => account.item_id));
-    const shownItems = (items.data || []).filter((item) => !hiddenItems.has(item.id) || visible.some((account) => account.item_id === item.id));
+    const hiddenItems = hiddenLoginIds(accounts.data || [], context.hideInvestments);
+    const shownItems = (items.data || []).filter((item) => !hiddenItems.has(item.id));
     return Response.json({
       configured: plaidConfigured(),
       sandbox: plaidEnvironment() === "sandbox",

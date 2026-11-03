@@ -414,27 +414,120 @@ export function mergeSyncedProducts(previous: readonly string[] | null | undefin
   return ALL_SYNC_PRODUCTS.filter((product) => merged.has(product));
 }
 
+/**
+ * Logins hidden from a member with hideInvestments: those with investment accounts and no
+ * other account. A login with no accounts at all, or a mixed one, stays visible (its
+ * investment accounts are hidden one by one). Empty when hideInvestments is off. The
+ * plaid_item_status view (migration 20261103000101_server_hide_investment_items) applies the
+ * same rule in SQL; change both together.
+ */
+export function hiddenLoginIds<Id>(accounts: readonly { item_id: Id; type: string | null }[], hideInvestments: boolean) {
+  const hidden = new Set<Id>();
+  if (!hideInvestments) return hidden;
+  const visible = new Set<Id>();
+  for (const account of accounts) (account.type === "investment" ? hidden : visible).add(account.item_id);
+  for (const id of visible) hidden.delete(id);
+  return hidden;
+}
+
 type LoginAccount = { mask: string | null; subtype: string | null };
+type StoredLogin<A extends LoginAccount = LoginAccount> = { institutionId: string | null; accounts: readonly A[]; syncedProducts?: readonly string[] | null };
+
+/** Our sync steps that a Plaid item's products enable ("investments" covers holdings and investment transactions). */
+export function syncProductsOf(itemProducts: readonly string[]): SyncProduct[] {
+  const products: SyncProduct[] = [];
+  if (itemProducts.includes("transactions")) products.push("transactions");
+  if (itemProducts.includes("liabilities")) products.push("liabilities");
+  if (itemProducts.includes("investments")) products.push("holdings", "investment_transactions");
+  return products;
+}
+
+const accountKey = (account: LoginAccount) => `${account.mask}|${account.subtype || ""}`;
+
+/** The first stored login at the same institution that has every new account with last digits (by digits and subtype). */
+function matchingLogin<L extends StoredLogin>(institutionId: string | null | undefined, accounts: readonly LoginAccount[], existing: readonly L[]) {
+  if (!institutionId) return null;
+  const keys = accounts.filter((account) => account.mask).map(accountKey);
+  if (keys.length === 0) return null;
+  return existing.find((item) => {
+    if (item.institutionId !== institutionId) return false;
+    const known = new Set(item.accounts.filter((account) => account.mask).map(accountKey));
+    return keys.every((value) => known.has(value));
+  }) ?? null;
+}
 
 /**
- * Whether a newly connected login repeats one already stored: same institution, and every
- * account with last digits matches one there by digits and subtype (the check Plaid suggests).
- * Logins whose accounts have no last digits are never treated as duplicates.
+ * Sync products the new login brings that the stored one doesn't sync. Unknown products on
+ * either side (null) count as nothing new, so such a login stays a duplicate.
+ */
+function addedProducts(newProducts: readonly string[] | null | undefined, stored: readonly string[] | null | undefined): SyncProduct[] {
+  if (!newProducts || !stored) return [];
+  const have = new Set(stored);
+  if (have.has("holdings") || have.has("investment_transactions")) { have.add("holdings"); have.add("investment_transactions"); }
+  return syncProductsOf(newProducts).filter((product) => !have.has(product));
+}
+
+/**
+ * Whether a newly connected login repeats one already stored: same institution, every
+ * account with last digits matches one there by digits and subtype (the check Plaid suggests),
+ * and it brings no product the stored login lacks (`products` are the new item's Plaid
+ * products; a login connected again for Investments isn't a duplicate). Logins whose accounts
+ * have no last digits are never treated as duplicates.
  */
 export function isDuplicateLogin(
   institutionId: string | null | undefined,
   accounts: readonly LoginAccount[],
-  existing: readonly { institutionId: string | null; accounts: readonly LoginAccount[] }[],
+  existing: readonly StoredLogin[],
+  products?: readonly string[] | null,
 ) {
-  if (!institutionId) return false;
-  const key = (account: LoginAccount) => `${account.mask}|${account.subtype || ""}`;
-  const keys = accounts.filter((account) => account.mask).map(key);
-  if (keys.length === 0) return false;
-  return existing.some((item) => {
-    if (item.institutionId !== institutionId) return false;
-    const known = new Set(item.accounts.filter((account) => account.mask).map(key));
-    return keys.every((value) => known.has(value));
-  });
+  const match = matchingLogin(institutionId, accounts, existing);
+  return !!match && addedProducts(products, match.syncedProducts).length === 0;
+}
+
+/** Whether a product step covers an account of this Plaid type. */
+function productCovers(product: SyncProduct, type: string | null) {
+  if (product === "holdings" || product === "investment_transactions") return type === "investment";
+  if (product === "liabilities") return type === "credit";
+  return type !== "investment";
+}
+
+type ConnectAccount = LoginAccount & { plaidAccountId: string; type: string | null };
+
+export type LoginConnectPlan<Id> =
+  | { kind: "new" }
+  | { kind: "duplicate"; itemId: Id }
+  /**
+   * The same login connected again for products the stored one lacks (e.g. Investments). Both
+   * are kept, but each account is stored once: `move` lists the stored rows (by id) that the new
+   * login carries from now on, under its Plaid account id; the new login skips `ignore` (Plaid
+   * account ids the stored login keeps), and the stored login skips the moved ones (`release`).
+   */
+  | { kind: "share"; itemId: Id; move: { rowId: number; plaidAccountId: string }[]; ignore: string[]; release: string[] };
+
+/** What to do with a newly connected login, given the household's stored ones (see isDuplicateLogin). */
+export function planLoginConnect<Id>(
+  institutionId: string | null | undefined,
+  accounts: readonly ConnectAccount[],
+  products: readonly string[] | null | undefined,
+  existing: readonly (StoredLogin<ConnectAccount & { rowId: number }> & { id: Id })[],
+): LoginConnectPlan<Id> {
+  const match = matchingLogin(institutionId, accounts, existing);
+  if (!match) return { kind: "new" };
+  const added = addedProducts(products, match.syncedProducts);
+  const stored = new Map(match.accounts.filter((account) => account.mask).map((account) => [accountKey(account), account]));
+  const move: { rowId: number; plaidAccountId: string }[] = [];
+  const ignore: string[] = [];
+  const release: string[] = [];
+  let carried = 0;
+  for (const account of accounts) {
+    const wanted = added.some((product) => productCovers(product, account.type));
+    const old = account.mask ? stored.get(accountKey(account)) : undefined;
+    if (!wanted) { ignore.push(account.plaidAccountId); continue; }
+    carried += 1;
+    if (old) { move.push({ rowId: old.rowId, plaidAccountId: account.plaidAccountId }); release.push(old.plaidAccountId); }
+  }
+  if (carried === 0) return { kind: "duplicate", itemId: match.id };
+  return { kind: "share", itemId: match.id, move, ignore, release };
 }
 
 /** The first day of the investment transaction window: the same day `months` months ago (YYYY-MM-DD). */

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { isDuplicateLogin, mergeSyncedProducts, nextItemStatus } from "../app/lib/core/finance.ts";
-import { webhookKeyCache, type WebhookKey } from "../db/plaid-webhook.ts";
+import { hiddenLoginIds, isDuplicateLogin, mergeSyncedProducts, nextItemStatus, planLoginConnect } from "../app/lib/core/finance.ts";
+import { lookupWebhookKey, webhookKeyCache, type WebhookKey } from "../db/plaid-webhook.ts";
 
 test("a bank login's reconnect flag stays until it's repaired", () => {
   const ok = { status: "ok", errorCode: null };
@@ -45,6 +45,78 @@ test("connecting the same bank login twice is detected by institution and accoun
   assert.equal(isDuplicateLogin("ins_3", [{ mask: null, subtype: "checking" }], existing), false, "no digits to compare");
   assert.equal(isDuplicateLogin(null, [{ mask: "1234", subtype: "credit card" }], existing), false);
   assert.equal(isDuplicateLogin("ins_3", [{ mask: "1234", subtype: "credit card" }], []), false);
+});
+
+test("connecting a login again for a product it lacks isn't a duplicate", () => {
+  const bank = [{ institutionId: "ins_3", syncedProducts: ["transactions", "liabilities"], accounts: [{ mask: "1234", subtype: "credit card" }, { mask: "4444", subtype: "brokerage" }] }];
+  const brokerage = [{ mask: "4444", subtype: "brokerage" }];
+  assert.equal(isDuplicateLogin("ins_3", brokerage, bank, ["investments", "transactions"]), false, "adds Investments");
+  assert.equal(isDuplicateLogin("ins_3", brokerage, bank, ["transactions", "liabilities"]), true, "the same products");
+  assert.equal(isDuplicateLogin("ins_3", brokerage, bank, ["transactions"]), true, "fewer products");
+  assert.equal(isDuplicateLogin("ins_3", brokerage, bank), true, "products unknown");
+  assert.equal(isDuplicateLogin("ins_3", brokerage, [{ ...bank[0], syncedProducts: null }], ["investments"]), true, "stored products unknown");
+  assert.equal(isDuplicateLogin("ins_3", brokerage, [{ ...bank[0], syncedProducts: ["transactions", "holdings"] }], ["investments"]), true, "already has holdings");
+
+  // Both connections are kept, each account stored once: the brokerage moves to the new one.
+  const stored = [{
+    id: 7, institutionId: "ins_3", syncedProducts: ["transactions", "liabilities"],
+    accounts: [
+      { rowId: 70, plaidAccountId: "old-card", mask: "1234", subtype: "credit card", type: "credit" },
+      { rowId: 71, plaidAccountId: "old-brokerage", mask: "4444", subtype: "brokerage", type: "investment" },
+    ],
+  }];
+  const again = [
+    { plaidAccountId: "new-card", mask: "1234", subtype: "credit card", type: "credit" },
+    { plaidAccountId: "new-brokerage", mask: "4444", subtype: "brokerage", type: "investment" },
+  ];
+  assert.deepEqual(planLoginConnect("ins_3", again, ["investments", "transactions"], stored), {
+    kind: "share", itemId: 7, move: [{ rowId: 71, plaidAccountId: "new-brokerage" }], ignore: ["new-card"], release: ["old-brokerage"],
+  });
+  assert.deepEqual(planLoginConnect("ins_3", again, ["transactions", "liabilities"], stored), { kind: "duplicate", itemId: 7 });
+  // Adding Investments to a login with no investment account brings nothing to store.
+  assert.deepEqual(planLoginConnect("ins_3", again.slice(0, 1), ["investments"], stored), { kind: "duplicate", itemId: 7 });
+  assert.deepEqual(planLoginConnect("ins_4", again, ["investments"], stored), { kind: "new" });
+});
+
+test("members with hideInvestments don't see investment-only logins", () => {
+  const accounts = [
+    { item_id: 1, type: "investment" },
+    { item_id: 1, type: "investment" },
+    { item_id: 2, type: "investment" },
+    { item_id: 2, type: "depository" },
+    { item_id: 3, type: "credit" },
+  ];
+  assert.deepEqual([...hiddenLoginIds(accounts, true)], [1], "investment-only hidden; mixed and card logins shown");
+  assert.deepEqual([...hiddenLoginIds(accounts, false)], [], "everyone else sees all");
+  assert.deepEqual([...hiddenLoginIds([], true)], [], "a login with no accounts isn't hidden");
+});
+
+test("a webhook key lookup is null only when Plaid says the kid is invalid", async () => {
+  const key: WebhookKey = { kty: "EC", crv: "P-256", x: "x", y: "y", kid: "k1", expired_at: null };
+  const failing = (error: unknown) => async () => { throw error; };
+  assert.equal(await lookupWebhookKey("k1", async () => key), key);
+  assert.equal(await lookupWebhookKey("k1", failing({ code: "INVALID_WEBHOOK_VERIFICATION_KEY_ID", status: 400, type: "INVALID_INPUT" })), null);
+  assert.equal(await lookupWebhookKey("k1", failing({ code: "SOMETHING", status: 400, type: null })), null);
+  for (const error of [
+    { code: "UNKNOWN", status: 502, type: null },
+    { code: "UNKNOWN", status: 400, type: null },
+    { code: "RATE_LIMIT_EXCEEDED", status: 429, type: "RATE_LIMIT_EXCEEDED" },
+    { code: "INTERNAL_SERVER_ERROR", status: 500, type: "API_ERROR" },
+    new DOMException("timed out", "TimeoutError"),
+  ]) await assert.rejects(lookupWebhookKey("k1", failing(error)));
+
+  // Through the cache: a 502 from Plaid's edge isn't remembered as an unknown kid.
+  let calls = 0;
+  let down = true;
+  const cache = webhookKeyCache((kid) => lookupWebhookKey(kid, async () => {
+    calls += 1;
+    if (down) throw { code: "UNKNOWN", status: 502, type: null };
+    return key;
+  }), () => 0);
+  assert.equal(await cache("k1"), null);
+  down = false;
+  assert.equal(await cache("k1"), key);
+  assert.equal(calls, 2);
 });
 
 test("webhook verification keys are cached for a day and unknown kids briefly", async () => {

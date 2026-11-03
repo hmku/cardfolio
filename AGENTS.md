@@ -18,7 +18,12 @@ Update it in the same commit as the related change.
   `tests/core.test.ts` against `data/sheet-snapshot.json`.
 - The browser reads and writes Supabase directly under row-level security; server routes
   in `app/api/` handle membership, invites, push reminders and exports.
-- Schema changes go in a new file in `supabase/migrations/` (never edit applied ones).
+- Schema changes go in a new file in `supabase/migrations/` (never edit applied ones), each
+  with its own version prefix (the Supabase CLI keys migrations by it). Since
+  `20261103000101_data_finance_grants.sql`, new tables and views in `public` get no browser
+  privileges by default: every migration that adds one must `grant` exactly what
+  `authenticated` needs (select, and only the writes the browser makes) and nothing to `anon`,
+  or the browser gets "permission denied" (42501) and realtime stops delivering its changes.
 - Card names: use the short name (`shortName()` / `holdingName()`, the sheet abbreviation
   plus the holder's initials and card number, like "biz plat HK7", matching 1Password)
   wherever space is tight: tables, tags, lists, toasts, notifications. Never write "#7".

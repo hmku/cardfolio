@@ -98,15 +98,15 @@ export function InvestmentsPage({ context, portfolio, notify, onOpenSettings }: 
       .map((row) => ({ ...row, kind: activityKind(row.type, row.subtype) }))
       .filter((row) => activityType === "all" || row.kind === activityType);
   }, [data, more.rows, chosen, activityType]);
-  const loadedActivity = (data?.activity.length ?? 0) + more.rows.length;
+  const lastActivity = more.rows.at(-1) ?? data?.activity.at(-1);
   const canLoadMore = !more.done && (data?.activity.length ?? 0) === ACTIVITY_PAGE;
 
   const showMore = async () => {
     if (shown < activity.length) { setShown(shown + 25); return; }
-    if (!canLoadMore) return;
+    if (!canLoadMore || !lastActivity) return;
     setLoadingMore(true);
     try {
-      const rows = await loadInvestmentTransactions(context, { limit: ACTIVITY_PAGE, offset: loadedActivity });
+      const rows = await loadInvestmentTransactions(context, { limit: ACTIVITY_PAGE, before: { date: lastActivity.date, id: lastActivity.id } });
       setMore((current) => ({ rows: [...current.rows, ...rows], done: rows.length < ACTIVITY_PAGE }));
       setShown(shown + 25);
     } catch (reason) { notify(reason instanceof Error ? reason.message : "Couldn't load more activity", true); }

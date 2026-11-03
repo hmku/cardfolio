@@ -346,17 +346,15 @@ export type TransactionQuery = {
   unreviewedOnly?: boolean;
   /** Only money in (> 0) or money out (< 0). */
   direction?: "in" | "out";
-  /** Page size (default 50, at most 1000) and offset for paging. */
+  /** Page size (default 50, at most 1000). */
   limit?: number;
-  offset?: number;
-  /** Keyset paging: only rows after this one (the last row of the previous page). Use instead of `offset`. */
+  /** Keyset paging: only rows after this one (the last row of the previous page). */
   before?: { date: string; id: number };
 };
 
 /** Transactions newest first (date, then id), filtered. Returns the page and whether more exist. */
 export async function loadTransactions(context: FinanceContext, query: TransactionQuery = {}): Promise<{ transactions: Transaction[]; hasMore: boolean }> {
   const limit = Math.min(Math.max(query.limit ?? 50, 1), 1000);
-  const offset = Math.max(query.offset ?? 0, 0);
   let request = context.db.from("transactions").select(TRANSACTION_COLUMNS).eq("household_id", context.householdId);
   for (const word of (query.search || "").split(/\s+/).filter(Boolean)) request = request.ilike("search_text", containsPattern(word));
   if (query.accountIds?.length) request = request.in("plaid_account_id", query.accountIds);
@@ -377,7 +375,7 @@ export async function loadTransactions(context: FinanceContext, query: Transacti
   if (query.direction === "in") request = request.gt("amount_cents", 0);
   if (query.direction === "out") request = request.lt("amount_cents", 0);
   // One extra row tells whether there's another page.
-  const rows = check(await request.order("date", { ascending: false }).order("id", { ascending: false }).range(offset, offset + limit), "load transactions") || [];
+  const rows = check(await request.order("date", { ascending: false }).order("id", { ascending: false }).range(0, limit), "load transactions") || [];
   return { transactions: rows.slice(0, limit).map(toTransaction), hasMore: rows.length > limit };
 }
 
@@ -496,13 +494,18 @@ export type InvestmentTransaction = {
   currency: string | null;
 };
 
-export async function loadInvestmentTransactions(context: FinanceContext, options: { from?: string; plaidAccountId?: number; limit?: number; offset?: number } = {}): Promise<InvestmentTransaction[]> {
+/**
+ * Investment activity newest first (date, then id). Page with `before`, the last row already loaded
+ * (keyset, like transactions), so a sync adding rows between pages doesn't skip or repeat any.
+ */
+export async function loadInvestmentTransactions(context: FinanceContext, options: { from?: string; plaidAccountId?: number; limit?: number; before?: { date: string; id: number } } = {}): Promise<InvestmentTransaction[]> {
   const limit = Math.min(Math.max(options.limit ?? 100, 1), 1000);
-  const offset = Math.max(options.offset ?? 0, 0);
   let request = context.db.from("investment_transactions").select("*").eq("household_id", context.householdId);
+  // `.or()` wraps its argument in or(…), so the tree goes in without its own "or(" … ")".
+  if (options.before) request = request.or(transactionsBefore(options.before).slice(3, -1));
   if (options.from) request = request.gte("date", options.from);
   if (options.plaidAccountId) request = request.eq("plaid_account_id", options.plaidAccountId);
-  const rows = check(await request.order("date", { ascending: false }).order("id", { ascending: false }).range(offset, offset + limit - 1), "load investment transactions") || [];
+  const rows = check(await request.order("date", { ascending: false }).order("id", { ascending: false }).range(0, limit - 1), "load investment transactions") || [];
   return rows.map((row: Row) => ({
     id: num(row.id),
     plaidAccountId: num(row.plaid_account_id),

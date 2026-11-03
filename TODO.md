@@ -5,6 +5,17 @@ done and move them to **Done** with the date.
 
 ## Needs Harrison
 
+- [ ] **Apply the two finance security migrations** to Supabase project `ylrkwnqrmuxlzouziabz`
+      (not applied yet), in order: `supabase/migrations/20261103000101_data_finance_grants.sql`
+      (stops members rewriting synced Plaid fields such as `transactions.amount_cents`/`date`,
+      and makes new tables start with no browser grants), then
+      `20261103000102_server_hide_investment_items.sql` (hides brokerage-only logins in
+      `plaid_item_status` from `hide_investments` members). The first one fails on its own if
+      the grants didn't take. Then check: `select privilege_type from
+      information_schema.role_table_grants where grantee = 'authenticated' and table_name =
+      'transactions'` lists only SELECT; signed in as devtest, a PATCH to
+      `/rest/v1/transactions` setting `amount_cents` is refused, and
+      `/rest/v1/plaid_item_status` returns no brokerage-only login. Move this to Done with the date once applied.
 - [ ] **Turn on reminders** on each device (Settings → Reminders → Turn on, then Send a test).
       On iPhone, add the site to the home screen first and turn it on from there. Sophia too.
 - [ ] **Fill in the last digits 1Password didn't cover** (card drawer → Last digits):
@@ -130,8 +141,9 @@ done and move them to **Done** with the date.
   - [ ] Ideas: split a transaction, tags, recurring/subscription detection, a budget per
         category, CSV export of the filtered list, a "needs review" count on the tab, keyboard
         shortcuts (j/k, c for category), editing rules in place (today: delete and add again).
-  - [ ] Applying a rule to past transactions updates every non-manual match in one request; if
-        the household reaches tens of thousands of transactions, move it into a Postgres function.
+  - [ ] Applying a rule to past transactions loads every candidate row into the browser and
+        updates the matches in batches of 200 ids; at tens of thousands of transactions, move
+        it into a `cardfolio_*` Postgres function.
   - [ ] Cash flow counts uncategorized money in as income and money out as spending. If card
         payments or transfers land uncategorized, they inflate both; fix their category (or add a
         rule) rather than changing the math.

@@ -96,7 +96,7 @@ button { cursor: pointer; }
 /* Groups */
 .group { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
 .group-head { display: flex; align-items: center; gap: 10px; padding: 12px 14px; border: 0; background: transparent; width: 100%; text-align: left; flex-wrap: wrap; }
-.group-head h2 { font-size: 15px; font-weight: 600; margin: 0; }
+.group-head :is(h2, h3) { font-size: 15px; font-weight: 600; margin: 0; }
 .group-head .meta { color: var(--muted); font-size: 13px; }
 .group-head .caret { color: var(--faint); width: 14px; transition: transform .15s; }
 .group.collapsed .caret { transform: rotate(-90deg); }
@@ -366,11 +366,17 @@ input[type="date"]::-webkit-datetime-edit { padding: 0; }
 
 /* Finance pages (shared frame; each page styles its own content further). */
 .finance-page { display: grid; gap: 10px; }
-.finance-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+/* The heading row is one control tall on every tab, so switching tabs doesn't move the content. */
+.finance-head { display: flex; align-items: center; gap: 8px 10px; flex-wrap: wrap; min-height: var(--control-h); }
 .finance-head h2 { margin: 0 auto 0 0; font-size: 17px; }
 /* One height for the toolbar controls on every finance tab (search, selects, segmented buttons, buttons). */
 .finance-page { --control-h: 34px; }
+/* Headline amounts (tiles, stats, card totals): the body font with even-width digits; .num (mono) is for lists and tables. */
+.figure { font-variant-numeric: tabular-nums; }
 .txn-toolbar > :is(.btn:not(.link), .search, select), .finance-filters > :is(.seg, select), .cf-period > .seg, .cf-stepper > :is(.btn, select), .group-head > select.filter-select { min-height: var(--control-h); box-sizing: border-box; }
+/* Segmented controls in a toolbar are exactly one control tall (their padded buttons would make them taller). */
+.finance-filters > .seg, .cf-period > .seg { height: var(--control-h); }
+.finance-filters > .seg button, .cf-period > .seg button { padding-block: 0; }
 .icon-btn { width: var(--control-h, 34px); padding: 0; display: inline-grid; place-items: center; font-size: 16px; line-height: 1; }
 .icon-btn:disabled { opacity: .45; cursor: default; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
@@ -473,9 +479,18 @@ label.f textarea { border: 1px solid var(--line); border-radius: 7px; padding: 7
   --cf-income: #3987e5; --cf-spend: #d95926; --cf-net: #e6ebf0;
   --cat-0: #d95926; --cat-1: #199e70; --cat-2: #c98500; --cat-3: #d55181; --cat-4: #008300; --cat-5: #9085e9; --cat-6: #e66767; --cat-none: #5d6976;
 }
-.cf-period { display: inline-flex; flex-wrap: wrap; gap: 6px; align-items: center; }
-.cf-stepper { display: inline-flex; gap: 4px; align-items: center; }
-.cf-stepper .btn { min-width: 32px; }
+.cf-period { display: inline-flex; gap: 6px; align-items: center; min-width: 0; }
+.cf-stepper { display: inline-flex; gap: 4px; align-items: center; min-width: 0; }
+.cf-stepper .btn { min-width: 32px; flex: none; }
+/* Kept in place (hidden) in the 12-month view so the header doesn't shift. */
+.cf-stepper.hidden { visibility: hidden; }
+@media (max-width: 600px) {
+  /* Phones: the period controls take their own full-width row under the title: length, then the month. */
+  .cf-period { flex: 1 1 100%; }
+  .cf-period > .seg { flex: none; }
+  .cf-stepper { flex: 1; }
+  .cf-stepper select { flex: 1; min-width: 0; }
+}
 
 .cf-tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
 .cf-tile { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; display: grid; gap: 4px; align-content: start; min-width: 0; }
@@ -550,9 +565,6 @@ button.cf-flow-label:hover, button.cf-flow-label:focus-visible { background: var
 .cf-segments-wrap { position: relative; }
 .cf-segments { display: flex; gap: 2px; height: 28px; }
 .cf-segment { flex-basis: 0; min-width: 3px; border-radius: 4px; display: flex; align-items: center; padding: 0 7px; color: #fff; font-size: 11px; font-weight: 600; overflow: hidden; white-space: nowrap; transition: opacity .15s; }
-.cf-segment.light-fill { color: #0b0b0b; }
-@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .cf-segment.light-fill { color: #fff; } }
-:root[data-theme="dark"] .cf-segment.light-fill { color: #fff; }
 .cf-segment.dim { opacity: .35; }
 .cf-segment-note { position: absolute; top: 34px; left: 0; z-index: 2; margin: 0; font-size: 12px; color: var(--muted); background: var(--surface); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 6px 20px rgba(20, 32, 44, .14); padding: 5px 9px; pointer-events: none; white-space: nowrap; }
 .cf-segment-note b { color: var(--ink); font-weight: 600; }

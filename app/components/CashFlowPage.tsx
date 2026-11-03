@@ -2,16 +2,17 @@
 
 import { useCallback, useMemo, useState, type ReactNode } from "react";
 import {
-  assignCategoryHues, cashFlowBreakdown, cashFlowByMonth, cashFlowFlow, cashFlowPeriodRanges, cashFlowSide, chartWindowEnd, defaultCashFlowPeriod,
-  elapsedMonths, fillMonths, foldShares, recentMonths, relativeChange, withPreviousShares, type CashFlowShare, type DateRange, type FlowNode, type MerchantSpend,
+  assignCategoryHues, CATEGORY_HUES, cashFlowBreakdown, cashFlowByMonth, cashFlowFlow, cashFlowPeriodRanges, cashFlowSide, chartWindowEnd, defaultCashFlowPeriod,
+  elapsedMonths, fillMonths, foldShares, preferredCategoryHue, recentMonths, relativeChange, withPreviousShares, type CashFlowShare, type DateRange, type FlowNode, type MerchantSpend,
 } from "../lib/core/finance";
 import { isoDate } from "../lib/core/dates";
 import { loadCashFlowTransactions, loadCategories, type Category } from "../lib/finance-data";
 import { moneyWhole, percent } from "../lib/presentation/finance-format";
-import { monthYear } from "../lib/presentation/format";
+import { monthName, monthYear } from "../lib/presentation/format";
 import type { TransactionFilters } from "../lib/presentation/transaction-view";
 import { FlowDiagram, MonthChart, SegmentBar, type FlowItem } from "./CashFlowCharts";
 import { FinanceEmpty, FinanceSection, useFinanceLoad, type FinancePageProps } from "./FinanceShared";
+import { MerchantIcon } from "./MerchantIcon";
 
 /** How far back the month picker goes (and what's loaded: 12 months plus the 12 before, for comparisons). */
 const HISTORY_MONTHS = 24;
@@ -22,10 +23,7 @@ const COLORED_CATEGORIES = 7;
 type CashFlowTxn = Awaited<ReturnType<typeof loadCashFlowTransactions>>[number];
 export type CashFlowData = { transactions: CashFlowTxn[]; categories: Category[] };
 
-const longMonth = new Intl.DateTimeFormat("en-US", { month: "long", timeZone: "UTC" });
-const shortMonth = new Intl.DateTimeFormat("en-US", { month: "short", timeZone: "UTC" });
 const between = <T extends { date: string }>(transactions: T[], range: DateRange) => transactions.filter((transaction) => transaction.date >= range.from && transaction.date <= range.to);
-const monthOf = (month: string, format = shortMonth) => format.format(new Date(`${month}-15T00:00:00Z`));
 
 /** Cash flow tab: loads two years of transactions and categories, then shows CashFlowView. */
 export function CashFlowPage({ context, onOpenSettings, onShowTransactions }: FinancePageProps) {
@@ -57,7 +55,7 @@ function Tile({ label, value, negative, note, children }: { label: string; value
   return (
     <div className="cf-tile">
       <span className="cf-tile-label">{label}</span>
-      <strong className={negative ? "negative" : undefined}>{value}</strong>
+      <strong className={`figure${negative ? " negative" : ""}`}>{value}</strong>
       {children}
       <ChangeNote value={note ?? null} />
     </div>
@@ -66,13 +64,7 @@ function Tile({ label, value, negative, note, children }: { label: string; value
 
 /** Round icon: a merchant logo when there is one, else the emoji, on a tint of the row's color. */
 function RowIcon({ emoji, color, logoUrl }: { emoji: string; color: string; logoUrl?: string | null }) {
-  const [failed, setFailed] = useState(false);
-  if (logoUrl && !failed) {
-    // Plaid's merchant logos are small remote images; next/image would need their host configured.
-    // eslint-disable-next-line @next/next/no-img-element
-    return <img className="cf-icon" src={logoUrl} alt="" loading="lazy" referrerPolicy="no-referrer" onError={() => setFailed(true)} />;
-  }
-  return <span className="cf-icon" aria-hidden="true" style={{ background: `color-mix(in srgb, ${color} 16%, var(--surface))`, boxShadow: `inset 0 0 0 1px color-mix(in srgb, ${color} 30%, transparent)` }}>{emoji}</span>;
+  return <MerchantIcon className="cf-icon" logoUrl={logoUrl} emoji={emoji} style={{ background: `color-mix(in srgb, ${color} 16%, var(--surface))`, boxShadow: `inset 0 0 0 1px color-mix(in srgb, ${color} 30%, transparent)` }} />;
 }
 
 type Row = { key: string; label: string; emoji: string; color: string; cents: number; share?: number; detail?: string; change?: Change; logoUrl?: string | null; open: () => void };
@@ -167,7 +159,7 @@ export function CashFlowView({ data, error, onRetry, today, onOpenSettings, onSh
   const comparable = ranges.previousRange.from >= firstLoaded;
   // A month under way is compared with the same days of the month before ("vs Oct 1–3").
   const vs = yearView ? "vs the 12 months before"
-    : `vs ${monthOf(ranges.previousMonth || month)}${ranges.partial ? ` 1–${Number(ranges.previousRange.to.slice(8))}` : ""}`;
+    : `vs ${monthName(ranges.previousMonth || month)}${ranges.partial ? ` 1–${Number(ranges.previousRange.to.slice(8))}` : ""}`;
   const index = months.indexOf(month);
   const chartEnd = yearView ? months.length - 1 : chartWindowEnd(windowEnd ?? months.length - 1, index, CHART_MONTHS, months.length);
   const chartMonths = useMemo(() => months.slice(Math.max(chartEnd - CHART_MONTHS + 1, 0), chartEnd + 1), [months, chartEnd]);
@@ -177,9 +169,14 @@ export function CashFlowView({ data, error, onRetry, today, onOpenSettings, onSh
   const previous = useMemo(() => (data && comparable ? cashFlowBreakdown(between(data.transactions, ranges.previousRange), data.categories, 0) : null), [data, ranges, comparable]);
 
   // Colors: a category's own color wins; the rest get palette hues by size, so no two shown ones match.
-  const hues = useMemo(() => assignCategoryHues((breakdown?.spending || []).slice(0, COLORED_CATEGORIES)
-    .map((row) => (row.categoryId === null ? undefined : categoryById.get(row.categoryId)))
-    .filter((category): category is Category => Boolean(category && !category.color))), [breakdown, categoryById]);
+  // A lone extra category is shown as itself (not as "Everything else (1)") only while the palette
+  // still has a hue for it; otherwise it would be the same gray as "Everything else", so it folds.
+  const { hues, loneLeftover } = useMemo(() => {
+    const wantsHue = (breakdown?.spending || []).slice(0, COLORED_CATEGORIES + 1)
+      .map((row) => (row.categoryId === null ? undefined : categoryById.get(row.categoryId)))
+      .filter((category): category is Category => Boolean(category && !category.color && preferredCategoryHue(category) !== null));
+    return { hues: assignCategoryHues(wantsHue), loneLeftover: wantsHue.length <= CATEGORY_HUES };
+  }, [breakdown, categoryById]);
   const colorOf = (categoryId: number | null) => {
     const category = categoryId === null ? undefined : categoryById.get(categoryId);
     if (category?.color) return category.color;
@@ -199,15 +196,14 @@ export function CashFlowView({ data, error, onRetry, today, onOpenSettings, onSh
         <button type="button" aria-pressed={!yearView} onClick={() => pick(month)}>Month</button>
         <button type="button" aria-pressed={yearView} onClick={() => pick("12m")}>12 months</button>
       </div>
-      {!yearView && (
-        <div className="cf-stepper">
-          <button type="button" className="btn icon-btn" aria-label="Previous month" disabled={index <= 0} onClick={() => pick(months[index - 1])}>‹</button>
-          <select aria-label="Month" value={month} onChange={(event) => pick(event.target.value)}>
-            {[...months].reverse().map((value) => <option key={value} value={value}>{monthYear(`${value}-01`)}{value === thisMonth ? " (so far)" : ""}</option>)}
-          </select>
-          <button type="button" className="btn icon-btn" aria-label="Next month" disabled={index >= months.length - 1} onClick={() => pick(months[index + 1])}>›</button>
-        </div>
-      )}
+      {/* Hidden, not removed, in the 12-month view so the header keeps its size. */}
+      <div className={`cf-stepper${yearView ? " hidden" : ""}`} aria-hidden={yearView || undefined}>
+        <button type="button" className="btn icon-btn" aria-label="Previous month" disabled={yearView || index <= 0} onClick={() => pick(months[index - 1])}>‹</button>
+        <select aria-label="Month" value={month} disabled={yearView} onChange={(event) => pick(event.target.value)}>
+          {[...months].reverse().map((value) => <option key={value} value={value}>{monthYear(`${value}-01`)}{value === thisMonth ? " (so far)" : ""}</option>)}
+        </select>
+        <button type="button" className="btn icon-btn" aria-label="Next month" disabled={yearView || index >= months.length - 1} onClick={() => pick(months[index + 1])}>›</button>
+      </div>
     </div>
   );
 
@@ -233,7 +229,7 @@ export function CashFlowView({ data, error, onRetry, today, onOpenSettings, onSh
   const perMonth = (cents: number) => (yearView ? <small className="cf-tile-sub">{moneyWhole(Math.round(cents / elapsedMonths(today, ranges.months)))} a month</small> : null);
 
   // Flow diagram: income sources → spending categories and savings.
-  const flow = cashFlowFlow(breakdown, { incomeNodes: 3, spendingNodes: COLORED_CATEGORIES });
+  const flow = cashFlowFlow(breakdown, { incomeNodes: 3, spendingNodes: COLORED_CATEGORIES, spendingLoneLeftover: loneLeftover });
   const flowItem = (node: FlowNode): FlowItem => {
     if (node.role === "income") return { key: node.key, label: nameOf(node.categoryId), emoji: emojiOf(node.categoryId, "💰"), cents: node.cents, color: "var(--cf-income)", onOpen: () => openCategory(node.categoryId, "in") };
     if (node.role === "other-income") return { key: node.key, label: `${node.count} more sources`, emoji: "💰", cents: node.cents, color: "var(--cf-income)" };
@@ -247,7 +243,7 @@ export function CashFlowView({ data, error, onRetry, today, onOpenSettings, onSh
 
   // Spending by category: colored top categories, then the rest in neutral gray behind a toggle.
   const spending = withPreviousShares(breakdown.spending, previous?.spending || []);
-  const folded = foldShares(spending, COLORED_CATEGORIES);
+  const folded = foldShares(spending, COLORED_CATEGORIES, { loneLeftover });
   const shareChange = (row: { cents: number; previousCents: number }, upIsGood: boolean): Change => {
     if (!previous) return null;
     if (row.previousCents <= 0) return { text: "New", tone: "flat", vs };
@@ -265,7 +261,7 @@ export function CashFlowView({ data, error, onRetry, today, onOpenSettings, onSh
     open: () => openCategory(row.categoryId, direction),
   });
   const segments = [
-    ...folded.shown.map((row) => ({ key: String(row.categoryId), label: nameOf(row.categoryId), cents: row.cents, share: row.share, color: colorOf(row.categoryId), lightFill: row.categoryId !== null && hues.get(row.categoryId) === 2 && !categoryById.get(row.categoryId)?.color })),
+    ...folded.shown.map((row) => ({ key: String(row.categoryId), label: nameOf(row.categoryId), cents: row.cents, share: row.share, color: colorOf(row.categoryId) })),
     ...(folded.rest.length ? [{ key: "rest", label: `Everything else (${folded.rest.length})`, cents: folded.restCents, share: folded.restShare, color: "var(--cat-none)" }] : []),
   ];
   const income = withPreviousShares(breakdown.income, previous?.income || []);
@@ -291,28 +287,28 @@ export function CashFlowView({ data, error, onRetry, today, onOpenSettings, onSh
         </Tile>
       </div>
 
-      <Card title="Income & spending" sub={`${monthOf(chartMonths[0])} ${chartMonths[0].slice(0, 4)} – ${monthOf(chartMonths[chartMonths.length - 1])} ${chartMonths[chartMonths.length - 1].slice(0, 4)}`} wide
-        aside={!yearView && month === thisMonth ? <span className="cf-pill">{monthOf(thisMonth, longMonth)} so far</span> : undefined}>
+      <Card title="Income & spending" sub={`${monthYear(`${chartMonths[0]}-01`)} – ${monthYear(`${chartMonths[chartMonths.length - 1]}-01`)}`} wide
+        aside={!yearView && month === thisMonth ? <span className="cf-pill">{monthName(thisMonth, "long")} so far</span> : undefined}>
         <MonthChart months={byMonth} selected={yearView ? null : period} onSelect={pick} />
       </Card>
 
       <Card title="Where the money went" sub={periodLabel} wide>
         {flow.totalCents > 0 ? (
           <FlowDiagram sources={flow.sources.map(flowItem)} targets={flow.targets.map(flowItem)} totalCents={flow.totalCents}
-            centerLabel={flow.refundCents + flow.reversalCents > 0 ? (flow.incomeCents >= flow.spendingCents ? "Money in" : "Money out") : flow.incomeCents >= flow.spendingCents ? "Income" : "Spending"} percentOf={flow.totalCents}
+            centerLabel={flow.refundCents + flow.reversalCents > 0 ? (flow.incomeCents >= flow.spendingCents ? "Money in" : "Money out") : flow.incomeCents >= flow.spendingCents ? "Income" : "Spending"}
             centerNote={flow.spendingCents > flow.incomeCents ? `${moneyWhole(flow.spendingCents - flow.incomeCents)} more than came in` : undefined} />
         ) : <CardEmpty icon="🌤️">Nothing came in or went out in {periodLabel}.</CardEmpty>}
       </Card>
 
       <div className="cf-columns-2">
-        <Card title="Spending by category" sub={periodLabel} aside={<b className="num cf-card-total">{moneyWhole(breakdown.expenseCents)}</b>}>
+        <Card title="Spending by category" sub={periodLabel} aside={<b className="figure cf-card-total">{moneyWhole(breakdown.expenseCents)}</b>}>
           {spending.length ? (
             <>
               <SegmentBar segments={segments} label="Share of spending" />
               <RankedRows max={spending[0].cents} rows={folded.shown.map((row) => categoryRow(row, "out", colorOf(row.categoryId)))} />
               {folded.rest.length > 0 && (
                 <details className="cf-more">
-                  <summary>Everything else · {folded.rest.length} categories · <span className="num">{moneyWhole(folded.restCents)}</span></summary>
+                  <summary>Everything else · {folded.rest.length} {folded.rest.length === 1 ? "category" : "categories"} · <span className="num">{moneyWhole(folded.restCents)}</span></summary>
                   <RankedRows max={spending[0].cents} rows={folded.rest.map((row) => categoryRow(row, "out", "var(--cat-none)"))} />
                 </details>
               )}
@@ -321,7 +317,7 @@ export function CashFlowView({ data, error, onRetry, today, onOpenSettings, onSh
           ) : <CardEmpty icon="🧾">No spending in {periodLabel}.</CardEmpty>}
         </Card>
         <div className="cf-stack">
-          <Card title="Income" sub={periodLabel} aside={<b className="num cf-card-total">{moneyWhole(breakdown.incomeCents)}</b>}>
+          <Card title="Income" sub={periodLabel} aside={<b className="figure cf-card-total">{moneyWhole(breakdown.incomeCents)}</b>}>
             {income.length ? <RankedRows max={income[0].cents} rows={income.map((row) => categoryRow(row, "in", "var(--cf-income)"))} /> : <CardEmpty icon="💼">No income in {periodLabel}.</CardEmpty>}
             {breakdown.reversalCents > 0 && <p className="cf-card-note">Reversed income in categories with nothing else coming in takes <span className="num">{moneyWhole(breakdown.reversalCents)}</span> off the total.</p>}
           </Card>

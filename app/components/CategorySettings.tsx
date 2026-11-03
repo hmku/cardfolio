@@ -10,6 +10,7 @@ import {
 import { bankAccountLabel } from "../lib/presentation/account-labels";
 import { CategoryPicker, categoryLabel, KIND_LABELS } from "./CategoryPicker";
 import { ConfirmButton, Drawer } from "./ui";
+import { errorText } from "../lib/api";
 
 const KINDS: CategoryKind[] = ["expense", "income", "transfer"];
 const FIELD_LABELS: Record<RuleField, string> = { any: "Merchant or description", merchant: "Merchant", name: "Description" };
@@ -26,13 +27,20 @@ type Props = {
   onClose: () => void;
 };
 
-const message = (reason: unknown) => (reason instanceof Error ? reason.message : "Something went wrong.");
-
 type Run = (work: () => Promise<unknown>, success?: string, transactionsChanged?: boolean) => Promise<boolean>;
 
 function CategoryRow({ category, context, run }: { category: Category; context: FinanceContext; run: Run }) {
   const [name, setName] = useState(category.name);
   const [emoji, setEmoji] = useState(category.emoji || "");
+  // When the saved values change (after a save reloads the list), take them into a field only if
+  // it hasn't been typed in since, so a save of one field never resets typing in the other.
+  const saved = { name: category.name, emoji: category.emoji || "" };
+  const [synced, setSynced] = useState(saved);
+  if (synced.name !== saved.name || synced.emoji !== saved.emoji) {
+    if (name === synced.name || name.trim() === saved.name) setName(saved.name);
+    if (emoji === synced.emoji || emoji.trim() === saved.emoji) setEmoji(saved.emoji);
+    setSynced(saved);
+  }
   const saveName = () => {
     const next = name.trim();
     if (!next) { setName(category.name); return; }
@@ -72,7 +80,7 @@ export function CategorySettings({ context, portfolio, categories, rules, accoun
       onChanged(transactionsChanged);
       return true;
     } catch (reason) {
-      notify(message(reason), true);
+      notify(errorText(reason, "Something went wrong."), true);
       return false;
     }
   };
@@ -113,7 +121,7 @@ export function CategorySettings({ context, portfolio, categories, rules, accoun
             <h3>{KIND_LABELS[kind]}</h3>
             {kind === "transfer" && <p className="hint">Card payments and moving money between your own accounts. Never counted as income or spending.</p>}
             <div className="settings-list">
-              {list.map((category) => <CategoryRow key={`${category.id}-${category.name}-${category.emoji}`} category={category} context={context} run={run} />)}
+              {list.map((category) => <CategoryRow key={category.id} category={category} context={context} run={run} />)}
               {!list.length && <p className="hint">None yet.</p>}
             </div>
           </section>

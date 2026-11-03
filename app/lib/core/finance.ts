@@ -769,10 +769,11 @@ export function withPreviousShares(current: CashFlowShare[], previous: CashFlowS
 
 /**
  * The `keep` largest shares, and the rest folded together. A lone leftover isn't folded
- * (it's shown as itself), so "the rest" always stands for two or more categories.
+ * (it's shown as itself), so "the rest" always stands for two or more categories, unless
+ * `loneLeftover` is false (e.g. when the palette has no color left for it).
  */
-export function foldShares<T extends CashFlowShare>(rows: T[], keep: number): { shown: T[]; rest: T[]; restCents: number; restShare: number } {
-  const limit = rows.length <= keep + 1 ? rows.length : keep;
+export function foldShares<T extends CashFlowShare>(rows: T[], keep: number, { loneLeftover = true } = {}): { shown: T[]; rest: T[]; restCents: number; restShare: number } {
+  const limit = rows.length <= keep + (loneLeftover ? 1 : 0) ? rows.length : keep;
   const rest = rows.slice(limit);
   return { shown: rows.slice(0, limit), rest, restCents: rest.reduce((sum, row) => sum + row.cents, 0), restShare: rest.reduce((sum, row) => sum + row.share, 0) };
 }
@@ -844,10 +845,10 @@ export type FlowNode = {
  * "from savings" are the breakdown's net (as on the Net savings tile): refunds in categories that
  * netted to a refund come in as a "refunds" source, and net income reversals go out as "reversals".
  */
-export function cashFlowFlow(breakdown: Pick<CashFlowBreakdown, "income" | "spending" | "incomeCents" | "expenseCents" | "refundCents" | "reversalCents">, options: { incomeNodes?: number; spendingNodes?: number } = {}) {
+export function cashFlowFlow(breakdown: Pick<CashFlowBreakdown, "income" | "spending" | "incomeCents" | "expenseCents" | "refundCents" | "reversalCents">, options: { incomeNodes?: number; spendingNodes?: number; spendingLoneLeftover?: boolean } = {}) {
   const node = (role: FlowNode["role"], row: CashFlowShare): FlowNode => ({ key: `${role}:${row.categoryId}`, role, categoryId: row.categoryId, cents: row.cents, count: 1 });
   const income = foldShares(breakdown.income, options.incomeNodes ?? 3);
-  const spending = foldShares(breakdown.spending, options.spendingNodes ?? 7);
+  const spending = foldShares(breakdown.spending, options.spendingNodes ?? 7, { loneLeftover: options.spendingLoneLeftover });
   const sources = income.shown.map((row) => node("income", row));
   if (income.rest.length) sources.push({ key: "other-income", role: "other-income", categoryId: null, cents: income.restCents, count: income.rest.length });
   const targets = spending.shown.map((row) => node("spending", row));

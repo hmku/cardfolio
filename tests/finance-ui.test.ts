@@ -3,7 +3,8 @@ import test from "node:test";
 import { chartWindowEnd, elapsedMonths, transactionOrFilter, transactionsBefore } from "../app/lib/core/finance.ts";
 import { snapshotKey, snapshotLoadStart, withLiveEnd } from "../app/lib/core/investments.ts";
 import { splitMask } from "../app/lib/presentation/account-labels.ts";
-import { moneyCompact, niceStep, niceTicks, percent, signedMoney, signedPercent, tickLabels, timeAxisLabels } from "../app/lib/presentation/finance-format.ts";
+import { darkTextOn, moneyCompact, niceStep, niceTicks, percent, signedMoney, signedPercent, tickLabels, timeAxisLabels } from "../app/lib/presentation/finance-format.ts";
+import { monthName } from "../app/lib/presentation/format.ts";
 
 test("the 12-month averages count only the elapsed part of this month", () => {
   assert.equal(elapsedMonths("2026-11-30", 12), 12);
@@ -138,4 +139,23 @@ test("time axis labels never repeat a date", () => {
   assert.equal(labels[4].text, "Nov 2026");
   assert.deepEqual(labels.map((label) => label.fraction), [0, 0.25, 0.5, 0.75, 1]);
   assert.equal(new Set(labels.map((label) => label.text)).size, labels.length);
+});
+
+test("monthName names a YYYY-MM month in UTC", () => {
+  assert.equal(monthName("2026-11"), "Nov");
+  assert.equal(monthName("2026-01", "long"), "January");
+  assert.equal(monthName("2026-12-01"), "Dec");
+});
+
+test("segment labels pick dark ink on light fills and white on dark ones", () => {
+  // The light-mode "Everything else" gray, aqua and pink read better in near-black.
+  assert.equal(darkTextOn("#a7b0ba"), true);
+  assert.equal(darkTextOn("#1baf7a"), true);
+  assert.equal(darkTextOn("rgb(232, 123, 164)"), true);
+  assert.equal(darkTextOn("#fd0"), true);
+  // Violet, green and the dark-mode gray keep white.
+  assert.equal(darkTextOn("#6250d6"), false);
+  assert.equal(darkTextOn("rgba(93, 105, 118, 1)"), false);
+  assert.equal(darkTextOn("#008300"), false);
+  assert.equal(darkTextOn("var(--cat-1)"), null);
 });

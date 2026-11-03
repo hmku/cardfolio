@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState, type ReactNode } from "react";
 import type { Portfolio } from "../lib/core/model";
 import type { FinanceContext } from "../lib/finance-data";
 import type { TransactionFilters } from "../lib/presentation/transaction-view";
+import { errorText } from "../lib/api";
 
 /** What Portfolio passes to every finance page (Transactions, Cash flow, Investments, Accounts). */
 export type FinancePageProps = {
@@ -32,12 +33,12 @@ export function useFinanceLoad<T>(load: () => Promise<T>) {
       setData(await load());
       setError("");
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Couldn't load this page.");
+      setError(errorText(reason, "Couldn't load this page."));
     }
   }, [load]);
   useEffect(() => {
     let active = true;
-    load().then((value) => { if (active) { setData(value); setError(""); } }, (reason) => { if (active) setError(reason instanceof Error ? reason.message : "Couldn't load this page."); });
+    load().then((value) => { if (active) { setData(value); setError(""); } }, (reason) => { if (active) setError(errorText(reason, "Couldn't load this page.")); });
     return () => { active = false; };
   }, [load]);
   return { data, error, reload };

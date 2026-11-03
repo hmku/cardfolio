@@ -129,3 +129,29 @@ export function timeAxisLabels(dates: string[], maxLabels: number): { fraction: 
   }
   return labels;
 }
+
+/** Near-black ink for labels on light fills (white is the other choice). */
+export const DARK_INK = "#0b0b0b";
+
+/**
+ * Whether near-black text reads better than white on this fill: a hex (#rgb, #rrggbb) or an
+ * rgb()/rgba() color, as getComputedStyle reports it. Picks whichever has the higher WCAG
+ * contrast. Null for anything it can't parse (e.g. a var() that isn't resolved yet).
+ */
+export function darkTextOn(color: string): boolean | null {
+  const value = color.trim().toLowerCase();
+  let channels: number[] | null = null;
+  const hex = /^#([0-9a-f]{3}|[0-9a-f]{6})$/.exec(value);
+  if (hex) {
+    const digits = hex[1].length === 3 ? [...hex[1]].map((digit) => digit + digit) : hex[1].match(/../g)!;
+    channels = digits.map((pair) => parseInt(pair, 16));
+  } else {
+    const rgb = /^rgba?\(\s*([\d.]+)[\s,]+([\d.]+)[\s,]+([\d.]+)/.exec(value);
+    if (rgb) channels = rgb.slice(1, 4).map(Number);
+  }
+  if (!channels || channels.some((channel) => !Number.isFinite(channel))) return null;
+  const linear = (channel: number) => { const c = Math.min(channel, 255) / 255; return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4; };
+  const luminance = 0.2126 * linear(channels[0]) + 0.7152 * linear(channels[1]) + 0.0722 * linear(channels[2]);
+  const ink = 0.2126 * linear(11) + 0.7152 * linear(11) + 0.0722 * linear(11);
+  return (luminance + 0.05) / (ink + 0.05) > 1.05 / (luminance + 0.05);
+}

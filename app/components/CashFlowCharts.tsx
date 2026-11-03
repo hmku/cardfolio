@@ -1,32 +1,16 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useId, useLayoutEffect, useRef, useState } from "react";
 import type { CashFlowMonth } from "../lib/core/finance";
-import { moneyWhole, niceStep, percent, tickLabels } from "../lib/presentation/finance-format";
-import { monthYear } from "../lib/presentation/format";
+import { DARK_INK, darkTextOn, moneyWhole, niceStep, percent, tickLabels } from "../lib/presentation/finance-format";
+import { monthName, monthYear } from "../lib/presentation/format";
+import { useElementWidth as useWidth } from "./useElementWidth";
 
 /**
  * Hand-rolled SVG charts for the Cash flow tab: the monthly income/spending chart, the
  * income → spending flow diagram and the segmented share bar. Colors come from the --cf-* and
  * --cat-* tokens in globals.css (validated for both themes), or a category's own color.
  */
-
-const shortMonth = new Intl.DateTimeFormat("en-US", { month: "short", timeZone: "UTC" });
-const monthName = (month: string) => shortMonth.format(new Date(`${month}-15T00:00:00Z`));
-
-function useWidth<T extends HTMLElement>() {
-  const ref = useRef<T>(null);
-  const [width, setWidth] = useState(0);
-  useEffect(() => {
-    const element = ref.current;
-    if (!element) return;
-    setWidth(element.clientWidth);
-    const observer = new ResizeObserver(([entry]) => setWidth(Math.round(entry.contentRect.width)));
-    observer.observe(element);
-    return () => observer.disconnect();
-  }, []);
-  return [ref, width] as const;
-}
 
 /** A bar from the baseline y0 to y1 with a 4px rounded data end and a square foot. */
 function barPath(x: number, width: number, y0: number, y1: number) {
@@ -195,8 +179,9 @@ function ribbon(x0: number, a0: number, a1: number, x1: number, b0: number, b1: 
  * Where the money went: income sources flow into one income bar, which fans out into spending
  * categories and savings. On narrow screens the sources column is left out (the bar is the start).
  */
-export function FlowDiagram({ sources, targets, totalCents, centerLabel, centerNote, percentOf }: { sources: FlowItem[]; targets: FlowItem[]; totalCents: number; centerLabel: string; centerNote?: string; percentOf: number }) {
-  const [wrap, width] = useWidth<HTMLDivElement>();
+export function FlowDiagram({ sources, targets, totalCents, centerLabel, centerNote }: { sources: FlowItem[]; targets: FlowItem[]; totalCents: number; centerLabel: string; centerNote?: string }) {
+  const [wrap, width] = useWidth<HTMLElement>();
+  const clipId = `cf-flow-center-${useId().replace(/[^a-zA-Z0-9_-]/g, "")}`;
   const [hover, setHover] = useState<string | null>(null);
   const wide = width >= 640;
   const nodeWidth = 10;
@@ -220,7 +205,7 @@ export function FlowDiagram({ sources, targets, totalCents, centerLabel, centerN
   const sourceX = labelLeft;
   const targetX = width - labelRight - nodeWidth;
   const centerX = wide ? Math.round((sourceX + targetX) / 2) : 0;
-  const share = (cents: number) => (percentOf > 0 ? percent(cents / percentOf) : "");
+  const share = (cents: number) => (totalCents > 0 ? percent(cents / totalCents) : "");
   const opacity = (key: string) => (hover === null ? undefined : hover === key ? 0.55 : 0.12);
 
   const label = (item: Placed, side: "left" | "right", shift: number) => {
@@ -254,8 +239,8 @@ export function FlowDiagram({ sources, targets, totalCents, centerLabel, centerN
                   d={ribbon(centerX + nodeWidth, centerTop + item.offset, centerTop + item.offset + item.cents * scale, targetX, rightShift + item.nodeTop, rightShift + item.nodeTop + item.nodeHeight)} />
               ))}
               {left.placed.map((item) => <rect key={item.key} className="cf-node" x={sourceX} y={leftShift + item.nodeTop} width={nodeWidth} height={item.nodeHeight} rx={3} style={{ fill: item.color }} />)}
-              <clipPath id="cf-flow-center"><rect x={centerX} y={centerTop} width={nodeWidth} height={centerHeight} rx={3} /></clipPath>
-              <g clipPath="url(#cf-flow-center)">
+              <clipPath id={clipId}><rect x={centerX} y={centerTop} width={nodeWidth} height={centerHeight} rx={3} /></clipPath>
+              <g clipPath={`url(#${clipId})`}>
                 {stack.map((item) => <rect key={item.key} x={centerX} y={centerTop + item.offset} width={nodeWidth} height={item.cents * scale} style={{ fill: item.color }} />)}
               </g>
               {right.placed.map((item) => <rect key={item.key} className="cf-node" x={targetX} y={rightShift + item.nodeTop} width={nodeWidth} height={item.nodeHeight} rx={3} style={{ fill: item.color }} />)}
@@ -263,7 +248,7 @@ export function FlowDiagram({ sources, targets, totalCents, centerLabel, centerN
           </svg>
           <div className={`cf-flow-center${wide ? "" : " start"}`} style={wide ? { left: centerX + nodeWidth / 2, top: Math.max(0, head + centerTop - (centerNote ? 58 : 44)) } : { left: 0 }}>
             <span>{centerLabel}</span>
-            <b className="num">{moneyWhole(totalCents)}</b>
+            <b className="figure">{moneyWhole(totalCents)}</b>
             {centerNote && <small>{centerNote}</small>}
           </div>
           {left.placed.map((item) => label(item, "left", leftShift))}
@@ -274,24 +259,40 @@ export function FlowDiagram({ sources, targets, totalCents, centerLabel, centerN
   );
 }
 
-/** `lightFill`: the block is light (yellow) in light mode, so its label is near-black there. */
-export type Segment = { key: string; label: string; cents: number; share: number; color: string; lightFill?: boolean };
+export type Segment = { key: string; label: string; cents: number; share: number; color: string };
 
-/** One whole split into parts: a 28px bar of blocks with 2px gaps, the share printed inside blocks wide enough. */
+/**
+ * One whole split into parts: a 28px bar of blocks with 2px gaps, the share printed inside blocks
+ * wide enough. Each label is white or near-black, whichever reads better on its block's actual
+ * color (a token resolves differently per theme, and a category's own color can be anything).
+ */
 export function SegmentBar({ segments, label }: { segments: Segment[]; label: string }) {
   const [wrap, width] = useWidth<HTMLDivElement>();
+  const outer = useRef<HTMLDivElement>(null);
   const [active, setActive] = useState<string | null>(null);
   const shown = segments.find((segment) => segment.key === active);
+  const fills = segments.map((segment) => `${segment.key}=${segment.color}`).join("|");
+  useLayoutEffect(() => {
+    const element = outer.current;
+    if (!element) return;
+    const paint = () => element.querySelectorAll<HTMLElement>(".cf-segment").forEach((node) => {
+      node.style.color = darkTextOn(getComputedStyle(node).backgroundColor) ? DARK_INK : "";
+    });
+    paint();
+    const scheme = typeof matchMedia === "function" ? matchMedia("(prefers-color-scheme: dark)") : null;
+    scheme?.addEventListener("change", paint);
+    return () => scheme?.removeEventListener("change", paint);
+  }, [fills]);
   return (
-    <div className="cf-segments-wrap">
+    <div className="cf-segments-wrap" ref={outer}>
       <div className="cf-segments" ref={wrap} role="img" aria-label={`${label}: ${segments.map((segment) => `${segment.label} ${percent(segment.share)}`).join(", ")}`} onPointerLeave={() => setActive(null)}>
         {segments.map((segment) => (
-          <span key={segment.key} className={`cf-segment${segment.lightFill ? " light-fill" : ""}${active && active !== segment.key ? " dim" : ""}`} style={{ flexGrow: segment.cents, background: segment.color }} onPointerEnter={() => setActive(segment.key)}>
+          <span key={segment.key} className={`cf-segment${active && active !== segment.key ? " dim" : ""}`} style={{ flexGrow: segment.cents, background: segment.color }} onPointerEnter={() => setActive(segment.key)}>
             {width * segment.share >= 40 && <span className="num">{percent(segment.share)}</span>}
           </span>
         ))}
       </div>
-      {shown && <p className="cf-segment-note" role="status"><b>{shown.label}</b> <span className="num">{moneyWhole(shown.cents)} · {percent(shown.share)}</span></p>}
+      {shown && <p className="cf-segment-note" aria-hidden="true"><b>{shown.label}</b> <span className="num">{moneyWhole(shown.cents)} · {percent(shown.share)}</span></p>}
     </div>
   );
 }

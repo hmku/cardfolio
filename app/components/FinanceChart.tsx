@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
+import { useMemo, useState, type KeyboardEvent, type PointerEvent } from "react";
+import { useElementWidth as useWidth } from "./useElementWidth";
 import type { SeriesPoint } from "../lib/core/investments";
 import { moneyWhole, niceTicks, percent, signedMoney, signedPercent, tickLabels, timeAxisLabels } from "../lib/presentation/finance-format";
 import { fullDate } from "../lib/presentation/format";
@@ -13,22 +14,6 @@ import { AccountName } from "./FinanceAccounts";
 
 const DAY = 86_400_000;
 const toTime = (date: string) => Date.parse(`${date}T00:00:00Z`);
-
-/** The element's width, tracked from whenever it mounts (a callback ref: the plot appears only once there are points). */
-function useWidth<T extends HTMLElement>() {
-  const [width, setWidth] = useState(0);
-  const observer = useRef<ResizeObserver | null>(null);
-  const ref = useCallback((element: T | null) => {
-    observer.current?.disconnect();
-    observer.current = null;
-    if (!element) return;
-    setWidth(element.clientWidth);
-    observer.current = new ResizeObserver(([entry]) => setWidth(Math.round(entry.contentRect.width)));
-    observer.current.observe(element);
-  }, []);
-  useEffect(() => () => observer.current?.disconnect(), []);
-  return [ref, width] as const;
-}
 
 const PAD = { top: 10, right: 12, bottom: 24, left: 56 };
 

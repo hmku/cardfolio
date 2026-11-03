@@ -16,7 +16,9 @@ import { CategoryPicker, categoryLabel } from "./CategoryPicker";
 import { CategorySettings } from "./CategorySettings";
 import { FinanceEmpty, FinanceLoading, FinanceSection, useFinanceLoad, type FinancePageProps } from "./FinanceShared";
 import { TransactionDrawer } from "./TransactionDrawer";
+import { MerchantIcon } from "./MerchantIcon";
 import { Tag } from "./ui";
+import { errorText } from "../lib/api";
 
 const PAGE_SIZE = 100;
 const dayFormat = new Intl.DateTimeFormat("en-US", { weekday: "short", month: "short", day: "numeric" });
@@ -30,17 +32,6 @@ function dayHeading(date: string, today: string) {
   yesterday?.setDate(yesterday.getDate() - 1);
   if (yesterday && isoDate(yesterday) === date) return "Yesterday";
   return (date.slice(0, 4) === today.slice(0, 4) ? dayFormat : dayYearFormat).format(parsed);
-}
-
-/** The merchant's logo, or the category emoji when there's none (or it fails to load). */
-function TransactionIcon({ transaction, emoji }: { transaction: Transaction; emoji: string }) {
-  const [failed, setFailed] = useState(false);
-  if (transaction.logoUrl && !failed) {
-    // Plaid's merchant logos are small remote images; next/image would need their host configured.
-    // eslint-disable-next-line @next/next/no-img-element
-    return <img className="txn-icon" src={transaction.logoUrl} alt="" loading="lazy" referrerPolicy="no-referrer" onError={() => setFailed(true)} />;
-  }
-  return <span className="txn-icon" aria-hidden="true">{emoji}</span>;
 }
 
 type ListState = { items: Transaction[]; hasMore: boolean; loading: boolean; error: string };
@@ -57,7 +48,8 @@ export function TransactionsPage({ context, portfolio, notify, onOpenSettings, t
   const [searchText, setSearchText] = useState(filters.search);
   const [showFilters, setShowFilters] = useState(false);
   const [selected, setSelected] = useState<Set<number>>(new Set());
-  const [openId, setOpenId] = useState<number | null>(null);
+  // The drawer's transaction, kept apart from the list so a reload (or filter change) doesn't close it.
+  const [openTransaction, setOpenTransaction] = useState<Transaction | null>(null);
   const [managing, setManaging] = useState(false);
   const [bulkBusy, setBulkBusy] = useState(false);
   const request = useRef(0);
@@ -76,21 +68,32 @@ export function TransactionsPage({ context, portfolio, notify, onOpenSettings, t
   }, [searchText, filters.search, setFilters]);
 
   // Pages are keyed on the last row loaded (not an offset), so edits that move rows in or out of the
-  // filters, or a sync adding rows, never skip or repeat rows. `after` null loads the first page.
-  const fetchPage = useCallback(async (after: Transaction | null) => {
+  // filters, or a sync adding rows, never skip or repeat rows. `after` null loads the first page;
+  // `keep` reloads at least that many rows (a refresh keeps what was scrolled into view).
+  const fetchPage = useCallback(async (after: Transaction | null, keep = 0) => {
     const id = ++request.current;
-    setList((current) => ({ ...current, loading: true, error: "", ...(!after && { hasMore: false }) }));
+    setList((current) => ({ ...current, loading: true, ...(!after && { hasMore: false }) }));
     try {
-      const page = await loadTransactions(context, { ...query, limit: PAGE_SIZE, ...(after && { before: { date: after.date, id: after.id } }) });
+      const limit = after ? PAGE_SIZE : Math.min(Math.max(PAGE_SIZE, keep), 1000);
+      const page = await loadTransactions(context, { ...query, limit, ...(after && { before: { date: after.date, id: after.id } }) });
       if (id !== request.current) return;
       setList((current) => {
         if (!after) return { items: page.transactions, hasMore: page.hasMore, loading: false, error: "" };
         const seen = new Set(current.items.map((item) => item.id));
         return { items: [...current.items, ...page.transactions.filter((item) => !seen.has(item.id))], hasMore: page.hasMore, loading: false, error: "" };
       });
+      if (!after) {
+        // A fresh list: the open transaction picks up its reloaded copy, and the selection keeps only rows still listed.
+        const fresh = new Map(page.transactions.map((item) => [item.id, item]));
+        setOpenTransaction((current) => (current && fresh.get(current.id)) ?? current);
+        setSelected((current) => {
+          const next = new Set([...current].filter((rowId) => fresh.has(rowId)));
+          return next.size === current.size ? current : next;
+        });
+      }
     } catch (reason) {
       if (id !== request.current) return;
-      setList((current) => ({ ...current, loading: false, error: reason instanceof Error ? reason.message : "Couldn't load transactions." }));
+      setList((current) => ({ ...current, loading: false, error: errorText(reason, "Couldn't load transactions.") }));
     }
   }, [context, query]);
 
@@ -99,26 +102,33 @@ export function TransactionsPage({ context, portfolio, notify, onOpenSettings, t
     void fetchPage(null);
   }, [fetchPage]);
 
-  // Infinite scroll: load the next page when the end of the list comes into view.
+  // Infinite scroll: load the next page when the end of the list comes into view. Not after a failed
+  // load (a new observer fires at once while the end is visible, so it would retry in a loop): then
+  // "Load more" or Retry tries again.
   const lastItem = list.items.length ? list.items[list.items.length - 1] : null;
   const loadMore = useCallback(() => { if (list.hasMore && !list.loading && lastItem) void fetchPage(lastItem); }, [fetchPage, list.hasMore, list.loading, lastItem]);
+  const autoLoad = list.hasMore && !list.error;
   useEffect(() => {
     const node = sentinel.current;
-    if (!node || !list.hasMore || typeof IntersectionObserver === "undefined") return;
+    if (!node || !autoLoad || typeof IntersectionObserver === "undefined") return;
     const observer = new IntersectionObserver((entries) => { if (entries.some((entry) => entry.isIntersecting)) loadMore(); }, { rootMargin: "400px" });
     observer.observe(node);
     return () => observer.disconnect();
-  }, [loadMore, list.hasMore]);
+  }, [loadMore, autoLoad]);
+  // Reloads the list after rules changed transactions, keeping as many rows as are loaded now.
+  const refresh = () => void fetchPage(null, list.items.length);
 
   const categoryById = useMemo(() => new Map((setup?.categories || []).map((category) => [category.id, category])), [setup]);
   const accountById = useMemo(() => new Map((setup?.accounts || []).map((account) => [account.id, account])), [setup]);
   const groups = useMemo(() => groupByDate(list.items), [list.items]);
-  const openTransaction = openId === null ? undefined : list.items.find((item) => item.id === openId);
   const filterCount = activeFilterCount(filters);
   // The date select sits outside the Filters panel, so the button counts the rest.
   const panelCount = filterCount - (filters.datePreset !== "all" ? 1 : 0);
 
-  const replaceItem = (transaction: Transaction) => setList((current) => ({ ...current, items: current.items.map((item) => (item.id === transaction.id ? transaction : item)) }));
+  const replaceItem = (transaction: Transaction) => {
+    setList((current) => ({ ...current, items: current.items.map((item) => (item.id === transaction.id ? transaction : item)) }));
+    setOpenTransaction((current) => (current?.id === transaction.id ? transaction : current));
+  };
 
   async function bulk(patch: TransactionPatch, done: string) {
     const ids = [...selected];
@@ -139,7 +149,7 @@ export function TransactionsPage({ context, portfolio, notify, onOpenSettings, t
       setSelected(new Set());
       notify(`${done} ${ids.length} transaction${ids.length === 1 ? "" : "s"}`);
     } catch (reason) {
-      notify(reason instanceof Error ? reason.message : "Couldn't save the transactions.", true);
+      notify(errorText(reason, "Couldn't save the transactions."), true);
     } finally {
       setBulkBusy(false);
     }
@@ -161,7 +171,7 @@ export function TransactionsPage({ context, portfolio, notify, onOpenSettings, t
     <FinanceSection
       title="Transactions"
       error={setupError || list.error}
-      onRetry={() => { void reloadSetup(); void fetchPage(null); }}
+      onRetry={() => { void reloadSetup(); if (list.error && list.hasMore && lastItem) loadMore(); else refresh(); }}
       actions={<button type="button" className="btn small" disabled={!setup} onClick={() => setManaging(true)}>Manage categories</button>}
     >
       <div className="txn-toolbar">
@@ -246,8 +256,8 @@ export function TransactionsPage({ context, portfolio, notify, onOpenSettings, t
                       <label className="txn-check">
                         <input type="checkbox" aria-label={`Select ${name}, ${transactionAmount(transaction.amountCents)}`} checked={selected.has(transaction.id)} onChange={() => toggle(transaction.id)} />
                       </label>
-                      <button type="button" className="txn-main" onClick={() => setOpenId(transaction.id)}>
-                        <TransactionIcon transaction={transaction} emoji={category?.emoji || (transaction.amountCents > 0 ? "↘" : "•")} />
+                      <button type="button" className="txn-main" onClick={() => setOpenTransaction(transaction)}>
+                        <MerchantIcon className="txn-icon" logoUrl={transaction.logoUrl} emoji={category?.emoji || (transaction.amountCents > 0 ? "↘" : "•")} />
                         <span className="txn-name">
                           <span className="txn-title">{name}{!transaction.reviewed && <><span className="txn-unreviewed" title="Not reviewed" aria-hidden="true" /><span className="sr-only">(not reviewed)</span></>}</span>
                           <small className="txn-sub">{categoryLabel(category)}{account ? ` · ${account}` : ""}</small>
@@ -283,8 +293,8 @@ export function TransactionsPage({ context, portfolio, notify, onOpenSettings, t
           account={accountById.get(openTransaction.plaidAccountId)}
           notify={notify}
           onUpdated={replaceItem}
-          onRulesChanged={(changed) => { void reloadSetup(); if (changed) void fetchPage(null); }}
-          onClose={() => setOpenId(null)}
+          onRulesChanged={(changed) => { void reloadSetup(); if (changed) refresh(); }}
+          onClose={() => setOpenTransaction(null)}
         />
       )}
 
@@ -296,7 +306,7 @@ export function TransactionsPage({ context, portfolio, notify, onOpenSettings, t
           rules={setup.rules}
           accounts={setup.accounts}
           notify={notify}
-          onChanged={(changed) => { void reloadSetup(); if (changed) void fetchPage(null); }}
+          onChanged={(changed) => { void reloadSetup(); if (changed) refresh(); }}
           onClose={() => setManaging(false)}
         />
       )}

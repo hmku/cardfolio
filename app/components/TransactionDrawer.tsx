@@ -11,6 +11,7 @@ import { fullDate } from "../lib/presentation/format";
 import { bankAccountLabel } from "../lib/presentation/account-labels";
 import { CategoryPicker, categoryLabel } from "./CategoryPicker";
 import { Drawer, Tag } from "./ui";
+import { errorText } from "../lib/api";
 
 type Props = {
   context: FinanceContext;
@@ -51,7 +52,7 @@ export function TransactionDrawer({ context, portfolio, transaction, categories,
       try {
         onUpdated(await updateTransaction(context, transaction.id, patch));
       } catch (reason) {
-        notify(reason instanceof Error ? reason.message : "Couldn't save the transaction.", true);
+        notify(errorText(reason, "Couldn't save the transaction."), true);
       } finally {
         if (block) setBlocking((count) => count - 1);
       }
@@ -69,7 +70,18 @@ export function TransactionDrawer({ context, portfolio, transaction, categories,
   // Escape and the scrim close the drawer without blurring the textarea, so save a pending note here too.
   const close = () => { saveNotes(); onClose(); };
 
-  async function createRule() {
+  // One rule action at a time: a double click mustn't add the same rule twice (the `rules` prop
+  // only learns about the new one after the page reloads) or apply a rule twice at once.
+  const [ruleBusy, setRuleBusy] = useState(false);
+  const ruleRunning = useRef(false);
+  async function ruleAction(work: () => Promise<void>) {
+    if (ruleRunning.current) return;
+    ruleRunning.current = true;
+    setRuleBusy(true);
+    try { await work(); } finally { ruleRunning.current = false; setRuleBusy(false); }
+  }
+
+  const createRule = () => ruleAction(async () => {
     if (transaction.categoryId === null) return;
     try {
       const rule = existingRule
@@ -79,20 +91,20 @@ export function TransactionDrawer({ context, portfolio, transaction, categories,
       onRulesChanged(false);
       notify(existingRule ? "Rule updated" : "Rule added");
     } catch (reason) {
-      notify(reason instanceof Error ? reason.message : "Couldn't add the rule.", true);
+      notify(errorText(reason, "Couldn't add the rule."), true);
     }
-  }
+  });
 
-  async function applyRule(rule: CategoryRule) {
+  const applyRule = (rule: CategoryRule) => ruleAction(async () => {
     try {
       const changed = await applyRuleToExisting(context, rule);
       setNewRule(null);
       onRulesChanged(true);
       notify(`${changed} transaction${changed === 1 ? "" : "s"} updated`);
     } catch (reason) {
-      notify(reason instanceof Error ? reason.message : "Couldn't apply the rule.", true);
+      notify(errorText(reason, "Couldn't apply the rule."), true);
     }
-  }
+  });
 
   const ruleCategory = existingRule ? categories.find((item) => item.id === existingRule.categoryId) : undefined;
 
@@ -127,7 +139,7 @@ export function TransactionDrawer({ context, portfolio, transaction, categories,
           <div className="inline-form">
             <span>New {merchant} transactions will be {categoryLabel(categories.find((item) => item.id === newRule.categoryId))}.</span>
             <div className="inline-actions">
-              <button type="button" className="btn small primary" onClick={() => void applyRule(newRule)}>Apply to past {merchant} transactions</button>
+              <button type="button" className="btn small primary" disabled={ruleBusy} onClick={() => void applyRule(newRule)}>Apply to past {merchant} transactions</button>
               <button type="button" className="btn small" onClick={() => setNewRule(null)}>Not now</button>
             </div>
             <p className="hint">Transactions you categorized by hand stay as they are.</p>
@@ -135,13 +147,13 @@ export function TransactionDrawer({ context, portfolio, transaction, categories,
         ) : existingRule && existingRule.categoryId === transaction.categoryId ? (
           <div className="inline-actions">
             <span className="hint">A rule already files {merchant} under {categoryLabel(ruleCategory)}.</span>
-            <button type="button" className="btn small" onClick={() => void applyRule(existingRule)}>Apply to past</button>
+            <button type="button" className="btn small" disabled={ruleBusy} onClick={() => void applyRule(existingRule)}>Apply to past</button>
           </div>
         ) : transaction.categoryId === null ? (
           <p className="hint">Pick a category first, then you can file every {merchant} transaction under it.</p>
         ) : (
           <>
-            <button type="button" className="btn" onClick={() => void createRule()}>Always categorize {merchant} as {categoryLabel(category)}</button>
+            <button type="button" className="btn" disabled={ruleBusy} onClick={() => void createRule()}>Always categorize {merchant} as {categoryLabel(category)}</button>
             {existingRule
               ? <p className="hint">Replaces the rule filing it under {categoryLabel(ruleCategory)}.</p>
               : <label className="check"><input type="checkbox" checked={onlyThisAccount} onChange={(event) => setOnlyThisAccount(event.target.checked)} /> Only on this account</label>}

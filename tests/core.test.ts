@@ -589,6 +589,10 @@ test("cash flow page: folded shares, category hues and the flow diagram", () => 
   // A single leftover is shown as itself rather than as "1 other".
   assert.equal(foldShares(rows, 4).shown.length, 5);
   assert.equal(foldShares(rows, 4).rest.length, 0);
+  // ...unless that's turned off (the palette has no hue left for it).
+  assert.equal(foldShares(rows, 4, { loneLeftover: false }).shown.length, 4);
+  assert.equal(foldShares(rows, 4, { loneLeftover: false }).restCents, 1);
+  assert.equal(foldShares(rows, 5, { loneLeftover: false }).rest.length, 0);
 
   assert.equal(preferredCategoryHue({ id: 9, name: "Groceries" }), 4);
   assert.equal(preferredCategoryHue({ id: 9, name: "Other" }), null);

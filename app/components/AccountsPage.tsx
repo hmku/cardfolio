@@ -19,6 +19,7 @@ import { AccountName, bankAccountKind, bankAccountOwner, bankBalanceCents, Owner
 import { Change, LineChart } from "./FinanceChart";
 import { FinanceEmpty, FinanceLoading, FinanceSection, useFinanceLoad, type FinancePageProps } from "./FinanceShared";
 import { ConfirmButton, Drawer, Tag } from "./ui";
+import { errorText } from "../lib/api";
 
 /** One row on the Accounts page: a Plaid account or a manual one. */
 type Row = {
@@ -94,7 +95,7 @@ export function AccountsPage({ context, portfolio, notify, onOpenSettings, onSho
       await setBankAccountOwner(context, account.id, personId);
       notify(`Owner saved for ${bankAccountLabel(account, portfolio)}`);
       await reload();
-    } catch (reason) { notify(reason instanceof Error ? reason.message : "Couldn't save the owner", true); }
+    } catch (reason) { notify(errorText(reason, "Couldn't save the owner."), true); }
   };
 
   const groups = ACCOUNT_GROUPS.map((group) => ({ ...group, rows: active.filter((row) => row.group === group.value).sort((left, right) => Math.abs(right.balanceCents ?? 0) - Math.abs(left.balanceCents ?? 0)) }))
@@ -135,7 +136,7 @@ export function AccountsPage({ context, portfolio, notify, onOpenSettings, onSho
             return (
               <section key={group.value} className="group" aria-label={group.label}>
                 <div className="group-head static">
-                  <h2>{group.label}</h2>
+                  <h3>{group.label}</h3>
                   <span className="meta">{group.rows.length}</span>
                   <span className="num group-total">{moneyWhole(total)}</span>
                 </div>
@@ -202,8 +203,11 @@ export function AccountsPage({ context, portfolio, notify, onOpenSettings, onSho
   );
 }
 
-/** One account's own balance per day (all of its history); debts as the positive amount owed. Empty until loaded. */
-function useAccountHistory(context: FinanceContext, account: { plaidAccountId: number } | { manualAccountId: number } | null, debt: boolean): SeriesPoint[] {
+/**
+ * One account's own balance per day (all of its history); debts as the positive amount owed. Empty
+ * until loaded. It ends today on `live` (the balance the drawer's headline shows), when known.
+ */
+function useAccountHistory(context: FinanceContext, account: { plaidAccountId: number } | { manualAccountId: number } | null, debt: boolean, live: number | null): SeriesPoint[] {
   const plaidAccountId = account && "plaidAccountId" in account ? account.plaidAccountId : null;
   const manualAccountId = account && "manualAccountId" in account ? account.manualAccountId : null;
   const load = useCallback(async () => {
@@ -211,7 +215,10 @@ function useAccountHistory(context: FinanceContext, account: { plaidAccountId: n
     return loadBalanceSnapshots(context, null, plaidAccountId !== null ? { plaidAccountId } : { manualAccountId: manualAccountId! });
   }, [context, plaidAccountId, manualAccountId]);
   const { data } = useFinanceLoad(load);
-  return useMemo(() => (data || []).map((snapshot) => ({ date: snapshot.date, valueCents: debt ? -snapshot.balanceCents || 0 : snapshot.balanceCents })), [data, debt]);
+  return useMemo(() => {
+    const points = (data || []).map((snapshot) => ({ date: snapshot.date, valueCents: debt ? -snapshot.balanceCents || 0 : snapshot.balanceCents }));
+    return live === null ? points : withLiveEnd(points, isoDate(new Date()), live);
+  }, [data, debt, live]);
 }
 
 function rowDetail(row: Row, people: Portfolio["people"]) {
@@ -252,8 +259,8 @@ function BankAccountDrawer({ row, account, login, portfolio, context, onOwner, o
   onOwner: (personId: number | null) => void; onShowTransactions?: () => void; onClose: () => void;
 }) {
   const debt = isDebt(account);
-  const history = useAccountHistory(context, { plaidAccountId: account.id }, debt);
   const balance = bankBalanceCents(account);
+  const history = useAccountHistory(context, { plaidAccountId: account.id }, debt, balance);
   const statement = account.statement;
   const linkedOwner = account.personId === null && row.ownerId !== null ? portfolio.person(row.ownerId)?.name : null;
   return (
@@ -301,13 +308,13 @@ function ManualAccountDrawer({ account, people, defaultOwner, context, onSave, o
     : { name: "", kind: "private_investment", liability: false, balance: "", personId: defaultOwner, notes: "" });
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState("");
-  const history = useAccountHistory(context, account ? { manualAccountId: account.id } : null, Boolean(account?.liability));
+  const history = useAccountHistory(context, account ? { manualAccountId: account.id } : null, Boolean(account?.liability), account ? account.balanceCents : null);
   const update = (patch: Partial<ManualDraft>) => setDraft((current) => ({ ...current, ...patch }));
 
   const run = async (action: () => Promise<void>) => {
     setBusy(true);
     setProblem("");
-    try { await action(); } catch (reason) { setProblem(reason instanceof Error ? reason.message : "Couldn't save."); setBusy(false); }
+    try { await action(); } catch (reason) { setProblem(errorText(reason, "Couldn't save.")); setBusy(false); }
   };
   const submit = (event?: FormEvent) => {
     event?.preventDefault();

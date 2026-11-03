@@ -104,7 +104,7 @@ export function Portfolio({ db, userId, onSignOut }: Props) {
       setRaw(await data.loadPortfolio(db, householdId));
       setLoadError("");
     } catch (reason) {
-      setLoadError(reason instanceof Error ? reason.message : "Couldn't load your cards.");
+      setLoadError(errorText(reason, "Couldn't load your cards."));
     }
   }, [db]);
 
@@ -163,7 +163,7 @@ export function Portfolio({ db, userId, onSignOut }: Props) {
       scheduleSync();
       return true;
     } catch (reason) {
-      const message = reason instanceof Error ? reason.message : "Couldn't save that change.";
+      const message = errorText(reason, "Couldn't save that change.");
       if (options.rethrow) throw reason;
       notify(message, undefined, true);
       return false;

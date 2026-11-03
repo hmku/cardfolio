@@ -3,6 +3,7 @@
 import { createClient, type Session, type SupabaseClient } from "@supabase/supabase-js";
 import { FormEvent, useEffect, useState } from "react";
 import { Portfolio } from "./Portfolio";
+import { errorText } from "../lib/api";
 
 type AuthConfig = { url: string; anonKey: string };
 
@@ -39,7 +40,7 @@ export function AuthGate() {
       })
       .catch((reason) => {
         if (active) {
-          setError(reason instanceof Error ? reason.message : "Authentication is not configured");
+          setError(errorText(reason, "Authentication is not configured."));
           setChecking(false);
         }
       });

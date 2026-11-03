@@ -13,6 +13,7 @@ import type { CellTarget } from "./CreditCell";
 import { CreditCell } from "./CreditCell";
 import { ConfirmButton, Drawer } from "./ui";
 import { fullDate, inDays, money, shortDate, toCents, toDollarsInput } from "../lib/presentation/format";
+import { errorText } from "../lib/api";
 
 export type ProductChange = { productId: number | "new"; newProduct?: ProductDraft; date: string; annualFeeCents: number; last4: string | null; direction: "upgrade" | "downgrade" };
 
@@ -144,7 +145,7 @@ export function AccountDrawer(props: Props) {
     try {
       await action();
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Something went wrong. Try again.");
+      setError(errorText(reason, "Something went wrong. Try again."));
     } finally {
       setBusy(false);
     }

@@ -14,6 +14,10 @@ export const shortDate = (value: DateLike) => { const date = toDate(value); retu
 export const monthYear = (value: DateLike) => { const date = toDate(value); return date ? monthYearFormat.format(date) : "—"; };
 export const fullDate = (value: DateLike) => { const date = toDate(value); return date ? fullFormat.format(date) : "—"; };
 
+const monthFormats = { short: new Intl.DateTimeFormat("en-US", { month: "short", timeZone: "UTC" }), long: new Intl.DateTimeFormat("en-US", { month: "long", timeZone: "UTC" }) };
+/** The month's name for a YYYY-MM month: "Nov" (short) or "November" (long). */
+export const monthName = (month: string, style: "short" | "long" = "short") => monthFormats[style].format(new Date(`${month.slice(0, 7)}-15T00:00:00Z`));
+
 /** A sync or update time like "Nov 2, 9:14 AM", or "never". */
 export function syncedAt(value: string | null) {
   if (!value) return "never";

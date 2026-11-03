@@ -17,6 +17,7 @@ import { fullDate, shortDate } from "../lib/presentation/format";
 import { AccountName, bankAccountOwner, bankBalanceCents, OwnerButtons, RangeButtons, type OwnerFilter } from "./FinanceAccounts";
 import { BarList, Change, LineChart } from "./FinanceChart";
 import { FinanceEmpty, FinanceLoading, FinanceSection, useFinanceLoad, type FinancePageProps } from "./FinanceShared";
+import { errorText } from "../lib/api";
 
 const ACTIVITY_PAGE = 200;
 const classLabel = (value: string) => ASSET_CLASSES.find((item) => item.value === value)?.label ?? value;
@@ -50,7 +51,10 @@ export function InvestmentsPage({ context, portfolio, notify, onOpenSettings }: 
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [activityType, setActivityType] = useState<ActivityKind | "all">("all");
   const [shown, setShown] = useState(25);
-  const [more, setMore] = useState<{ rows: InvestmentTransaction[]; done: boolean }>({ rows: [], done: false });
+  // Older activity pages, loaded after `base` (the first page they continue). A reload (Retry) brings a
+  // new first page, so the extra pages and the count shown start over.
+  const [more, setMore] = useState<{ base: typeof data; rows: InvestmentTransaction[]; done: boolean }>({ base: data, rows: [], done: false });
+  if (more.base !== data) { setMore({ base: data, rows: [], done: false }); setShown(25); }
   const [loadingMore, setLoadingMore] = useState(false);
 
   const accounts = useMemo<InvestmentAccount[]>(() => {
@@ -93,7 +97,9 @@ export function InvestmentsPage({ context, portfolio, notify, onOpenSettings }: 
 
   const activity = useMemo(() => {
     if (!data) return [];
+    const seen = new Set<number>();
     return [...data.activity, ...more.rows]
+      .filter((row) => !seen.has(row.id) && Boolean(seen.add(row.id)))
       .filter((row) => chosen.has(`p${row.plaidAccountId}`))
       .map((row) => ({ ...row, kind: activityKind(row.type, row.subtype) }))
       .filter((row) => activityType === "all" || row.kind === activityType);
@@ -104,12 +110,14 @@ export function InvestmentsPage({ context, portfolio, notify, onOpenSettings }: 
   const showMore = async () => {
     if (shown < activity.length) { setShown(shown + 25); return; }
     if (!canLoadMore || !lastActivity) return;
+    const base = data;
     setLoadingMore(true);
     try {
       const rows = await loadInvestmentTransactions(context, { limit: ACTIVITY_PAGE, before: { date: lastActivity.date, id: lastActivity.id } });
-      setMore((current) => ({ rows: [...current.rows, ...rows], done: rows.length < ACTIVITY_PAGE }));
-      setShown(shown + 25);
-    } catch (reason) { notify(reason instanceof Error ? reason.message : "Couldn't load more activity", true); }
+      // Dropped if the first page was reloaded meanwhile (it would continue the old one).
+      setMore((current) => (current.base === base ? { base, rows: [...current.rows, ...rows], done: rows.length < ACTIVITY_PAGE } : current));
+      setShown((count) => count + 25);
+    } catch (reason) { notify(errorText(reason, "Couldn't load more activity."), true); }
     finally { setLoadingMore(false); }
   };
 
@@ -172,7 +180,7 @@ export function InvestmentsPage({ context, portfolio, notify, onOpenSettings }: 
 
           <section className="group" aria-label="Holdings">
             <div className="group-head static">
-              <h2>Holdings</h2>
+              <h3>Holdings</h3>
               <span className="meta">{view.positions.length}</span>
               <div className="seg group-total" role="group" aria-label="Sort holdings">
                 {([["value", "Value"], ["gain", "Gain"], ["gainPercent", "Gain %"]] as [PositionSort, string][]).map(([value, label]) => (
@@ -246,7 +254,7 @@ export function InvestmentsPage({ context, portfolio, notify, onOpenSettings }: 
 
           <section className="group" aria-label="Recent activity">
             <div className="group-head static">
-              <h2>Recent activity</h2>
+              <h3>Recent activity</h3>
               <select className="filter-select group-total" aria-label="Activity type" value={activityType} onChange={(event) => { setActivityType(event.target.value as ActivityKind | "all"); setShown(25); }}>
                 <option value="all">All types</option>
                 {ACTIVITY_KINDS.map((kind) => <option key={kind.value} value={kind.value}>{kind.label}</option>)}

@@ -63,14 +63,6 @@ done and move them to **Done** with the date.
 - [ ] Make account edits (`updateAccount`, including moving a card to another cardholder)
       transactional like the new `cardfolio_*` functions. New cards, product changes/undo and
       credit uses already are.
-- [ ] Prevent stale portfolio reloads from replacing newer data; clear pending realtime
-      reload and sheet-sync timers on cleanup (the realtime effect's cleanup in
-      `app/components/Portfolio.tsx` still doesn't clear `reloadTimer` on unmount).
-- [ ] Plaid syncs of one login can still overlap (the first sync after connecting vs. a
-      webhook, "Sync now" vs. the cron): give `syncItem` a per-item lease (a new
-      `plaid_items.sync_started_at` claimed with `update … where sync_started_at is null or
-      sync_started_at < now() - interval '5 minutes' returning id`, cleared in `finally`). The
-      legacy transactions webhooks that doubled every update are ignored since 2026-11-02.
 
 ## Agents
 
@@ -191,6 +183,14 @@ done and move them to **Done** with the date.
       history.
 
 ## Done
+- 2026-11-03: Code review loop (two rounds over server, data, core, Cards and finance pages; ~120
+  confirmed findings fixed). Highlights: hide_investments enforced in every Plaid route, reconnect
+  flags survive syncs, a per-login sync lease (`plaid_items.sync_started_at`), the same bank login
+  can't be connected twice (Investments on a connected bank login reuses it via `ignored_accounts`),
+  members can't rewrite synced transaction fields, keyset paging for transactions and investment
+  activity, stale portfolio reloads no longer overwrite newer data, card names and last digits
+  line up on Cards, and the Cash flow tab redesign (flow diagram, category colors, changes vs last
+  period, partial periods compared fairly).
 - 2026-11-03: Applied the finance security migrations to Supabase: `20261103000101_data_finance_grants.sql`
   (members can only read synced Plaid data, plus edit a transaction's category, notes, excluded and
   reviewed; checked `authenticated` has only SELECT on `transactions` and `holdings`),

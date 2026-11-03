@@ -5,17 +5,6 @@ done and move them to **Done** with the date.
 
 ## Needs Harrison
 
-- [ ] **Apply the two finance security migrations** to Supabase project `ylrkwnqrmuxlzouziabz`
-      (not applied yet), in order: `supabase/migrations/20261103000101_data_finance_grants.sql`
-      (stops members rewriting synced Plaid fields such as `transactions.amount_cents`/`date`,
-      and makes new tables start with no browser grants), then
-      `20261103000102_server_hide_investment_items.sql` (hides brokerage-only logins in
-      `plaid_item_status` from `hide_investments` members). The first one fails on its own if
-      the grants didn't take. Then check: `select privilege_type from
-      information_schema.role_table_grants where grantee = 'authenticated' and table_name =
-      'transactions'` lists only SELECT; signed in as devtest, a PATCH to
-      `/rest/v1/transactions` setting `amount_cents` is refused, and
-      `/rest/v1/plaid_item_status` returns no brokerage-only login. Move this to Done with the date once applied.
 - [ ] **Turn on reminders** on each device (Settings → Reminders → Turn on, then Send a test).
       On iPhone, add the site to the home screen first and turn it on from there. Sophia too.
 - [ ] **Fill in the last digits 1Password didn't cover** (card drawer → Last digits):
@@ -202,6 +191,11 @@ done and move them to **Done** with the date.
       history.
 
 ## Done
+- 2026-11-03: Applied the finance security migrations to Supabase: `20261103000101_data_finance_grants.sql`
+  (members can only read synced Plaid data, plus edit a transaction's category, notes, excluded and
+  reviewed; checked `authenticated` has only SELECT on `transactions` and `holdings`),
+  `20261103000102_server_hide_investment_items.sql` and `20261103000202_server_sync_lease_shared_logins.sql`
+  (`plaid_items.sync_started_at`, `ignored_accounts`).
 
 - 2026-11-02: Cleared finished Plaid items from the open list: the finance migration is
   applied, `PLAID_WEBHOOK_URL` is set, the Sandbox sync was tried end to end, the finance

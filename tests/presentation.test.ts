@@ -59,6 +59,13 @@ test("fee reviews describe an estimated anniversary rather than claiming a state
   assert.doesNotMatch(status.tags[0].text, /posted/);
 });
 
+test("a December anniversary still reads as renewed after New Year", () => {
+  const value = { ...account, approvedOn: "2024-12-20", bonusEarned: true };
+  const january = new Date(2027, 0, 10, 12);
+  const status = cardStatus(fixture(value, [holding], true), value, holding, january);
+  assert.equal(status.tags[0].text, "Keep or close? $95 fee, renewed Dec 20");
+});
+
 test("review priority outranks an in-progress bonus and future changes aren't called recent", () => {
   const value = { ...account, approvedOn: "2026-08-01" };
   const future: Holding = { ...holding, id: 2, number: 2, startedOn: "2026-10-01", change: "upgrade" };
@@ -84,6 +91,7 @@ test("formatMoney shows whole dollars or two decimals, with the sign before the 
   assert.equal(formatMoney(69500), "$695");
   assert.equal(formatMoney(1250), "$12.50");
   assert.equal(formatMoney(123450), "$1,234.50");
+  assert.equal(formatMoney(-0.4), "$0", "no sign on an amount that rounds to zero");
   assert.equal(formatMoney(150050), "$1,500.50");
   assert.equal(formatMoney(-1234), "−$12.34");
   assert.equal(formatMoney(-50000), "−$500");

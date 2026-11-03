@@ -379,9 +379,9 @@ test("Plaid webhooks map to syncs or login status", () => {
   assert.deepEqual(webhookAction({ webhook_type: "ITEM", webhook_code: "ERROR", error: { error_code: "INSTITUTION_DOWN" } }), { kind: "ignore" });
   assert.deepEqual(webhookAction({ webhook_type: "HOLDINGS", webhook_code: "DEFAULT_UPDATE" }), { kind: "sync", products: ["holdings"] });
   assert.deepEqual(webhookAction({ webhook_type: "INVESTMENTS_TRANSACTIONS", webhook_code: "HISTORICAL_UPDATE" }), { kind: "sync", products: ["investment_transactions"] });
-  assert.deepEqual(webhookAction({ webhook_type: "ITEM", webhook_code: "ERROR", error: { error_code: "ITEM_LOGIN_REQUIRED" } }), { kind: "status", status: "reconnect", errorCode: "ITEM_LOGIN_REQUIRED" });
-  assert.deepEqual(webhookAction({ webhook_type: "ITEM", webhook_code: "PENDING_EXPIRATION" }), { kind: "status", status: "reconnect", errorCode: "PENDING_EXPIRATION" });
-  assert.deepEqual(webhookAction({ webhook_type: "ITEM", webhook_code: "LOGIN_REPAIRED" }), { kind: "status", status: "ok", errorCode: null });
+  assert.deepEqual(webhookAction({ webhook_type: "ITEM", webhook_code: "ERROR", error: { error_code: "ITEM_LOGIN_REQUIRED" } }), { kind: "status", event: { kind: "error", errorCode: "ITEM_LOGIN_REQUIRED" } });
+  assert.deepEqual(webhookAction({ webhook_type: "ITEM", webhook_code: "PENDING_EXPIRATION" }), { kind: "status", event: { kind: "error", errorCode: "PENDING_EXPIRATION" } });
+  assert.deepEqual(webhookAction({ webhook_type: "ITEM", webhook_code: "LOGIN_REPAIRED" }), { kind: "status", event: { kind: "repaired" } });
   assert.deepEqual(webhookAction({ webhook_type: "ITEM", webhook_code: "WEBHOOK_UPDATE_ACKNOWLEDGED" }), { kind: "ignore" });
 });
 
@@ -569,8 +569,13 @@ test("cash flow page: default period, previous period and changes", () => {
   assert.equal(defaultCashFlowPeriod("2026-11-12", 3), "2026-10");
   assert.equal(defaultCashFlowPeriod("2026-11-12", 12), "2026-11");
   assert.equal(defaultCashFlowPeriod("2026-01-03", 0), "2025-12");
-  assert.deepEqual(cashFlowPeriodRanges("2026-03", "2026-11-02"), { range: { from: "2026-03-01", to: "2026-03-31" }, previousRange: { from: "2026-02-01", to: "2026-02-28" }, previousMonth: "2026-02", months: 1 });
-  assert.deepEqual(cashFlowPeriodRanges("12m", "2026-11-02"), { range: { from: "2025-12-01", to: "2026-11-02" }, previousRange: { from: "2024-12-01", to: "2025-11-30" }, previousMonth: null, months: 12 });
+  assert.deepEqual(cashFlowPeriodRanges("2026-03", "2026-11-02"), { range: { from: "2026-03-01", to: "2026-03-31" }, previousRange: { from: "2026-02-01", to: "2026-02-28" }, previousMonth: "2026-02", months: 1, partial: false });
+  // A period still under way is compared with the same stretch of the one before, not all of it.
+  assert.deepEqual(cashFlowPeriodRanges("12m", "2026-11-02"), { range: { from: "2025-12-01", to: "2026-11-02" }, previousRange: { from: "2024-12-01", to: "2025-11-02" }, previousMonth: null, months: 12, partial: true });
+  assert.deepEqual(cashFlowPeriodRanges("2026-11", "2026-11-10"), { range: { from: "2026-11-01", to: "2026-11-30" }, previousRange: { from: "2026-10-01", to: "2026-10-10" }, previousMonth: "2026-10", months: 1, partial: true });
+  assert.deepEqual(cashFlowPeriodRanges("2026-03", "2026-03-30").previousRange, { from: "2026-02-01", to: "2026-02-28" }, "clamped to the shorter month");
+  assert.equal(cashFlowPeriodRanges("2026-11", "2026-11-30").partial, false, "the month's last day is a whole month");
+  assert.deepEqual(cashFlowPeriodRanges("12m", "2026-11-30").previousRange, { from: "2024-12-01", to: "2025-11-30" });
   assert.equal(relativeChange(110, 100), 0.1);
   assert.equal(relativeChange(5, 0), null);
   const changes = withPreviousShares([{ categoryId: 3, cents: 500, share: 0.5 }, { categoryId: null, cents: 500, share: 0.5 }], [{ categoryId: 3, cents: 400, share: 1 }]);
@@ -598,6 +603,7 @@ test("cash flow page: folded shares, category hues and the flow diagram", () => 
   const saved = cashFlowFlow({
     income: [{ categoryId: 1, cents: 8000, share: 0.8 }, { categoryId: 2, cents: 2000, share: 0.2 }],
     spending: [{ categoryId: 3, cents: 3000, share: 0.5 }, { categoryId: 4, cents: 2000, share: 0.33 }, { categoryId: 6, cents: 600, share: 0.1 }, { categoryId: null, cents: 400, share: 0.07 }],
+    incomeCents: 10000, expenseCents: 6000, refundCents: 0, reversalCents: 0,
   }, { spendingNodes: 2 });
   assert.deepEqual(saved.sources.map((node) => [node.role, node.cents]), [["income", 8000], ["income", 2000]]);
   assert.deepEqual(saved.targets.map((node) => [node.role, node.categoryId, node.cents, node.count]), [["spending", 3, 3000, 1], ["spending", 4, 2000, 1], ["other-spending", null, 1000, 2], ["savings", null, 4000, 0]]);
@@ -605,8 +611,33 @@ test("cash flow page: folded shares, category hues and the flow diagram", () => 
   const sum = (nodes: { cents: number }[]) => nodes.reduce((total, node) => total + node.cents, 0);
   assert.equal(sum(saved.sources), sum(saved.targets));
   // Spending more than came in: the gap is drawn as money from savings on the income side.
-  const short = cashFlowFlow({ income: [{ categoryId: 1, cents: 1000, share: 1 }], spending: [{ categoryId: 3, cents: 1500, share: 1 }] });
+  const short = cashFlowFlow({ income: [{ categoryId: 1, cents: 1000, share: 1 }], spending: [{ categoryId: 3, cents: 1500, share: 1 }], incomeCents: 1000, expenseCents: 1500, refundCents: 0, reversalCents: 0 });
   assert.deepEqual(short.sources.map((node) => [node.role, node.cents]), [["income", 1000], ["deficit", 500]]);
   assert.deepEqual(short.targets.map((node) => node.role), ["spending"]);
   assert.equal(sum(short.sources), sum(short.targets));
+});
+
+test("cash flow: a category netting to a refund keeps the flow's Saved equal to net savings", () => {
+  const categories = [{ id: 1, kind: "income" as const }, { id: 3, kind: "expense" as const }, { id: 4, kind: "expense" as const }];
+  const row = (amountCents: number, categoryId: number) => ({ date: "2026-10-05", amountCents, categoryId, excluded: false });
+  // $3,000 pay, $2,000 groceries, and a $200 return of last month's shopping with nothing bought this month.
+  const breakdown = cashFlowBreakdown([row(300000, 1), row(-200000, 3), row(20000, 4)], categories);
+  assert.equal(breakdown.expenseCents, 180000);
+  assert.equal(breakdown.netCents, 120000);
+  assert.deepEqual(breakdown.spending.map((share) => share.categoryId), [3]);
+  assert.equal(breakdown.refundCents, 20000);
+  assert.equal(breakdown.spending.reduce((total, share) => total + share.cents, 0), breakdown.expenseCents + breakdown.refundCents);
+  const flow = cashFlowFlow(breakdown);
+  const sum = (nodes: { cents: number }[]) => nodes.reduce((total, node) => total + node.cents, 0);
+  assert.equal(flow.targets.find((node) => node.role === "savings")?.cents, breakdown.netCents);
+  assert.deepEqual(flow.sources.map((node) => [node.role, node.cents]), [["income", 300000], ["refunds", 20000]]);
+  assert.equal(sum(flow.sources), sum(flow.targets));
+  assert.equal(flow.totalCents, 320000);
+  // A deficit is the net too, and income reversed past its category's income goes out as its own node.
+  const short = cashFlowBreakdown([row(100000, 1), row(-150000, 3), row(20000, 4), { ...row(-5000, 1), categoryId: 2 }], [...categories, { id: 2, kind: "income" as const }]);
+  assert.equal(short.reversalCents, 5000);
+  const shortFlow = cashFlowFlow(short);
+  assert.equal(shortFlow.sources.find((node) => node.role === "deficit")?.cents, short.expenseCents - short.incomeCents);
+  assert.ok(shortFlow.targets.some((node) => node.role === "reversals" && node.cents === 5000));
+  assert.equal(sum(shortFlow.sources), sum(shortFlow.targets));
 });

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
 import type { SeriesPoint } from "../lib/core/investments";
-import { moneyCompact, moneyWhole, niceTicks, percent, signedMoney, signedPercent, timeAxisLabels } from "../lib/presentation/finance-format";
+import { moneyWhole, niceTicks, percent, signedMoney, signedPercent, tickLabels, timeAxisLabels } from "../lib/presentation/finance-format";
 import { fullDate } from "../lib/presentation/format";
 import { AccountName } from "./FinanceAccounts";
 
@@ -60,7 +60,7 @@ export function LineChart({ points, label, height = 190, emptyText }: { points: 
       text: tick.text,
       anchor: tick.fraction === 0 ? "start" : tick.fraction === 1 ? "end" : "middle",
     }));
-    return { ticks, y, coords, line, area, xLabels };
+    return { ticks, tickText: tickLabels(ticks), y, coords, line, area, xLabels };
   }, [points, plotWidth, plotHeight]);
 
   if (points.length < 2) {
@@ -111,10 +111,10 @@ export function LineChart({ points, label, height = 190, emptyText }: { points: 
             onKeyDown={onKey}
             onBlur={() => setActive(null)}
           >
-            {geometry.ticks.map((tick) => (
+            {geometry.ticks.map((tick, index) => (
               <g key={tick}>
                 <line className="fchart-grid" x1={PAD.left} x2={PAD.left + plotWidth} y1={geometry.y(tick)} y2={geometry.y(tick)} />
-                <text className="fchart-tick" x={PAD.left - 8} y={geometry.y(tick)} dy="0.32em" textAnchor="end">{moneyCompact(tick)}</text>
+                <text className="fchart-tick" x={PAD.left - 8} y={geometry.y(tick)} dy="0.32em" textAnchor="end">{geometry.tickText[index]}</text>
               </g>
             ))}
             {geometry.xLabels.map((tick) => (

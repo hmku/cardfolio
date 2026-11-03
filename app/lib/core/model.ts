@@ -212,7 +212,7 @@ export function centsToDollars(cents: number) {
 export function formatMoney(cents: number) {
   const digits = Math.round(cents) % 100 ? 2 : 0;
   const text = (Math.abs(cents) / 100).toLocaleString("en-US", { minimumFractionDigits: digits, maximumFractionDigits: digits });
-  return cents < 0 ? `−$${text}` : `$${text}`;
+  return Math.round(cents) < 0 ? `−$${text}` : `$${text}`;
 }
 
 export function bonusLabel(bonus: Bonus) {

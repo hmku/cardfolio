@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { chartWindowEnd, elapsedMonths, transactionsBefore } from "../app/lib/core/finance.ts";
+import { chartWindowEnd, elapsedMonths, transactionOrFilter, transactionsBefore } from "../app/lib/core/finance.ts";
 import { snapshotKey, snapshotLoadStart, withLiveEnd } from "../app/lib/core/investments.ts";
 import { splitMask } from "../app/lib/presentation/account-labels.ts";
-import { moneyCompact, niceTicks, percent, signedMoney, signedPercent, timeAxisLabels } from "../app/lib/presentation/finance-format.ts";
+import { moneyCompact, niceStep, niceTicks, percent, signedMoney, signedPercent, tickLabels, timeAxisLabels } from "../app/lib/presentation/finance-format.ts";
 
 test("the 12-month averages count only the elapsed part of this month", () => {
   assert.equal(elapsedMonths("2026-11-30", 12), 12);
@@ -28,6 +28,19 @@ test("transaction keyset paging filter", () => {
   assert.equal(transactionsBefore({ date: "2026-10-03", id: 42 }), "or(date.lt.2026-10-03,and(date.eq.2026-10-03,id.lt.42))");
   assert.throws(() => transactionsBefore({ date: "2026-10-03),x.eq.(1", id: 42 }));
   assert.throws(() => transactionsBefore({ date: "2026-10-03", id: 4.5 }));
+});
+
+test("transactionOrFilter combines the category filter and the paging cursor into one .or() argument", () => {
+  const cursor = { date: "2026-10-03", id: 42 };
+  assert.equal(transactionOrFilter(undefined), null);
+  assert.equal(transactionOrFilter([]), null);
+  assert.equal(transactionOrFilter([3, 5]), "category_id.in.(3,5)");
+  assert.equal(transactionOrFilter([null]), "category_id.is.null");
+  assert.equal(transactionOrFilter([3, null]), "category_id.in.(3),category_id.is.null");
+  assert.equal(transactionOrFilter(undefined, cursor), "date.lt.2026-10-03,and(date.eq.2026-10-03,id.lt.42)");
+  assert.equal(transactionOrFilter([3, null], cursor), "and(or(category_id.in.(3),category_id.is.null),or(date.lt.2026-10-03,and(date.eq.2026-10-03,id.lt.42)))");
+  assert.equal(transactionOrFilter([null], cursor), "and(or(category_id.is.null),or(date.lt.2026-10-03,and(date.eq.2026-10-03,id.lt.42)))");
+  assert.throws(() => transactionOrFilter([1.5]));
 });
 
 test("snapshot loads start a little before the range, or load everything", () => {
@@ -59,11 +72,16 @@ test("percent formats shares the same everywhere", () => {
   assert.equal(percent(0), "0.0%");
   assert.equal(percent(-0.05), "−5.0%");
   assert.equal(percent(-0.0001), "0.0%");
+  assert.equal(percent(0.09996), "10%", "digits are picked after rounding");
+  assert.equal(percent(0.0994), "9.9%");
   assert.equal(signedPercent(0.052), "+5.2%");
   assert.equal(signedPercent(-0.12), "−12%");
   assert.equal(signedPercent(null), "");
   assert.equal(signedMoney(1234_00), "+$1,234");
   assert.equal(signedMoney(-56_00), "−$56");
+  assert.equal(signedMoney(40), "$0", "a change that rounds to zero has no sign");
+  assert.equal(signedMoney(-40), "$0");
+  assert.equal(signedMoney(60), "+$1");
   assert.equal(moneyCompact(1_250_000_00), "$1.3M");
   assert.equal(moneyCompact(-4_000_00), "−$4K");
 });
@@ -74,6 +92,35 @@ test("niceTicks gives round steps that cover the range", () => {
   const ticks = niceTicks(9_812_345, 10_480_000);
   assert.ok(ticks[0] <= 9_812_345 && ticks[ticks.length - 1] >= 10_480_000);
   assert.ok(niceTicks(500_000, 500_000).length >= 2, "a flat line still gets an axis");
+  // A near-flat series still gets distinct, whole-dollar ticks.
+  const flat = niceTicks(100_000, 100_001);
+  assert.equal(new Set(flat).size, flat.length);
+  assert.ok(flat.length >= 2 && flat.every((tick) => tick % 100 === 0));
+  assert.deepEqual(niceTicks(45_000, 46_000), [45_000, 45_500, 46_000], "no 2.5 step that lands on cents");
+});
+
+test("niceStep picks 1, 2, 2.5 or 5 × a power of ten, in whole dollars", () => {
+  assert.equal(niceStep(0), 100);
+  assert.equal(niceStep(-5), 100);
+  assert.equal(niceStep(37), 100);
+  assert.equal(niceStep(250), 500);
+  assert.equal(niceStep(1_800), 2_000);
+  assert.equal(niceStep(2_100), 2_500);
+  assert.equal(niceStep(750_000), 1_000_000);
+  assert.equal(niceStep(1_000_000), 1_000_000);
+});
+
+test("axis tick labels show enough precision that no two read the same", () => {
+  const distinct = (labels: string[]) => new Set(labels).size === labels.length;
+  // $1M net worth moving $30K.
+  assert.deepEqual(tickLabels(niceTicks(100_000_000, 103_000_000)), ["$1M", "$1.01M", "$1.02M", "$1.03M"]);
+  // $12K moving $150: whole dollars read better than "$12.05K".
+  assert.deepEqual(tickLabels(niceTicks(1_200_000, 1_215_000)), ["$12,000", "$12,050", "$12,100", "$12,150"]);
+  assert.ok(distinct(tickLabels(niceTicks(250_000_000, 251_500_000))));
+  assert.deepEqual(tickLabels(niceTicks(45_000, 46_000)), ["$450", "$455", "$460"]);
+  assert.deepEqual(tickLabels(niceTicks(0, 1_000_000)), ["$0", "$2.5K", "$5K", "$7.5K", "$10K"]);
+  assert.deepEqual(tickLabels([-5_000_000, 0, 5_000_000, 10_000_000]), ["−$50K", "$0", "$50K", "$100K"]);
+  assert.deepEqual(tickLabels([99_500_000, 100_000_000, 100_500_000]), ["$995K", "$1M", "$1.005M"]);
 });
 
 test("time axis labels never repeat a date", () => {

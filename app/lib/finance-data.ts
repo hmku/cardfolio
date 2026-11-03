@@ -1,7 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { FEE_LOOKBACK_DAYS, type CardPlaidData, type CardTransaction, type LinkedCard } from "./core/card-plaid.ts";
 import { addDays, isoDate, parseDate } from "./core/dates.ts";
-import { transactionsBefore, transactionsForRule, type CategoryKind, type CategorySource, type RuleField, type StoredRuleTarget } from "./core/finance.ts";
+import { transactionOrFilter, transactionsForRule, type CategoryKind, type CategorySource, type RuleField, type StoredRuleTarget } from "./core/finance.ts";
 
 /**
  * Browser data layer for the finance pages (Transactions, Cash flow, Investments, Accounts).
@@ -358,16 +358,8 @@ export async function loadTransactions(context: FinanceContext, query: Transacti
   let request = context.db.from("transactions").select(TRANSACTION_COLUMNS).eq("household_id", context.householdId);
   for (const word of (query.search || "").split(/\s+/).filter(Boolean)) request = request.ilike("search_text", containsPattern(word));
   if (query.accountIds?.length) request = request.in("plaid_account_id", query.accountIds);
-  // PostgREST takes one `or` here, so both conditions go in one logic tree: `.or()` wraps its argument
-  // in or(…), so a single tree is passed without its own "or(" … ")", and two are ANDed inside it.
-  const trees: string[] = [];
-  if (query.categoryIds?.length) {
-    const ids = query.categoryIds.filter((id): id is number => id !== null);
-    const parts = [...(ids.length ? [`category_id.in.(${ids.join(",")})`] : []), ...(query.categoryIds.includes(null) ? ["category_id.is.null"] : [])];
-    trees.push(`or(${parts.join(",")})`);
-  }
-  if (query.before) trees.push(transactionsBefore(query.before));
-  if (trees.length) request = request.or(trees.length === 1 ? trees[0].slice(3, -1) : `and(${trees.join(",")})`);
+  const orFilter = transactionOrFilter(query.categoryIds, query.before);
+  if (orFilter) request = request.or(orFilter);
   if (query.from) request = request.gte("date", query.from);
   if (query.to) request = request.lte("date", query.to);
   if (query.includeExcluded === false) request = request.eq("excluded", false);
@@ -501,8 +493,8 @@ export type InvestmentTransaction = {
 export async function loadInvestmentTransactions(context: FinanceContext, options: { from?: string; plaidAccountId?: number; limit?: number; before?: { date: string; id: number } } = {}): Promise<InvestmentTransaction[]> {
   const limit = Math.min(Math.max(options.limit ?? 100, 1), 1000);
   let request = context.db.from("investment_transactions").select("*").eq("household_id", context.householdId);
-  // `.or()` wraps its argument in or(…), so the tree goes in without its own "or(" … ")".
-  if (options.before) request = request.or(transactionsBefore(options.before).slice(3, -1));
+  const orFilter = transactionOrFilter(undefined, options.before);
+  if (orFilter) request = request.or(orFilter);
   if (options.from) request = request.gte("date", options.from);
   if (options.plaidAccountId) request = request.eq("plaid_account_id", options.plaidAccountId);
   const rows = check(await request.order("date", { ascending: false }).order("id", { ascending: false }).range(0, limit - 1), "load investment transactions") || [];

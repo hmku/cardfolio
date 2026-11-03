@@ -345,7 +345,8 @@ export const ALL_SYNC_PRODUCTS: SyncProduct[] = ["transactions", "liabilities", 
 
 export type WebhookAction =
   | { kind: "sync"; products: SyncProduct[] }
-  | { kind: "status"; status: "ok" | "reconnect"; errorCode: string | null }
+  /** A login status change, as the event to hand to nextItemStatus. */
+  | { kind: "status"; event: Extract<ItemStatusEvent, { kind: "repaired" | "error" }> }
   | { kind: "ignore" };
 
 /** What a Plaid webhook asks for: a sync of some products, a login status change, or nothing. */
@@ -364,10 +365,10 @@ export function webhookAction(payload: { webhook_type?: string; webhook_code?: s
       const errorCode = payload.error?.error_code || "ITEM_ERROR";
       // Only a reconnect error changes the status; other errors (an institution outage) must not clear
       // an earlier "reconnect" flag. LOGIN_REPAIRED or a successful sync does that.
-      return RECONNECT_ERRORS.has(errorCode) ? { kind: "status", status: "reconnect", errorCode } : { kind: "ignore" };
+      return RECONNECT_ERRORS.has(errorCode) ? { kind: "status", event: { kind: "error", errorCode } } : { kind: "ignore" };
     }
-    if (code === "PENDING_EXPIRATION" || code === "PENDING_DISCONNECT" || code === "USER_PERMISSION_REVOKED") return { kind: "status", status: "reconnect", errorCode: code };
-    if (code === "LOGIN_REPAIRED") return { kind: "status", status: "ok", errorCode: null };
+    if (code === "PENDING_EXPIRATION" || code === "PENDING_DISCONNECT" || code === "USER_PERMISSION_REVOKED") return { kind: "status", event: { kind: "error", errorCode: code } };
+    if (code === "LOGIN_REPAIRED") return { kind: "status", event: { kind: "repaired" } };
   }
   return { kind: "ignore" };
 }
@@ -568,8 +569,15 @@ export type CashFlowBreakdown = {
   savingsRate: number | null;
   /** Spending per category (null = uncategorized), largest first; categories netting to zero or less (only refunds) are left out. */
   spending: CashFlowShare[];
-  /** Income per category, largest first. */
+  /** Income per category, largest first; categories netting to zero or less are left out. */
   income: CashFlowShare[];
+  /**
+   * Net refunds in the categories left out of `spending` (positive cents, e.g. a return of last
+   * month's purchase), so the spending rows add up to expenseCents + refundCents.
+   */
+  refundCents: number;
+  /** Likewise for income: net reversals in categories left out of `income`; the rows add up to incomeCents + reversalCents. */
+  reversalCents: number;
   /** Spending per merchant (merchant name, else the description), largest first. */
   merchants: MerchantSpend[];
 };
@@ -613,6 +621,7 @@ export function cashFlowBreakdown(transactions: (CashFlowTransaction & { merchan
     }
   }
   const netCents = incomeCents - expenseCents;
+  const leftOut = (totals: Map<number | null, number>) => -[...totals.values()].filter((cents) => cents < 0).reduce((sum, cents) => sum + cents, 0);
   return {
     incomeCents,
     expenseCents,
@@ -620,6 +629,8 @@ export function cashFlowBreakdown(transactions: (CashFlowTransaction & { merchan
     savingsRate: incomeCents > 0 ? netCents / incomeCents : null,
     spending: shares(spending),
     income: shares(income),
+    refundCents: leftOut(spending),
+    reversalCents: leftOut(income),
     merchants: [...merchants.values()].filter((row) => row.cents > 0)
       .sort((left, right) => right.cents - left.cents || left.merchant.localeCompare(right.merchant)).slice(0, merchantLimit)
       .map(({ byCategory, ...row }) => ({ ...row, categoryId: [...byCategory].reduce((best, entry) => (entry[1] > best[1] ? entry : best), [null, -Infinity] as [number | null, number])[0] })),
@@ -679,6 +690,24 @@ export function transactionsBefore(cursor: { date: string; id: number }) {
   return `or(date.lt.${cursor.date},and(date.eq.${cursor.date},id.lt.${cursor.id}))`;
 }
 
+/**
+ * The argument for PostgREST's `.or()` combining a category filter (null = uncategorized) and a
+ * keyset cursor, or null when there's neither. A request takes one `or`, and `.or()` wraps its
+ * argument in or(…): one tree goes in without its own "or(" … ")", two are ANDed inside it.
+ */
+export function transactionOrFilter(categoryIds: readonly (number | null)[] | undefined, before?: { date: string; id: number }): string | null {
+  const trees: string[] = [];
+  if (categoryIds?.length) {
+    const ids = categoryIds.filter((id): id is number => id !== null);
+    if (ids.some((id) => !Number.isInteger(id))) throw new Error("Bad category id");
+    const parts = [...(ids.length ? [`category_id.in.(${ids.join(",")})`] : []), ...(categoryIds.includes(null) ? ["category_id.is.null"] : [])];
+    trees.push(`or(${parts.join(",")})`);
+  }
+  if (before) trees.push(transactionsBefore(before));
+  if (!trees.length) return null;
+  return trees.length === 1 ? trees[0].slice("or(".length, -1) : `and(${trees.join(",")})`;
+}
+
 export type DatePreset = "all" | "this-month" | "last-month" | "90-days" | "this-year" | "custom";
 
 /** The inclusive YYYY-MM-DD range of a date preset on `today` (YYYY-MM-DD); open for "all" and "custom". */
@@ -707,15 +736,22 @@ export type DateRange = { from: string; to: string };
 
 /**
  * A Cash flow period ("12m" = the last 12 months including this one, or a YYYY-MM month) as a date
- * range, the period before it to compare against, and how many months it spans.
+ * range, the period before it to compare against, and how many months it spans. A period still
+ * under way (this month, or 12 months ending today) is `partial`: it's compared with the same
+ * stretch of the period before (Nov 1–3 with Oct 1–3, clamped to that month's length), not all of it.
  */
-export function cashFlowPeriodRanges(period: string, today: string): { range: DateRange; previousRange: DateRange; previousMonth: string | null; months: number } {
+export function cashFlowPeriodRanges(period: string, today: string): { range: DateRange; previousRange: DateRange; previousMonth: string | null; months: number; partial: boolean } {
+  const thisMonth = today.slice(0, 7);
+  const monthEnded = today === monthBounds(thisMonth).to;
   if (period === "12m") {
     const months = recentMonths(today, 24);
-    return { range: { from: `${months[12]}-01`, to: today }, previousRange: { from: `${months[0]}-01`, to: monthBounds(months[11]).to }, previousMonth: null, months: 12 };
+    return { range: { from: `${months[12]}-01`, to: today }, previousRange: { from: `${months[0]}-01`, to: monthsBefore(today, 12) }, previousMonth: null, months: 12, partial: !monthEnded };
   }
   const previousMonth = recentMonths(`${period}-01`, 2)[0];
-  return { range: monthBounds(period), previousRange: monthBounds(previousMonth), previousMonth, months: 1 };
+  const previousRange = monthBounds(previousMonth);
+  const partial = period === thisMonth && !monthEnded;
+  if (partial) previousRange.to = monthsBefore(today, 1);
+  return { range: monthBounds(period), previousRange, previousMonth, months: 1, partial };
 }
 
 /** Relative change (0.1 = up 10%), or null when the earlier value is zero or less (nothing to compare with). */
@@ -794,7 +830,7 @@ export function assignCategoryHues(categories: { id: number; name: string }[]): 
 export type FlowNode = {
   key: string;
   /** income / spending: one category (null = uncategorized); the rest stand for a group or a balance. */
-  role: "income" | "spending" | "other-income" | "other-spending" | "savings" | "deficit";
+  role: "income" | "spending" | "other-income" | "other-spending" | "savings" | "deficit" | "refunds" | "reversals";
   categoryId: number | null;
   cents: number;
   /** For the folded groups: how many categories they hold. */
@@ -804,9 +840,11 @@ export type FlowNode = {
 /**
  * Nodes for an "income → spending" flow diagram: income categories on the left (plus "from savings"
  * when spending beat income), spending categories and what was saved on the right. Both sides add
- * up to the same total, so every left band fans out into the right column without gaps.
+ * up to the same total, so every left band fans out into the right column without gaps. Saved and
+ * "from savings" are the breakdown's net (as on the Net savings tile): refunds in categories that
+ * netted to a refund come in as a "refunds" source, and net income reversals go out as "reversals".
  */
-export function cashFlowFlow(breakdown: Pick<CashFlowBreakdown, "income" | "spending">, options: { incomeNodes?: number; spendingNodes?: number } = {}) {
+export function cashFlowFlow(breakdown: Pick<CashFlowBreakdown, "income" | "spending" | "incomeCents" | "expenseCents" | "refundCents" | "reversalCents">, options: { incomeNodes?: number; spendingNodes?: number } = {}) {
   const node = (role: FlowNode["role"], row: CashFlowShare): FlowNode => ({ key: `${role}:${row.categoryId}`, role, categoryId: row.categoryId, cents: row.cents, count: 1 });
   const income = foldShares(breakdown.income, options.incomeNodes ?? 3);
   const spending = foldShares(breakdown.spending, options.spendingNodes ?? 7);
@@ -814,9 +852,11 @@ export function cashFlowFlow(breakdown: Pick<CashFlowBreakdown, "income" | "spen
   if (income.rest.length) sources.push({ key: "other-income", role: "other-income", categoryId: null, cents: income.restCents, count: income.rest.length });
   const targets = spending.shown.map((row) => node("spending", row));
   if (spending.rest.length) targets.push({ key: "other-spending", role: "other-spending", categoryId: null, cents: spending.restCents, count: spending.rest.length });
-  const incomeCents = breakdown.income.reduce((sum, row) => sum + row.cents, 0);
-  const spendingCents = breakdown.spending.reduce((sum, row) => sum + row.cents, 0);
+  const { incomeCents, expenseCents: spendingCents, refundCents, reversalCents } = breakdown;
+  if (refundCents > 0) sources.push({ key: "refunds", role: "refunds", categoryId: null, cents: refundCents, count: 0 });
+  if (reversalCents > 0) targets.push({ key: "reversals", role: "reversals", categoryId: null, cents: reversalCents, count: 0 });
   if (incomeCents > spendingCents) targets.push({ key: "savings", role: "savings", categoryId: null, cents: incomeCents - spendingCents, count: 0 });
   if (spendingCents > incomeCents) sources.push({ key: "deficit", role: "deficit", categoryId: null, cents: spendingCents - incomeCents, count: 0 });
-  return { sources, targets, totalCents: Math.max(incomeCents, spendingCents), incomeCents, spendingCents };
+  const totalCents = sources.reduce((sum, item) => sum + item.cents, 0);
+  return { sources, targets, totalCents, incomeCents, spendingCents, refundCents, reversalCents };
 }

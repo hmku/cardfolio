@@ -165,7 +165,9 @@ export function CashFlowView({ data, error, onRetry, today, onOpenSettings, onSh
 
   const ranges = useMemo(() => cashFlowPeriodRanges(period, today), [period, today]);
   const comparable = ranges.previousRange.from >= firstLoaded;
-  const vs = yearView ? "vs the 12 months before" : `vs ${monthOf(ranges.previousMonth || month)}`;
+  // A month under way is compared with the same days of the month before ("vs Oct 1–3").
+  const vs = yearView ? "vs the 12 months before"
+    : `vs ${monthOf(ranges.previousMonth || month)}${ranges.partial ? ` 1–${Number(ranges.previousRange.to.slice(8))}` : ""}`;
   const index = months.indexOf(month);
   const chartEnd = yearView ? months.length - 1 : chartWindowEnd(windowEnd ?? months.length - 1, index, CHART_MONTHS, months.length);
   const chartMonths = useMemo(() => months.slice(Math.max(chartEnd - CHART_MONTHS + 1, 0), chartEnd + 1), [months, chartEnd]);
@@ -237,6 +239,8 @@ export function CashFlowView({ data, error, onRetry, today, onOpenSettings, onSh
     if (node.role === "other-income") return { key: node.key, label: `${node.count} more sources`, emoji: "💰", cents: node.cents, color: "var(--cf-income)" };
     if (node.role === "deficit") return { key: node.key, label: "From savings", emoji: "🔻", cents: node.cents, color: "var(--cat-none)" };
     if (node.role === "savings") return { key: node.key, label: "Saved", emoji: "🌱", cents: node.cents, color: "var(--cf-income)" };
+    if (node.role === "refunds") return { key: node.key, label: "Refunds", emoji: "↩️", cents: node.cents, color: "var(--cat-none)" };
+    if (node.role === "reversals") return { key: node.key, label: "Income reversed", emoji: "↩️", cents: node.cents, color: "var(--cat-none)" };
     if (node.role === "other-spending") return { key: node.key, label: `Everything else (${node.count})`, emoji: "🗂️", cents: node.cents, color: "var(--cat-none)" };
     return { key: node.key, label: nameOf(node.categoryId), emoji: emojiOf(node.categoryId), cents: node.cents, color: colorOf(node.categoryId), onOpen: () => openCategory(node.categoryId, "out") };
   };
@@ -295,7 +299,7 @@ export function CashFlowView({ data, error, onRetry, today, onOpenSettings, onSh
       <Card title="Where the money went" sub={periodLabel} wide>
         {flow.totalCents > 0 ? (
           <FlowDiagram sources={flow.sources.map(flowItem)} targets={flow.targets.map(flowItem)} totalCents={flow.totalCents}
-            centerLabel={flow.incomeCents >= flow.spendingCents ? "Income" : "Spending"} percentOf={flow.totalCents}
+            centerLabel={flow.refundCents + flow.reversalCents > 0 ? (flow.incomeCents >= flow.spendingCents ? "Money in" : "Money out") : flow.incomeCents >= flow.spendingCents ? "Income" : "Spending"} percentOf={flow.totalCents}
             centerNote={flow.spendingCents > flow.incomeCents ? `${moneyWhole(flow.spendingCents - flow.incomeCents)} more than came in` : undefined} />
         ) : <CardEmpty icon="🌤️">Nothing came in or went out in {periodLabel}.</CardEmpty>}
       </Card>
@@ -312,19 +316,21 @@ export function CashFlowView({ data, error, onRetry, today, onOpenSettings, onSh
                   <RankedRows max={spending[0].cents} rows={folded.rest.map((row) => categoryRow(row, "out", "var(--cat-none)"))} />
                 </details>
               )}
+              {breakdown.refundCents > 0 && <p className="cf-card-note">Refunds in categories with no other spending (like a return of an earlier purchase) take <span className="num">{moneyWhole(breakdown.refundCents)}</span> off the total.</p>}
             </>
           ) : <CardEmpty icon="🧾">No spending in {periodLabel}.</CardEmpty>}
         </Card>
         <div className="cf-stack">
           <Card title="Income" sub={periodLabel} aside={<b className="num cf-card-total">{moneyWhole(breakdown.incomeCents)}</b>}>
             {income.length ? <RankedRows max={income[0].cents} rows={income.map((row) => categoryRow(row, "in", "var(--cf-income)"))} /> : <CardEmpty icon="💼">No income in {periodLabel}.</CardEmpty>}
+            {breakdown.reversalCents > 0 && <p className="cf-card-note">Reversed income in categories with nothing else coming in takes <span className="num">{moneyWhole(breakdown.reversalCents)}</span> off the total.</p>}
           </Card>
           <Card title="Top merchants" sub={periodLabel}>
             {breakdown.merchants.length ? <RankedRows max={breakdown.merchants[0].cents} rows={breakdown.merchants.map(merchantRow)} /> : <CardEmpty icon="🛍️">No purchases in {periodLabel}.</CardEmpty>}
           </Card>
         </div>
       </div>
-      <p className="hint">Transfers (like card payments) and excluded transactions don&apos;t count. Uncategorized money in counts as income and money out as spending; refunds reduce their category&apos;s spending. Changes compare with {yearView ? "the 12 months before" : "the month before"}. Tap a category or merchant to see its transactions.</p>
+      <p className="hint">Transfers (like card payments) and excluded transactions don&apos;t count. Uncategorized money in counts as income and money out as spending; refunds reduce their category&apos;s spending. Changes compare with {yearView ? "the 12 months before" : "the month before"}{ranges.partial ? ", up to the same day" : ""}. Tap a category or merchant to see its transactions.</p>
     </FinanceSection>
   );
 }

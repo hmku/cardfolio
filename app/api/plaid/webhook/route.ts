@@ -44,10 +44,7 @@ export async function POST(request: Request) {
 
   if (action.kind === "status") {
     // Only LOGIN_REPAIRED clears a reconnect flag; another error doesn't hide one (see nextItemStatus).
-    const next = nextItemStatus(
-      { status: item.status as string | null, errorCode: item.error_code as string | null },
-      payload.webhook_code === "LOGIN_REPAIRED" ? { kind: "repaired" } : { kind: "error", errorCode: action.errorCode || "ITEM_ERROR" },
-    );
+    const next = nextItemStatus({ status: item.status as string | null, errorCode: item.error_code as string | null }, action.event);
     const { error: updateError } = await db.from("plaid_items").update({
       status: next.status,
       error_code: next.errorCode,

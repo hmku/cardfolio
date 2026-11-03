@@ -108,7 +108,7 @@ export function snapshotKey(snapshot: { plaidAccountId: number | null; manualAcc
   return snapshot.plaidAccountId !== null ? `p${snapshot.plaidAccountId}` : `m${snapshot.manualAccountId}`;
 }
 
-export type PeriodChange ={ startDate: string; startCents: number; endCents: number; changeCents: number; percent: number | null };
+export type PeriodChange = { startDate: string; startCents: number; endCents: number; changeCents: number; percent: number | null };
 
 /** Change from the first to the last point of a (sliced) series; null with fewer than one point. */
 export function periodChange(series: SeriesPoint[], endCents = series.at(-1)?.valueCents): PeriodChange | null {

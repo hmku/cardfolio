@@ -1,5 +1,5 @@
 /** One name per bank account, used on every finance page (Transactions, Cash flow, Accounts, Investments, Settings). */
-import { holdingName, type Portfolio } from "../core/model.ts";
+import { holdingName, type Holding, type Portfolio } from "../core/model.ts";
 import type { BankAccount } from "../finance-data.ts";
 
 type LabeledAccount = Pick<BankAccount, "cardAccountId" | "institutionName" | "name" | "mask">;
@@ -12,7 +12,7 @@ type LabeledAccount = Pick<BankAccount, "cardAccountId" | "institutionName" | "n
  */
 export function bankAccountLabel(account: LabeledAccount | undefined, portfolio: Portfolio, options: { full?: boolean } = {}) {
   if (!account) return options.full ? "Unknown account" : "";
-  const mask = account.mask ? ` ··${account.mask}` : "";
+  const mask = account.mask ? ` ${maskText(account.mask)}` : "";
   if (account.cardAccountId !== null) {
     const holding = portfolio.current(account.cardAccountId);
     if (holding) return options.full ? `${holdingName(portfolio, holding, true)}${mask}` : holdingName(portfolio, holding);
@@ -20,6 +20,20 @@ export function bankAccountLabel(account: LabeledAccount | undefined, portfolio:
   const institution = account.institutionName?.trim();
   const withInstitution = options.full && institution && !account.name.toLowerCase().startsWith(institution.toLowerCase());
   return `${withInstitution ? `${institution} ` : ""}${account.name}${mask}`;
+}
+
+/** Last digits as shown everywhere: "··1234" ("" without digits). */
+export function maskText(digits: string | null | undefined) {
+  return digits ? `··${digits}` : "";
+}
+
+/**
+ * A Cardfolio card with its last digits: "biz plat HK7 ··21005", or with `full`
+ * "Amex Business Platinum HK7 ··21005" (pickers, tooltips).
+ */
+export function cardLabel(portfolio: Portfolio, holding: Holding, options: { full?: boolean } = {}) {
+  const mask = maskText(holding.last4);
+  return `${holdingName(portfolio, holding, options.full)}${mask ? ` ${mask}` : ""}`;
 }
 
 const KIND_LABELS: Record<string, string> = {

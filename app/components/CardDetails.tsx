@@ -3,6 +3,7 @@ import { bonusStatus } from "../lib/core/stats";
 import type { CardPlaidSummary } from "../lib/core/card-plaid";
 import { cardStatus, type StatusTag } from "../lib/presentation/card-status";
 import { money } from "../lib/presentation/format";
+import { cardLabel, maskText } from "../lib/presentation/account-labels";
 import { Dot, personTone, Tag } from "./ui";
 
 /**
@@ -14,8 +15,8 @@ export function WhoLabel({ portfolio, holding, withProduct }: { portfolio: Portf
   const name = person?.name || "Unknown";
   return <span className="who">
     <Dot name={name} tone={personTone(person?.sort ?? 0)} />
-    <span title={name} className="who-name">{withProduct ? holdingName(portfolio, holding) : cardTag(portfolio, holding) || name}</span>
-    {holding.last4 && <span className="last4 num">··{holding.last4}</span>}
+    <span title={withProduct ? `${cardLabel(portfolio, holding, { full: true })} · ${name}` : name} className="who-name">{withProduct ? holdingName(portfolio, holding) : cardTag(portfolio, holding) || name}</span>
+    {holding.last4 && <span className="last4 num">{maskText(holding.last4)}</span>}
   </span>;
 }
 

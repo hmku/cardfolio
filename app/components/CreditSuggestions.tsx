@@ -32,6 +32,8 @@ export function CreditSuggestions({ portfolio, suggestions, onAccept, onDismiss,
         {shown.map((suggestion) => {
           const { credit, transaction, holding } = suggestion;
           const partial = suggestion.recordCents < credit.amountCents;
+          // Several rows can share a credit, so the buttons name the card (or, in a drawer, the date).
+          const target = `${credit.name} ${showCard ? `on ${holdingName(portfolio, holding)}` : `from ${shortDate(transaction.date)}`}`;
           return (
             <li key={suggestion.key} className="suggestion">
               <span className="grow">
@@ -43,8 +45,8 @@ export function CreditSuggestions({ portfolio, suggestions, onAccept, onDismiss,
                 </small>
               </span>
               <span className="inline-actions">
-                <button type="button" className="btn small" onClick={() => onDismiss(suggestion)} aria-label={`Dismiss ${credit.name} suggestion`}>Dismiss</button>
-                <button type="button" className="btn small primary" onClick={() => onAccept(suggestion)}>Record</button>
+                <button type="button" className="btn small" onClick={() => onDismiss(suggestion)} aria-label={`Dismiss ${target} suggestion`}>Dismiss</button>
+                <button type="button" className="btn small primary" onClick={() => onAccept(suggestion)} aria-label={`Record ${target}`}>Record</button>
               </span>
             </li>
           );

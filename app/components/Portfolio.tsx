@@ -78,6 +78,10 @@ export function Portfolio({ db, userId, onSignOut }: Props) {
   const [toast, setToast] = useState<ToastMessage | null>(null);
   const reloadTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const syncTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Reloads overlap (focus, live updates, after each write): only the newest one's answer is
+  // applied, and none while a write is in flight, so a slow earlier answer can't undo a change.
+  const reloadSeq = useRef(0);
+  const writesInFlight = useRef(0);
 
   const portfolio = useMemo(() => (raw ? indexPortfolio(raw) : null), [raw]);
   const api = useMemo(() => sessionApi(db), [db]);
@@ -100,11 +104,15 @@ export function Portfolio({ db, userId, onSignOut }: Props) {
   const settingsNotify = useCallback((text: string, error?: boolean) => notify(text, undefined, error), [notify]);
 
   const reload = useCallback(async (householdId: string) => {
+    const mine = ++reloadSeq.current;
+    const current = () => mine === reloadSeq.current && writesInFlight.current === 0;
     try {
-      setRaw(await data.loadPortfolio(db, householdId));
+      const value = await data.loadPortfolio(db, householdId);
+      if (!current()) return;
+      setRaw(value);
       setLoadError("");
     } catch (reason) {
-      setLoadError(errorText(reason, "Couldn't load your cards."));
+      if (current()) setLoadError(errorText(reason, "Couldn't load your cards."));
     }
   }, [db]);
 
@@ -138,8 +146,15 @@ export function Portfolio({ db, userId, onSignOut }: Props) {
       void reload(householdId);
     };
     window.addEventListener("focus", onFocus);
-    return () => { void db.removeChannel(channel); window.removeEventListener("focus", onFocus); };
+    return () => {
+      void db.removeChannel(channel);
+      window.removeEventListener("focus", onFocus);
+      if (reloadTimer.current) clearTimeout(reloadTimer.current);
+      reloadTimer.current = null;
+    };
   }, [db, householdId, reload]);
+
+  useEffect(() => () => { if (syncTimer.current) clearTimeout(syncTimer.current); }, []);
 
   const syncSheet = useCallback(async () => {
     await api("/api/export/google-sheet", { method: "POST", fallback: "Couldn't update the Google Sheet." });
@@ -156,6 +171,8 @@ export function Portfolio({ db, userId, onSignOut }: Props) {
    */
   const write = useCallback(async (action: (context: data.Context) => Promise<unknown>, options: { optimistic?: (value: PortfolioData) => PortfolioData; success?: string; undo?: () => void; rethrow?: boolean } = {}): Promise<boolean> => {
     if (!context) return false;
+    writesInFlight.current++;
+    reloadSeq.current++;
     if (options.optimistic) setRaw((value) => (value ? options.optimistic!(value) : value));
     try {
       await action(context);
@@ -168,6 +185,7 @@ export function Portfolio({ db, userId, onSignOut }: Props) {
       notify(message, undefined, true);
       return false;
     } finally {
+      writesInFlight.current--;
       await reload(context.householdId);
     }
   }, [context, notify, reload, scheduleSync]);

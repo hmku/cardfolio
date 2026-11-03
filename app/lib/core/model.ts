@@ -26,6 +26,16 @@ export function shortName(product: Pick<Product, "slug" | "shortName"> | undefin
   return product?.shortName?.trim() || product?.slug || "unknown card";
 }
 
+/**
+ * A short name for a new card type when none is typed: the words' initials in lower case
+ * ("Chase Sapphire Reserve" -> "csr"), or the single word itself ("Freedom" -> "freedom").
+ */
+export function suggestShortName(name: string) {
+  const words = name.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [];
+  if (words.length < 2) return words[0] ?? "";
+  return words.map((word) => (/^\d+$/.test(word) ? word : word[0])).join("");
+}
+
 export type Bonus = { amount: number; unit: BonusUnit; spendCents: number | null; months: number };
 
 /** One credit line: opened once, closed at most once. */

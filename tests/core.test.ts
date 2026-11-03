@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import { creditPeriod, creditState, creditSummary, eligibleHoldings } from "../app/lib/core/credits.ts";
 import { addMonths, isoDate, parseDate } from "../app/lib/core/dates.ts";
-import { bonusLabel, holdingName, indexPortfolio, nextHoldingNumber, type Portfolio } from "../app/lib/core/model.ts";
+import { bonusLabel, holdingName, indexPortfolio, nextHoldingNumber, suggestShortName, type Portfolio } from "../app/lib/core/model.ts";
 import {
   cashFlowByMonth, categorize, defaultCategoryFor, matchRule, monthsBefore, netWorthCents, planTransactionWrites,
   plaidAmountToCents, snapshotRows, webhookAction, type CategoryLike, type PlaidTransaction, type RuleLike,
@@ -16,7 +16,7 @@ import {
 import { cardNameScore, matchPlaidAccounts } from "../app/lib/core/plaid.ts";
 import { verifyPlaidWebhook } from "../db/plaid-webhook.ts";
 import { assignCategoryHues, cashFlowBreakdown, cashFlowFlow, cashFlowPeriodRanges, datePresetRange, defaultCashFlowPeriod, fillMonths, foldShares, monthBounds, preferredCategoryHue, recentMonths, relativeChange, withPreviousShares } from "../app/lib/core/finance.ts";
-import { bankAccountLabel } from "../app/lib/presentation/account-labels.ts";
+import { bankAccountLabel, cardLabel } from "../app/lib/presentation/account-labels.ts";
 import { DEFAULT_TRANSACTION_FILTERS, filtersToQuery, groupByDate } from "../app/lib/presentation/transaction-view.ts";
 import { accountAction } from "../app/lib/core/rules.ts";
 import { parseOffer, planSheetImport, planToPortfolioData } from "../app/lib/core/sheet-import.ts";
@@ -473,8 +473,18 @@ test("transaction filters become a query; linked cards show their short name", (
   assert.equal(bankAccountLabel({ ...checking, name: "Chase Total Checking", mask: null }, portfolio, { full: true }), "Chase Total Checking", "no doubled institution");
   assert.equal(bankAccountLabel({ ...checking, cardAccountId: 99999 }, portfolio), "Plaid Checking ··1234", "linked to a missing card");
   assert.equal(bankAccountLabel(undefined, portfolio, { full: true }), "Unknown account");
+  assert.equal(cardLabel(portfolio, { ...current, last4: "21005" }), `${holdingName(portfolio, current)} ··21005`);
+  assert.equal(cardLabel(portfolio, { ...current, last4: null }, { full: true }), holdingName(portfolio, current, true));
 
   assert.deepEqual(groupByDate([{ date: "2026-11-02", id: 1 }, { date: "2026-11-02", id: 2 }, { date: "2026-11-01", id: 3 }]).map((group) => [group.date, group.items.length]), [["2026-11-02", 2], ["2026-11-01", 1]]);
+});
+
+test("new card types get a short name from their initials", () => {
+  assert.equal(suggestShortName("Chase Sapphire Reserve"), "csr");
+  assert.equal(suggestShortName("  Freedom "), "freedom");
+  assert.equal(suggestShortName("Hilton Honors Aspire"), "hha");
+  assert.equal(suggestShortName("Delta SkyMiles 2026 Reserve"), "ds2026r");
+  assert.equal(suggestShortName(""), "");
 });
 
 test("accounts group by type: retirement subtypes, debts and manual kinds", () => {

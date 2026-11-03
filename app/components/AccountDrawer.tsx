@@ -6,7 +6,7 @@ import type { CardPlaidSummary, CreditSuggestion } from "../lib/core/card-plaid"
 import { daysBetween, isoDate } from "../lib/core/dates";
 import { bonusHistoryWarning, bonusProgressText, feePostingText } from "../lib/presentation/card-plaid";
 import { CreditSuggestions } from "./CreditSuggestions";
-import { holdingName, isLast4, LAST4_ERROR, nextHoldingNumber, personCode, shortName, type Account, type BonusUnit, type Holding, type Kind, type OpenedVia, type Portfolio } from "../lib/core/model";
+import { holdingName, isLast4, LAST4_ERROR, nextHoldingNumber, personCode, shortName, suggestShortName, type Account, type BonusUnit, type Holding, type Kind, type OpenedVia, type Portfolio } from "../lib/core/model";
 import { OPENED_VIA_LABELS } from "../lib/presentation/labels";
 import type { AccountDraft, ProductDraft } from "../lib/data";
 import type { CellTarget } from "./CreditCell";
@@ -91,14 +91,23 @@ function NewProductFields({ value, onChange, idPrefix }: { value: ProductDraft; 
   return (
     <div className="fields full inline-form">
       <label className="f full" htmlFor={`${idPrefix}-name`}>New card type name<input id={`${idPrefix}-name`} value={value.name} placeholder="Chase Sapphire Reserve" onChange={(event) => onChange({ ...value, name: event.target.value })} /></label>
+      <label className="f" htmlFor={`${idPrefix}-short`}>Short name
+        <input id={`${idPrefix}-short`} value={value.shortName ?? ""} placeholder={suggestShortName(value.name) || "csr"} aria-describedby={`${idPrefix}-short-hint`} onChange={(event) => onChange({ ...value, shortName: event.target.value })} />
+      </label>
       <label className="f" htmlFor={`${idPrefix}-issuer`}>Issuer<input id={`${idPrefix}-issuer`} value={value.issuer} placeholder="Chase" onChange={(event) => onChange({ ...value, issuer: event.target.value })} /></label>
-      <label className="f" htmlFor={`${idPrefix}-kind`}>Kind
+      <label className="f full" htmlFor={`${idPrefix}-kind`}>Kind
         <select id={`${idPrefix}-kind`} value={value.kind} onChange={(event) => onChange({ ...value, kind: event.target.value as Kind })}>
           <option value="personal">Personal (counts for 5/24)</option><option value="business">Business</option><option value="other">Other</option>
         </select>
       </label>
+      <p className="hint full" id={`${idPrefix}-short-hint`}>The short name shows in lists and reminders with the card number (csr HK1); match 1Password. Leave it blank to use {value.name.trim() ? <>&ldquo;{suggestShortName(value.name)}&rdquo;</> : "the name's initials"}.</p>
     </div>
   );
+}
+
+/** The new card type as saved: a blank short name becomes the name's initials. */
+function withShortName(product: ProductDraft): ProductDraft {
+  return { ...product, shortName: product.shortName?.trim() || suggestShortName(product.name) };
 }
 
 const emptyProduct: ProductDraft = { name: "", issuer: "", kind: "personal", annualFeeCents: 0 };
@@ -156,7 +165,7 @@ export function AccountDrawer(props: Props) {
     const bonus = draft.bonus && draft.bonus.amount > 0 ? draft.bonus : null;
     const creating = productChoice === "new";
     if (creating && !newProduct.name.trim()) { setError("Name the new card type."); return; }
-    void run(() => props.onSave({ ...draft, bonus, productId: creating ? 0 : Number(productChoice), ...patch }, creating ? { ...newProduct, annualFeeCents: draft.annualFeeCents } : null, message));
+    void run(() => props.onSave({ ...draft, bonus, productId: creating ? 0 : Number(productChoice), ...patch }, creating ? withShortName({ ...newProduct, annualFeeCents: draft.annualFeeCents }) : null, message));
   }
 
   function openAction(next: QuickAction) {
@@ -257,7 +266,7 @@ export function AccountDrawer(props: Props) {
                   if (!change.date) { setError("Pick the date of the change."); return; }
                   if (change.productId === "new" && !changeProductDraft.name.trim()) { setError("Name the new card type."); return; }
                   if (change.last4 && !isLast4(change.last4)) { setError(LAST4_ERROR); return; }
-                  void run(async () => { await props.onChangeProduct({ ...change, newProduct: change.productId === "new" ? { ...changeProductDraft, annualFeeCents: change.annualFeeCents } : undefined }); setAction(null); });
+                  void run(async () => { await props.onChangeProduct({ ...change, newProduct: change.productId === "new" ? withShortName({ ...changeProductDraft, annualFeeCents: change.annualFeeCents }) : undefined }); setAction(null); });
                 }}>{busy ? "Saving…" : change.direction === "upgrade" ? "Save upgrade" : "Save downgrade"}</button>
               </div>
             </div>

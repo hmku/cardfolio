@@ -2,8 +2,9 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { errorText, type ApiCall } from "../lib/api";
-import { holdingName, type Portfolio } from "../lib/core/model";
-import { bankAccountKind } from "../lib/presentation/account-labels";
+import type { Portfolio } from "../lib/core/model";
+import { bankAccountKind, bankAccountLabel, cardLabel } from "../lib/presentation/account-labels";
+import { AccountName } from "./FinanceAccounts";
 import { ConfirmButton } from "./ui";
 import { fullDate, syncedAt } from "../lib/presentation/format";
 
@@ -38,6 +39,7 @@ function loadPlaid(): Promise<PlaidGlobal> {
  */
 export function BankSettings({ portfolio, api, notify, onChanged }: { portfolio: Portfolio; api: ApiCall; notify: (text: string, error?: boolean) => void; onChanged?: () => void }) {
   const [data, setData] = useState<Connections | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [busy, setBusy] = useState<number | "bank" | "investments" | "sync" | null>(null);
   // Whose login the next connection is; remembered on this device.
   const [owner, setOwner] = useState<string>(() => {
@@ -48,7 +50,7 @@ export function BankSettings({ portfolio, api, notify, onChanged }: { portfolio:
     try { localStorage.setItem("cardfolio.plaidOwner", value); } catch { /* private mode */ }
   };
 
-  const reload = useCallback(() => api<Connections>("/api/plaid").then(setData), [api]);
+  const reload = useCallback(() => api<Connections>("/api/plaid").then((value) => { setData(value); setLoadError(null); }), [api]);
   /** Reloads this list and tells the cards their bank details changed. */
   const changed = () => {
     onChanged?.();
@@ -56,8 +58,13 @@ export function BankSettings({ portfolio, api, notify, onChanged }: { portfolio:
   };
 
   useEffect(() => {
-    reload().catch((reason) => notify(errorText(reason, "Couldn't load bank connections"), true));
-  }, [reload, notify]);
+    reload().catch((reason) => setLoadError(errorText(reason, "Couldn't load bank connections")));
+  }, [reload]);
+
+  const retry = () => {
+    setLoadError(null);
+    reload().catch((reason) => setLoadError(errorText(reason, "Couldn't load bank connections")));
+  };
 
   /** Opens Plaid Link: a new bank or brokerage login, or update mode for an existing item. */
   async function openLink(item?: BankItem, kind: "bank" | "investments" = "bank") {
@@ -158,25 +165,38 @@ export function BankSettings({ portfolio, api, notify, onChanged }: { portfolio:
     .sort((left, right) => Number(right.account.status === "open") - Number(left.account.status === "open") || right.holding!.startedOn.localeCompare(left.holding!.startedOn))
     .map(({ account, holding }) => ({
       id: account.id,
-      label: `${holdingName(portfolio, holding!, true)}${holding!.last4 ? ` ··${holding!.last4}` : ""}${account.status === "open" ? "" : ` (${account.status})`}`,
+      label: `${cardLabel(portfolio, holding!, { full: true })}${account.status === "open" ? "" : ` (${account.status})`}`,
     }));
+  // Plaid's own name for the account ("Plaid Credit Card ··1234"), so it can be checked against the card picked for it.
+  const plaidName = (account: BankAccount) => bankAccountLabel({ ...account, cardAccountId: null, institutionName: null }, portfolio);
   const linkedElsewhere = (account: BankAccount) => new Set(data?.items.flatMap((item) => item.accounts).filter((row) => row.id !== account.id && row.accountId).map((row) => row.accountId));
 
   return (
     <section className="fieldset settings-section">
       <h3>Bank connections</h3>
-      <p className="hint">
+      {!data && !loadError && <p className="hint">Loading bank connections…</p>}
+      {loadError && !data && (
+        <div className="inline-actions">
+          <p className="hint" role="alert">{loadError}</p>
+          <button type="button" className="btn small" onClick={retry}>Retry</button>
+        </div>
+      )}
+      {data?.configured && <p className="hint">
         Connect each login through Plaid: banks and card issuers with &ldquo;Connect a bank or card&rdquo;, brokerages and retirement accounts with &ldquo;Connect investments&rdquo;. Pick whose login it is first: cards are matched to that person&apos;s Cardfolio cards by card type and last digits. Check each one.
-        {data?.sandbox && <> <strong>Test mode:</strong> Plaid&apos;s fake banks only (user_good / pass_good).</>}
-        {data && !data.sandbox && <> Each new connection uses one of Plaid&apos;s 10 free slots, even after it&apos;s disconnected, so use Reconnect for a login that stops working.</>}
-      </p>
+        {data.sandbox && <> <strong>Test mode:</strong> Plaid&apos;s fake banks only (user_good / pass_good).</>}
+        {!data.sandbox && <> Each new connection uses one of Plaid&apos;s 10 free slots, even after it&apos;s disconnected, so use Reconnect for a login that stops working.</>}
+      </p>}
       {data && !data.configured && <p className="hint">Plaid isn&apos;t set up on the server yet; see the README.</p>}
       {data?.items.map((item) => (
         <div key={item.id} className="settings-list bank-item">
           <div className="settings-row">
             <span className="grow">
               {item.institutionName}
-              <small>{item.addedByEmail ? `Added by ${item.addedByEmail}` : ""}{item.consentExpiresAt ? ` · access ends ${fullDate(new Date(item.consentExpiresAt))}` : ""}{item.lastSyncedAt ? ` · synced ${syncedAt(item.lastSyncedAt)}` : ""}</small>
+              <small>{[
+                item.addedByEmail && `Added by ${item.addedByEmail}`,
+                item.consentExpiresAt && `access ends ${fullDate(new Date(item.consentExpiresAt))}`,
+                item.lastSyncedAt && `synced ${syncedAt(item.lastSyncedAt)}`,
+              ].filter(Boolean).join(" · ")}</small>
             </span>
             <select aria-label={`Whose login is ${item.institutionName}`} value={item.personId ?? ""} disabled={busy !== null} onChange={(event) => void setItemOwner(item, event.target.value)}>
               <option value="">Whose login?</option>
@@ -192,15 +212,15 @@ export function BankSettings({ portfolio, api, notify, onChanged }: { portfolio:
             if (account.type !== "credit") {
               return (
                 <div key={account.id} className="settings-row">
-                  <span className="grow">{account.name}{account.mask && <span className="last4 num"> ··{account.mask}</span>}</span>
+                  <span className="grow"><AccountName label={plaidName(account)} /></span>
                   <span className="tag">{bankAccountKind(account)}</span>
                 </div>
               );
             }
             return (
               <div key={account.id} className="settings-row">
-                <span className="grow">{account.name}{account.mask && <span className="last4 num"> ··{account.mask}</span>}{!account.accountId && <small>Not linked to a card</small>}</span>
-                <select aria-label={`Card for ${account.name}${account.mask ? ` ending ${account.mask}` : ""}`} value={account.accountId ?? ""} onChange={(event) => void link(account, event.target.value)}>
+                <span className="grow"><AccountName label={plaidName(account)} />{!account.accountId && <small>Not linked to a card</small>}</span>
+                <select aria-label={`Card for ${account.name}${account.mask ? ` ending ${account.mask}` : ""}`} value={account.accountId ?? ""} disabled={busy !== null} onChange={(event) => void link(account, event.target.value)}>
                   <option value="">Not linked</option>
                   {cards.map((card) => <option key={card.id} value={card.id} disabled={taken.has(card.id)}>{card.label}</option>)}
                 </select>

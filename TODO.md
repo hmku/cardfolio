@@ -130,12 +130,9 @@ done and move them to **Done** with the date.
         rule) rather than changing the math.
 - [ ] Plaid Phase 3 left: link card payments between accounts (checking → card).
 - [ ] **Card features from Plaid follow-ups** (built 2026-11-02, see README → "What a linked card adds"):
-  - [ ] Once real cards are synced, check the credit matcher against actual Amex descriptions
-        (Transactions tab, search "credit"): fix aliases in `CREDIT_ALIASES`
-        (`app/lib/core/card-plaid.ts`) for anything missed or mis-matched. Guesses: Uber Cash
-        is paid into the Uber app, so it probably never shows on the card (only Uber One does);
-        the airline credit may post under the airline's name (not matched, on purpose: it looks
-        like a ticket refund).
+  - [ ] Recheck the credit matcher once Chase and Sophia's Amex are connected (Transactions tab,
+        search "credit"); Amex Platinum/Business Platinum descriptions were checked 2026-11-03.
+        Chase's CSP "Hotel" and CSR "Travel"/"Dining" credits only match their own name for now.
   - [ ] If an alias list isn't enough, add a per-credit keyword override (a `match_keywords`
         column on `credits` plus a field in Settings → Card types and credits).
   - [ ] Dismissed suggestions are remembered per browser (localStorage), so Sophia still sees
@@ -183,6 +180,11 @@ done and move them to **Done** with the date.
       history.
 
 ## Done
+- 2026-11-03: Credit matcher checked against two years of real Amex postings: "Platinum Hotel
+  Credit" now counts as Fine Hotels, and a bare "Hilton" posting is the Business Platinum Hilton
+  credit (not flagged "could be a refund"). Dell, ChatGPT, Delta Stays, CLEAR, Wireless, Uber One,
+  Resy, lululemon, digital entertainment and airline fee descriptions already matched; airline
+  and hotel refunds still don't. Tests use the real descriptions.
 - 2026-11-03: Code review loop (two rounds over server, data, core, Cards and finance pages; ~120
   confirmed findings fixed). Highlights: hide_investments enforced in every Plaid route, reconnect
   flags survive syncs, a per-login sync lease (`plaid_items.sync_started_at`), the same bank login

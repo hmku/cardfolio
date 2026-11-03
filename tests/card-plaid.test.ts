@@ -68,7 +68,7 @@ const card = (plaidAccountId: number, accountId: number, extra: Partial<LinkedCa
 });
 
 test("credit keywords come from an alias or the credit's own name", () => {
-  assert.deepEqual(creditKeywords({ name: "Uber Cash" }), { phrases: ["uber"], unless: ["uber one"] });
+  assert.deepEqual(creditKeywords({ name: "Uber Cash" }), { phrases: ["uber"], unless: ["uber one"], exact: [] });
   assert.deepEqual(creditKeywords({ name: "Uber One" }).phrases, ["uber one"]);
   assert.deepEqual(creditKeywords({ name: "lululemon credit" }).phrases, ["lululemon"]);
   assert.deepEqual(creditKeywords({ name: "Dell" }).phrases, ["dell"]);
@@ -85,6 +85,20 @@ test("credit keywords come from an alias or the credit's own name", () => {
   assert.equal(score("CLEAR", "CLEARWATER MARINA REFUND"), 0, "whole words only");
   assert.ok(score("Resy", "AMEX DINING CREDIT", "Resy") > 0, "the merchant name counts too");
   assert.equal(score("Dell", "DELTA AIR LINES"), 0);
+
+  // Descriptions Amex actually posts (Harrison's Platinum and Business Platinum, 2024-2026).
+  assert.ok(score("Fine Hotels", "Platinum Hotel Credit") > 0);
+  assert.ok(score("Fine Hotels", "AMEX Fine Hotels andAmexTravel.com") > 0);
+  assert.ok(score("Hilton", "Hilton") > 0);
+  assert.ok(score("Dell", "Dell Statement Credit Benefit") > 0);
+  assert.ok(score("ChatGPT", "ChatGPT Business Credit") > 0);
+  assert.ok(score("Delta Stays", "AMEX DELTA STAYS CREDIT") > 0);
+  assert.ok(score("CLEAR", "AMEX CLEAR PLUS CREDIT") > 0);
+  assert.ok(score("Wireless", "AMEX Wireless Credit") > 0);
+  assert.ok(score("Uber One", "Platinum Uber One Credit", "Uber") > 0);
+  assert.equal(score("Uber Cash", "Platinum Uber One Credit", "Uber"), 0);
+  assert.equal(score("Airline fee", "United Airlines", "United Airlines"), 0, "an airline refund isn't the airline fee credit");
+  assert.equal(score("Fine Hotels", "THE LOREN HOTEL 0688AUSTIN"), 0, "a hotel refund isn't the Fine Hotels credit");
 });
 
 test("payments, purchases and fees are told apart", () => {
@@ -115,6 +129,7 @@ test("credit suggestions match name, current period and amount, once per credit"
     tx(10, "2026-10-10", 9900, "UBER ONE MEMBERSHIP CREDIT"),
     tx(11, "2026-08-03", 15000, "DELL TECHNOLOGIES CREDIT"), // H2 (Jul-Dec)
     tx(11, "2026-10-12", 5000, "SAKS CREDIT"), // not a biz plat credit
+    tx(11, "2026-10-14", 5000, "Hilton"), // how Amex posts the Hilton credit: no "credit" word
     tx(99, "2026-11-01", 10000, "AMEX Resy Credit"), // not a linked card
   ];
   const data: CardPlaidData = { cards: [card(10, 1), card(11, 2)], transactions };
@@ -124,6 +139,7 @@ test("credit suggestions match name, current period and amount, once per credit"
     ["Dell", "2026-08-03", 15000, false],
     ["lululemon", "2026-10-05", 4000, true],
     ["Uber One", "2026-10-10", 9900, false],
+    ["Hilton", "2026-10-14", 5000, false],
     ["Resy", "2026-11-01", 10000, false],
     ["Digital entertainment", "2026-11-01", 2500, false],
     ["Walmart+", "2026-11-01", 1295, false],

@@ -225,14 +225,19 @@ export function latestFeePosting(card: LinkedCard | null, transactions: CardTran
 /**
  * Keywords for credits whose bank description doesn't simply repeat the credit's name. Each
  * entry applies when the credit's name matches `test`: a transaction matches when its merchant
- * or description contains any of `phrases` and none of `unless`.
+ * or description contains any of `phrases` and none of `unless`. `exact` lists whole
+ * descriptions that are the credit itself even without a "credit" word (Amex posts the
+ * Business Platinum Hilton credit as just "Hilton").
  */
-const CREDIT_ALIASES: { test: RegExp; phrases: string[]; unless?: string[] }[] = [
+const CREDIT_ALIASES: { test: RegExp; phrases: string[]; unless?: string[]; exact?: string[] }[] = [
   { test: /uber\s*one/i, phrases: ["uber one"] },
   { test: /uber/i, phrases: ["uber"], unless: ["uber one"] },
   { test: /digital\s+entertainment|entertainment/i, phrases: ["digital entertainment", "entertainment credit"] },
   { test: /airline/i, phrases: ["airline"] },
-  { test: /fine\s+hotels|\bfhr\b|hotel\s+collection/i, phrases: ["fine hotels", "fhr", "hotel collection", "amex travel hotel"] },
+  // Amex posts the Platinum's Fine Hotels credit as "Platinum Hotel Credit" (and older ones as
+  // "AMEX Fine Hotels andAmexTravel.com").
+  { test: /fine\s+hotels|\bfhr\b|hotel\s+collection/i, phrases: ["fine hotels", "fhr", "hotel collection", "amex travel hotel", "hotel credit"] },
+  { test: /hilton/i, phrases: ["hilton"], exact: ["hilton"] },
   { test: /walmart/i, phrases: ["walmart"] },
   { test: /clear/i, phrases: ["clear", "clearme", "clear plus"] },
   { test: /global\s+entry|tsa|precheck/i, phrases: ["global entry", "tsa", "precheck", "trusted traveler"] },
@@ -252,11 +257,18 @@ const CREDIT_SIGNALS = ["credit", "amex", "reimbursement", "statement credit", "
  * digital entertainment...), otherwise the credit's own name without generic words
  * ("Dell" → "dell", "lululemon credit" → "lululemon", "Hilton" → "hilton").
  */
-export function creditKeywords(credit: Pick<Credit, "name">): { phrases: string[]; unless: string[] } {
+export function creditKeywords(credit: Pick<Credit, "name">): { phrases: string[]; unless: string[]; exact: string[] } {
   const alias = CREDIT_ALIASES.find((entry) => entry.test.test(credit.name));
-  if (alias) return { phrases: alias.phrases, unless: alias.unless || [] };
+  if (alias) return { phrases: alias.phrases, unless: alias.unless || [], exact: alias.exact || [] };
   const words = normalize(credit.name).trim().split(" ").filter((word) => word && !GENERIC_WORDS.has(word) && !/^\d+$/.test(word));
-  return { phrases: words.length ? [words.join(" ")] : [], unless: [] };
+  return { phrases: words.length ? [words.join(" ")] : [], unless: [], exact: [] };
+}
+
+/** Whether a matching posting reads as a statement credit (not possibly an ordinary refund). */
+function looksLikeCredit(credit: Pick<Credit, "name">, transaction: Pick<CardTransaction, "name" | "merchantName">) {
+  const text = textOf(transaction);
+  return CREDIT_SIGNALS.some((signal) => hasPhrase(text, signal))
+    || creditKeywords(credit).exact.some((phrase) => normalize(transaction.name) === normalize(phrase));
 }
 
 /** How closely a transaction's text matches a credit: the longest matching phrase, or 0. */
@@ -339,10 +351,9 @@ export function creditSuggestions(portfolio: Portfolio, data: CardPlaidData, tod
     if (usedCents >= credit.amountCents) continue;
     const recordCents = Math.min(credit.amountCents, usedCents + transaction.amountCents);
     pendingUse.set(useKey, recordCents);
-    const text = textOf(transaction);
     suggestions.push({
       key: suggestionKey(transaction.id, credit.id), transaction, credit, holding, period: state.period, recordCents,
-      maybeRefund: !CREDIT_SIGNALS.some((signal) => hasPhrase(text, signal)),
+      maybeRefund: !looksLikeCredit(credit, transaction),
     });
   }
   return suggestions;

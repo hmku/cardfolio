@@ -50,8 +50,6 @@ export type LinkedCard = {
 
 export type CardPlaidData = { cards: LinkedCard[]; transactions: CardTransaction[] };
 
-export const EMPTY_CARD_PLAID: CardPlaidData = { cards: [], transactions: [] };
-
 const normalize = (value: string) => ` ${value.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim()} `;
 const textOf = (transaction: Pick<CardTransaction, "name" | "merchantName">) => normalize(`${transaction.merchantName || ""} ${transaction.name}`);
 /** Whole-word (or whole-phrase) match on normalized text. */

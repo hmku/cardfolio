@@ -2,7 +2,7 @@
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { CashFlowMonth } from "../lib/core/finance";
-import { moneyCompact, moneyWhole, percent } from "../lib/presentation/finance-format";
+import { moneyWhole, niceStep, percent, tickLabels } from "../lib/presentation/finance-format";
 import { monthYear } from "../lib/presentation/format";
 
 /**
@@ -26,13 +26,6 @@ function useWidth<T extends HTMLElement>() {
     return () => observer.disconnect();
   }, []);
   return [ref, width] as const;
-}
-
-/** A step of 1, 2, 2.5 or 5 × a power of ten, at least `rough`. */
-function niceStep(rough: number) {
-  if (rough <= 0) return 1;
-  const power = 10 ** Math.floor(Math.log10(rough));
-  return [1, 2, 2.5, 5, 10].map((factor) => factor * power).find((step) => step >= rough) ?? rough;
 }
 
 /** A bar from the baseline y0 to y1 with a 4px rounded data end and a square foot. */
@@ -66,6 +59,7 @@ export function MonthChart({ months, selected, onSelect }: { months: CashFlowMon
   const bottom = Math.ceil(low / step) * step;
   const ticks: number[] = [];
   for (let tick = -bottom; tick <= top + step / 2; tick += step) ticks.push(tick);
+  const tickText = tickLabels(ticks);
   const y = (cents: number) => pad.top + ((top - cents) / (top + bottom)) * plotHeight;
   const band = plotWidth / Math.max(months.length, 1);
   const center = (index: number) => pad.left + band * (index + 0.5);
@@ -100,10 +94,10 @@ export function MonthChart({ months, selected, onSelect }: { months: CashFlowMon
             {active !== null && months[active].month !== selected && (
               <rect className="cf-band" x={center(active) - band / 2 + 1} y={pad.top - 6} width={band - 2} height={plotHeight + 12 + pad.bottom - 4} rx={8} />
             )}
-            {ticks.map((tick) => (
+            {ticks.map((tick, tickIndex) => (
               <g key={tick}>
                 <line className={`fchart-grid${tick === 0 ? " cf-zero" : ""}`} x1={pad.left} x2={width - pad.right} y1={Math.round(y(tick)) + 0.5} y2={Math.round(y(tick)) + 0.5} />
-                <text className="fchart-tick" x={pad.left - 8} y={y(tick)} dy="0.32em" textAnchor="end">{moneyCompact(tick)}</text>
+                <text className="fchart-tick" x={pad.left - 8} y={y(tick)} dy="0.32em" textAnchor="end">{tickText[tickIndex]}</text>
               </g>
             ))}
             {months.map((month, index) => {

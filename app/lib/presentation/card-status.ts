@@ -1,4 +1,4 @@
-import { anniversaryIn, daysBetween, parseDate } from "../core/dates.ts";
+import { daysBetween, lastAnniversary, parseDate } from "../core/dates.ts";
 import { bonusLabel, holdingName, type Account, type Holding, type Portfolio } from "../core/model.ts";
 import { accountAction } from "../core/rules.ts";
 import { bonusStatus, feeStatus } from "../core/stats.ts";
@@ -35,9 +35,9 @@ export function cardStatus(portfolio: Portfolio, account: Account, holding: Hold
   if (rule) {
     tones.push("alert");
     const approved = parseDate(account.approvedOn);
-    const last = approved ? anniversaryIn(approved, today.getFullYear()) : null;
+    const last = approved ? lastAnniversary(approved, today) : null;
     // The app knows the approval anniversary, not when the fee posts on a statement.
-    const timing = fee && last && last.getTime() <= today.getTime() && fee.daysLeft > 180
+    const timing = fee && last && fee.daysLeft > 180
       ? `renewed ${shortDate(last)}` : fee ? `renews ${inDays(fee.daysLeft)}` : "";
     tags.push({ key: "rule", tone: "alert", title: rule.name,
       text: rule.actionCode === "CLOSE" && fee ? `Keep or close? ${plaid?.fee ? feePostingText(plaid.fee) : `${money(fee.feeCents)} fee, ${timing}`}` : rule.name });

@@ -418,7 +418,7 @@ export function mergeSyncedProducts(previous: readonly string[] | null | undefin
  * Logins hidden from a member with hideInvestments: those with investment accounts and no
  * other account. A login with no accounts at all, or a mixed one, stays visible (its
  * investment accounts are hidden one by one). Empty when hideInvestments is off. The
- * plaid_item_status view (migration 20261103000101_server_hide_investment_items) applies the
+ * plaid_item_status view (migration 20261103000102_server_hide_investment_items) applies the
  * same rule in SQL; change both together.
  */
 export function hiddenLoginIds<Id>(accounts: readonly { item_id: Id; type: string | null }[], hideInvestments: boolean) {
